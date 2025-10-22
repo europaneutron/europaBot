@@ -1,0 +1,32 @@
+name: Mirror to europaneutron/europaBot
+
+on:
+  push:
+    branches:
+      - main  # Solo ejecutar cuando se actualice main
+
+jobs:
+  mirror:
+    # Solo ejecutar si es el repo fuente
+    if: github.repository == 'leo-neutrondigital/europaBot'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source repo (leo-neutrondigital/europaBot)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.MIRROR_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H github.com >> ~/.ssh/known_hosts
+
+      - name: Mirror repository
+        run: |
+          git config --global user.name 'Europa Mirror Bot'
+          git config --global user.email 'bot@europabot.com'
+          
+          git remote add mirror git@github.com:europaneutron/europaBot.git
+          git push mirror main --force
