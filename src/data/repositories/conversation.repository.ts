@@ -154,18 +154,33 @@ export class ConversationRepository {
 
   /**
    * Obtener múltiples respuestas para un intent (en orden de prioridad)
+   * Soporta respuestas simples (string) y fragmentadas (JSON)
    */
-  async getBotResponses(intentName: string): Promise<string[]> {
+  async getBotResponses(intentName: string): Promise<import('@/types/message-fragments.types').BotResponse[]> {
     const { data, error } = await supabaseServer
       .from('bot_responses')
-      .select('message_text, order_priority')
+      .select('message_text, response_type, order_priority')
       .eq('intent_name', intentName)
       .eq('is_active', true)
-      .order('order_priority', { ascending: true });
+      .order('order_priority', { ascending: true});
 
     if (error || !data) return [];
 
-    return data.map(r => r.message_text);
+    return data.map(row => {
+      // Si es fragmentado, message_text ya es un objeto JSONB
+      if (row.response_type === 'fragmented') {
+        return row.message_text as import('@/types/message-fragments.types').FragmentedResponse;
+      }
+      
+      // Si es simple, message_text es un string (JSONB lo mantiene como string)
+      // PostgreSQL convierte strings a JSONB como "string con comillas", hay que extraer
+      if (typeof row.message_text === 'string') {
+        return row.message_text;
+      }
+      
+      // Si PostgreSQL lo devolvió como string JSON, parsearlo
+      return String(row.message_text);
+    });
   }
 }
 
