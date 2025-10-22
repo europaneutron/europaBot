@@ -50,16 +50,48 @@ export default function BotTestingPage() {
 
       const data = await response.json();
 
-      const botMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        direction: 'outgoing',
-        text: data.response || 'Error al procesar mensaje',
-        timestamp: new Date(),
-        intent: data.intent,
-        confidence: data.confidence
-      };
+      // El API ahora devuelve un array de respuestas (responses)
+      if (data.responses && Array.isArray(data.responses)) {
+        // Procesar cada respuesta (puede ser string o fragmentada)
+        const newMessages: Message[] = data.responses.map((resp: any, index: number) => {
+          let text: string;
+          
+          if (typeof resp === 'string') {
+            // Respuesta simple
+            text = resp;
+          } else if (resp.fragments) {
+            // Respuesta fragmentada - convertir a texto para visualización
+            text = resp.fragments
+              .map((f: any) => {
+                if (f.type === 'text') return f.content;
+                return `[${f.type.toUpperCase()}: ${f.url || f.name || 'contenido'}]`;
+              })
+              .join('\n\n');
+          } else {
+            text = 'Error: formato de respuesta desconocido';
+          }
 
-      setMessages(prev => [...prev, botMessage]);
+          return {
+            id: (Date.now() + index + 1).toString(),
+            direction: 'outgoing' as const,
+            text,
+            timestamp: new Date(),
+            intent: data.intent,
+            confidence: data.confidence
+          };
+        });
+
+        setMessages(prev => [...prev, ...newMessages]);
+      } else {
+        // Fallback si no hay respuestas
+        const botMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          direction: 'outgoing',
+          text: 'Error al procesar mensaje',
+          timestamp: new Date()
+        };
+        setMessages(prev => [...prev, botMessage]);
+      }
     } catch (error) {
       console.error('Error:', error);
       const errorMessage: Message = {

@@ -8,9 +8,10 @@ import { userRepository } from '@/data/repositories/user.repository';
 import { conversationRepository } from '@/data/repositories/conversation.repository';
 import { supabaseServer } from '@/services/supabase/server-client';
 import type { CheckpointKey } from '@/data/models/user.model';
+import type { BotResponse } from '@/types/message-fragments.types';
 
 export interface ProcessedResponse {
-  message: string;
+  responses: BotResponse[]; // Cambiado de 'message: string' a 'responses: BotResponse[]'
   shouldSend: boolean;
   wasDetected: boolean;
   isFallback: boolean;
@@ -34,7 +35,7 @@ export class MessageProcessor {
       const isBotActive = await userRepository.isBotActive(user.id);
       if (!isBotActive) {
         return {
-          message: '',
+          responses: [],
           shouldSend: false,
           wasDetected: false,
           isFallback: false
@@ -74,10 +75,10 @@ export class MessageProcessor {
       await userRepository.resetFallbackAttempts(user.id);
 
       // 9. Procesar intención específica
-      const response = await this.handleIntent(user.id, detectionResult.intent.intent_name);
+      const responses = await this.handleIntent(user.id, detectionResult.intent.intent_name);
 
       return {
-        message: response,
+        responses,
         shouldSend: true,
         wasDetected: true,
         isFallback: false
@@ -86,7 +87,7 @@ export class MessageProcessor {
     } catch (error) {
       console.error('Error processing message:', error);
       return {
-        message: 'Disculpa, tuve un problema técnico. ¿Podrías repetir tu pregunta?',
+        responses: ['Disculpa, tuve un problema técnico. ¿Podrías repetir tu pregunta?'],
         shouldSend: true,
         wasDetected: false,
         isFallback: true
@@ -96,8 +97,9 @@ export class MessageProcessor {
 
   /**
    * Manejar intención detectada
+   * Retorna array de BotResponse (pueden ser strings simples o fragmentados)
    */
-  private async handleIntent(userId: string, intentName: string): Promise<string> {
+  private async handleIntent(userId: string, intentName: string): Promise<BotResponse[]> {
     // Verificar si es checkpoint
     const checkpoints: CheckpointKey[] = ['precio', 'ubicacion', 'modelo', 'creditos', 'seguridad', 'brochure'];
     
@@ -110,8 +112,9 @@ export class MessageProcessor {
         const responses = await conversationRepository.getBotResponses(intentName);
         
         if (responses.length > 0) {
-          const mainResponse = responses.join('\n\n');
-          return `Con gusto te la comparto nuevamente 😊\n\n${mainResponse}\n\n¿Hay algo más que te gustaría saber sobre el proyecto?`;
+          // Agregar mensaje amigable al inicio
+          const friendlyMessage = 'Con gusto te la comparto nuevamente 😊';
+          return [friendlyMessage, ...responses];
         }
       }
 
@@ -130,21 +133,21 @@ export class MessageProcessor {
     const responses = await conversationRepository.getBotResponses(intentName);
     
     if (responses.length === 0) {
-      return 'Gracias por tu interés. ¿En qué más puedo ayudarte?';
+      return ['Gracias por tu interés. ¿En qué más puedo ayudarte?'];
     }
-
-    let finalResponse = responses.join('\n\n');
 
     // Verificar si debe ofrecer cita (4+ checkpoints completados)
     const completedCount = await userRepository.countCompletedCheckpoints(userId);
     const progress = await userRepository.getProgress(userId);
 
     if (completedCount >= 4 && !progress?.appointment_offered) {
-      finalResponse += '\n\n📅 Veo que ya tienes buena información del proyecto. ¿Te gustaría agendar una visita para conocerlo personalmente?';
+      // Agregar mensaje de cita al final
+      const appointmentOffer = '📅 Veo que ya tienes buena información del proyecto. ¿Te gustaría agendar una visita para conocerlo personalmente?';
       await userRepository.markAppointmentOffered(userId);
+      return [...responses, appointmentOffer];
     }
 
-    return finalResponse;
+    return responses;
   }
 
   /**
@@ -211,7 +214,7 @@ export class MessageProcessor {
     );
 
     return {
-      message: fallbackMessage,
+      responses: [fallbackMessage], // Fallback siempre es simple text
       shouldSend: true,
       wasDetected: false,
       isFallback: true

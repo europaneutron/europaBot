@@ -26,13 +26,18 @@ export async function POST(request: NextRequest) {
       'Usuario Test'
     );
 
-    console.log(`📤 [TEST] Respuesta: "${result.message.substring(0, 100)}..."`);
+    // Convertir responses a texto para logging
+    const responseText = result.responses
+      .map(r => typeof r === 'string' ? r : `[Fragmentado: ${r.fragments.length} partes]`)
+      .join('\n---\n');
+
+    console.log(`📤 [TEST] Respuesta: "${responseText.substring(0, 100)}..."`);
     console.log(`🎯 [TEST] Intent detectado: ${result.wasDetected ? 'SÍ' : 'NO'}`);
     console.log(`⚠️ [TEST] Es fallback: ${result.isFallback ? 'SÍ' : 'NO'}\n`);
 
     return NextResponse.json({
       success: true,
-      response: result.message,
+      responses: result.responses, // Ahora devuelve array de BotResponse
       wasDetected: result.wasDetected,
       isFallback: result.isFallback,
       intent: result.wasDetected ? 'detected' : null,

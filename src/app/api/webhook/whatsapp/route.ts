@@ -61,17 +61,11 @@ export async function POST(request: NextRequest) {
     // Procesar mensaje con el cerebro del bot
     const response = await messageProcessor.processMessage(from, text, messageId, name);
 
-    // Enviar respuesta si es necesario
-    if (response.shouldSend && response.message) {
-      console.log(`📤 Enviando respuesta: "${response.message.substring(0, 50)}..."`);
+    // Enviar respuesta(s) si es necesario
+    if (response.shouldSend && response.responses && response.responses.length > 0) {
+      const { isFragmentedResponse } = await import('@/types/message-fragments.types');
       
-      const sentMessage = await whatsappSender.sendTextMessage({
-        to: from,
-        message: response.message
-      });
-
-      // Guardar mensaje saliente en BD
-      // Obtener userId desde el phone number
+      // Obtener userId desde el phone number (para guardar en BD)
       const { supabaseServer } = await import('@/services/supabase/server-client');
       const { data: user } = await supabaseServer
         .from('users')
@@ -79,12 +73,50 @@ export async function POST(request: NextRequest) {
         .eq('phone_number', from)
         .single();
 
-      if (user) {
-        await conversationRepository.saveOutgoingMessage(
-          user.id,
-          response.message,
-          response.isFallback
-        );
+      // Enviar cada respuesta (puede ser simple o fragmentada)
+      for (const botResponse of response.responses) {
+        if (typeof botResponse === 'string') {
+          // Respuesta simple: enviar texto
+          console.log(`📤 Enviando texto: "${botResponse.substring(0, 50)}..."`);
+          
+          await whatsappSender.sendTextMessage({
+            to: from,
+            message: botResponse
+          });
+
+          // Guardar en BD
+          if (user) {
+            await conversationRepository.saveOutgoingMessage(
+              user.id,
+              botResponse,
+              response.isFallback
+            );
+          }
+
+        } else if (isFragmentedResponse(botResponse)) {
+          // Respuesta fragmentada: enviar múltiples mensajes con delays
+          console.log(`📤 Enviando respuesta fragmentada (${botResponse.fragments.length} fragmentos)`);
+          
+          const messageIds = await whatsappSender.sendFragmentedMessage(
+            from,
+            botResponse.fragments
+          );
+
+          // Guardar cada fragmento en BD
+          if (user) {
+            for (const fragment of botResponse.fragments) {
+              const textContent = fragment.type === 'text' 
+                ? fragment.content 
+                : `[${fragment.type}]`;
+              
+              await conversationRepository.saveOutgoingMessage(
+                user.id,
+                textContent,
+                response.isFallback
+              );
+            }
+          }
+        }
       }
     }
 
