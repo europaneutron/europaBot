@@ -1,0 +1,44 @@
+Te voy compartiendo las preguntas y me dices cuál aplica:
+
+- ¿Cuál es el objetivo principal del chatbot de atención inmediata? (ej. responder FAQs, captar leads, agendar citas, redirigir a un humano).
+
+- ¿Qué información mínima necesitan capturar de cada usuario en este primer filtro (ej. nombre, correo, teléfono, número de pedido)?
+Nómbre, el día, horarios, rango de 8 a 5.30 sacados hasta las 3
+
+- ¿Cuántos mensajes entrantes reciben al mes en promedio (o cuántos esperan)?
+Hasta 10 por dia
+
+- ¿En qué horarios necesitan que el chatbot atienda (24/7 o solo fuera del horario laboral)?
+
+
+- Qué es lo que los clientes preguntan frecuentemente?
+Información general del proyecto, información, PDF, textos, costo ,distribución de la casa, video, ubicación por GPS. Esta información, que mas me ofreces, preguntan por seguridad.
+Tipos de credito que aceptan.
+
+En FB es texto. Dirigirlos a whatsapp
+
+- ¿Cuentan con un Business Manager activo en Meta y tienen acceso administrativo?
+
+- Lotes Precio y ubcación, el tamaño de lote es el mismo. Se puede construir a su gusto.
+
+- ¿Tienen ya un número de WhatsApp Business o hay que habilitar uno nuevo?
+
+
+
+Atencion inmediata
+Precio ubicación
+Información de un solo modelo
+Casas y lotes 
+Ubicación, precio, se califica interes, numero telefónico, brochure, información, agenda de cita.
+Luego derivar a un asesor.
+
+
+Tal ves inteligencia artificial,
+Resolver dudas con información de la empresa.
+Caracteristicas, precio y ubicación, te gustaría ser contactado por un asesor?
+
+Esto pasa a traves de Facebook. 6 o 7 al día.
+
+Le gustaria agendar cita.
+
+Te gustaria que te contactaremos posterior.
