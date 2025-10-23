@@ -245,6 +245,111 @@ export class UserRepository {
 
     return data?.is_active ?? true;
   }
+
+  // ============================================
+  // Métodos para flujo de citas
+  // ============================================
+
+  /**
+   * Guardar estado actual del flujo de cita
+   */
+  async updateAppointmentFlowState(
+    userId: string, 
+    step: 'pending_auto_offer' | 'ask_confirmation' | 'ask_date' | 'ask_time' | 'ask_name' | 'completed'
+  ): Promise<void> {
+    await supabaseServer
+      .from('user_progress')
+      .update({ appointment_flow_state: step })
+      .eq('user_id', userId);
+  }
+
+  /**
+   * Guardar datos temporales del flujo (fecha, horario)
+   */
+  async updateAppointmentFlowData(userId: string, data: any): Promise<void> {
+    // Obtener datos actuales
+    const progress = await this.getProgress(userId);
+    const currentData = progress?.appointment_flow_data || {};
+
+    // Merge con nuevos datos
+    const updatedData = { ...currentData, ...data };
+
+    await supabaseServer
+      .from('user_progress')
+      .update({ appointment_flow_data: updatedData })
+      .eq('user_id', userId);
+  }
+
+  /**
+   * Obtener datos temporales del flujo
+   */
+  async getAppointmentFlowData(userId: string): Promise<any> {
+    const progress = await this.getProgress(userId);
+    return progress?.appointment_flow_data || null;
+  }
+
+  /**
+   * Obtener estado actual del flujo de cita
+   */
+  async getAppointmentFlowState(userId: string): Promise<string | null> {
+    const progress = await this.getProgress(userId);
+    return progress?.appointment_flow_state || null;
+  }
+
+  /**
+   * Limpiar estado y datos del flujo de cita
+   */
+  async clearAppointmentFlow(userId: string): Promise<void> {
+    await supabaseServer
+      .from('user_progress')
+      .update({ 
+        appointment_flow_state: null,
+        appointment_flow_data: null
+      })
+      .eq('user_id', userId);
+  }
+
+  /**
+   * Guardar último intent detectado (para contexto de conversación)
+   */
+  async saveLastIntent(userId: string, intentName: string): Promise<void> {
+    await supabaseServer
+      .from('user_progress')
+      .update({
+        last_intent: intentName,
+        last_intent_at: new Date().toISOString()
+      })
+      .eq('user_id', userId);
+  }
+
+  /**
+   * Obtener último intent detectado con timestamp
+   */
+  async getLastIntent(userId: string): Promise<{ intent: string; timestamp: Date } | null> {
+    const progress = await this.getProgress(userId);
+    
+    if (!progress?.last_intent || !progress?.last_intent_at) {
+      return null;
+    }
+
+    return {
+      intent: progress.last_intent,
+      timestamp: new Date(progress.last_intent_at)
+    };
+  }
+
+  /**
+   * Limpiar último intent (después de ser procesado)
+   */
+  async clearLastIntent(userId: string): Promise<void> {
+    await supabaseServer
+      .from('user_progress')
+      .update({
+        last_intent: null,
+        last_intent_at: null
+      })
+      .eq('user_id', userId);
+  }
 }
 
 // Singleton

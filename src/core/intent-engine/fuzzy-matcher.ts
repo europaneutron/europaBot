@@ -34,16 +34,42 @@ export class FuzzyMatcher {
   /**
    * Reconstruir palabras separadas incorrectamente
    * Ejemplo: "pre cios" → "precios", "ubi cacion" → "ubicacion"
+   * IMPORTANTE: NO juntar palabras comunes del español
    */
   private reconstructBrokenWords(text: string): string {
     let reconstructed = text;
     
-    // Solo juntar palabras muy cortas (1-3 letras) con la siguiente palabra
-    // "pre cios" → "precios", "u bi cacion" → "ubicacion"
-    reconstructed = reconstructed.replace(/\b([a-z]{1,3})\s+([a-z]{1,3})\s+([a-z]{3,})\b/gi, '$1$2$3');
-    reconstructed = reconstructed.replace(/\b([a-z]{1,3})\s+([a-z]{3,})\b/gi, '$1$2');
+    // Lista de palabras comunes cortas que NO deben juntarse
+    const commonWords = new Set([
+      'me', 'te', 'se', 'le', 'la', 'el', 'lo', 'de', 'en', 'un', 'es', 'si', 
+      'no', 'yo', 'tu', 'su', 'mi', 'al', 'da', 'va', 'ya', 'he', 'ha', 've',
+      'dar', 'ver', 'por', 'con', 'sin', 'mas', 'son', 'hay', 'fue', 'era'
+    ]);
     
-    return reconstructed;
+    // Solo juntar si AMBAS palabras son muy cortas (1-2 letras) Y no son palabras comunes
+    // "u bi" → "ubi", "pre cios" → "precios" (porque "u" y "pre" no están en commonWords)
+    const words = reconstructed.split(/\s+/);
+    const result: string[] = [];
+    let i = 0;
+    
+    while (i < words.length) {
+      const current = words[i];
+      const next = words[i + 1];
+      
+      // Solo juntar si:
+      // 1. Palabra actual es muy corta (1-2 letras)
+      // 2. NO es una palabra común
+      // 3. Hay una siguiente palabra
+      if (current.length <= 2 && !commonWords.has(current) && next) {
+        result.push(current + next);
+        i += 2; // Saltar ambas palabras
+      } else {
+        result.push(current);
+        i++;
+      }
+    }
+    
+    return result.join(' ');
   }
 
   /**
@@ -241,6 +267,10 @@ export class FuzzyMatcher {
     const reconstructedMessage = this.reconstructBrokenWords(normalizedMessage);
     
     const words = reconstructedMessage.split(' ').filter(w => w.length > 0);
+    
+    // LOG TEMPORAL: Ver qué está procesando
+    console.log('🔍 Mensaje normalizado:', reconstructedMessage);
+    console.log('🔍 Palabras extraídas:', words);
     
     const allMatches: IntentMatch[] = [];
 

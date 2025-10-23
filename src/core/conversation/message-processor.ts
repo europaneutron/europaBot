@@ -6,6 +6,7 @@
 import { intentDetectionService } from '@/core/intent-engine';
 import { userRepository } from '@/data/repositories/user.repository';
 import { conversationRepository } from '@/data/repositories/conversation.repository';
+import { appointmentManager } from '@/core/appointment/appointment-manager';
 import { supabaseServer } from '@/services/supabase/server-client';
 import type { CheckpointKey } from '@/data/models/user.model';
 import type { BotResponse } from '@/types/message-fragments.types';
@@ -44,6 +45,72 @@ export class MessageProcessor {
 
       // 3. Actualizar última interacción
       await userRepository.updateLastInteraction(user.id);
+
+      // 3.5. Verificar si hay flujo de cita activo
+      const hasAppointmentFlow = await appointmentManager.hasActiveFlow(user.id);
+      if (hasAppointmentFlow) {
+        // Usuario está en medio del flujo de cita, procesar su respuesta
+        const flowResult = await appointmentManager.processFlowStep(user.id, messageText);
+        
+        // Guardar mensaje de respuesta
+        await conversationRepository.saveOutgoingMessage(
+          user.id,
+          flowResult.message,
+          false
+        );
+
+        return {
+          responses: [flowResult.message],
+          shouldSend: true,
+          wasDetected: true,
+          isFallback: false
+        };
+      }
+
+      // 3.6. Verificar si está esperando confirmación de oferta automática
+      const flowState = await userRepository.getAppointmentFlowState(user.id);
+      if (flowState === 'pending_auto_offer') {
+        const normalized = messageText.toLowerCase().trim();
+        
+        // Palabras afirmativas específicas que no interfieren con otros intents
+        const positiveResponses = [
+          'si', 'sí', 'claro', 'ok', 'vale', 'dale', 'yes',
+          'por favor', 'porfavor', 'esta bien', 'está bien',
+          'adelante', 'vamos', 'perfecto', 'excelente',
+          'me interesa', 'quiero', 'acepto'
+        ];
+        
+        const isPositive = positiveResponses.some(phrase => {
+          // Buscar coincidencia exacta o como palabra completa
+          const regex = new RegExp(`\\b${phrase}\\b`, 'i');
+          return regex.test(normalized) || normalized === phrase;
+        });
+
+        if (isPositive) {
+          // Usuario acepta, iniciar flujo de cita
+          await userRepository.updateAppointmentFlowState(user.id, 'ask_date');
+          
+          const message = '¡Perfecto! 📅 ¿Qué día prefieres visitarnos?\n\n' +
+                         'Puedes escribir:\n' +
+                         '• "Hoy"\n' +
+                         '• "Mañana"\n' +
+                         '• Un día de la semana: "Lunes", "Martes"\n' +
+                         '• Una fecha: "25 de octubre"';
+          
+          await conversationRepository.saveOutgoingMessage(user.id, message, false);
+          
+          return {
+            responses: [message],
+            shouldSend: true,
+            wasDetected: true,
+            isFallback: false
+          };
+        } else {
+          // Usuario no acepta o pregunta otra cosa, limpiar estado y continuar normal
+          await userRepository.clearAppointmentFlow(user.id);
+          // Continuar con detección normal de intent (no hacer return)
+        }
+      }
 
       // 4. Detectar intención con fuzzy matching
       await intentDetectionService.loadIntents(supabaseServer);
@@ -100,6 +167,12 @@ export class MessageProcessor {
    * Retorna array de BotResponse (pueden ser strings simples o fragmentados)
    */
   private async handleIntent(userId: string, intentName: string): Promise<BotResponse[]> {
+    // Si es intent "cita", iniciar flujo de agendamiento
+    if (intentName === 'cita') {
+      const flowResult = await appointmentManager.startFlow(userId);
+      return [flowResult.message];
+    }
+
     // Verificar si es checkpoint
     const checkpoints: CheckpointKey[] = ['precio', 'ubicacion', 'modelo', 'creditos', 'seguridad', 'brochure'];
     
@@ -141,9 +214,14 @@ export class MessageProcessor {
     const progress = await userRepository.getProgress(userId);
 
     if (completedCount >= 4 && !progress?.appointment_offered) {
+      // Marcar como ofrecido
+      await userRepository.markAppointmentOffered(userId);
+      
+      // Guardar estado especial: esperando confirmación de oferta automática
+      await userRepository.updateAppointmentFlowState(userId, 'pending_auto_offer');
+      
       // Agregar mensaje de cita al final
       const appointmentOffer = '📅 Veo que ya tienes buena información del proyecto. ¿Te gustaría agendar una visita para conocerlo personalmente?';
-      await userRepository.markAppointmentOffered(userId);
       return [...responses, appointmentOffer];
     }
 

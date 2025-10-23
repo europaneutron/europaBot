@@ -20,7 +20,19 @@ export default function BotTestingPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('+521234567890');
+  const [tempPhoneNumber, setTempPhoneNumber] = useState('+521234567890');
   const [isLoading, setIsLoading] = useState(false);
+
+  const changePhoneNumber = () => {
+    setPhoneNumber(tempPhoneNumber);
+    setMessages([]); // Limpiar mensajes al cambiar de usuario
+  };
+
+  const handlePhoneKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      changePhoneNumber();
+    }
+  };
 
   const sendMessage = async () => {
     if (!inputText.trim()) return;
@@ -132,13 +144,68 @@ export default function BotTestingPage() {
             <label className="block text-sm font-medium mb-2">
               Número de teléfono (simulado):
             </label>
-            <input
-              type="text"
-              value={phoneNumber}
-              onChange={(e) => setPhoneNumber(e.target.value)}
-              className="w-full px-3 py-2 border rounded-lg"
-              placeholder="+521234567890"
-            />
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={tempPhoneNumber}
+                onChange={(e) => setTempPhoneNumber(e.target.value)}
+                onKeyPress={handlePhoneKeyPress}
+                className="flex-1 px-3 py-2 border rounded-lg"
+                placeholder="+521234567890"
+              />
+              <button
+                onClick={changePhoneNumber}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium"
+              >
+                Aplicar
+              </button>
+            </div>
+            {phoneNumber !== tempPhoneNumber && (
+              <p className="text-xs text-orange-600 mt-1">
+                ⚠️ Presiona "Aplicar" o Enter para cambiar el usuario
+              </p>
+            )}
+            <p className="text-xs text-gray-500 mt-1">
+              Usuario actual: <span className="font-mono font-semibold">{phoneNumber}</span>
+            </p>
+            <div className="flex gap-2 mt-2">
+              <button
+                onClick={() => {
+                  setTempPhoneNumber('+521234567890');
+                  setPhoneNumber('+521234567890');
+                  setMessages([]);
+                }}
+                className="text-xs px-2 py-1 bg-gray-100 rounded hover:bg-gray-200"
+              >
+                Usuario 1
+              </button>
+              <button
+                onClick={() => {
+                  setTempPhoneNumber('+529933906926');
+                  setPhoneNumber('+529933906926');
+                  setMessages([]);
+                }}
+                className="text-xs px-2 py-1 bg-gray-100 rounded hover:bg-gray-200"
+              >
+                Usuario 2
+              </button>
+              <button
+                onClick={() => {
+                  setTempPhoneNumber('+525512345678');
+                  setPhoneNumber('+525512345678');
+                  setMessages([]);
+                }}
+                className="text-xs px-2 py-1 bg-gray-100 rounded hover:bg-gray-200"
+              >
+                Usuario 3
+              </button>
+              <button
+                onClick={() => setMessages([])}
+                className="text-xs px-2 py-1 bg-red-100 text-red-700 rounded hover:bg-red-200 ml-auto"
+              >
+                🗑️ Limpiar chat
+              </button>
+            </div>
           </div>
 
           {/* Tests rápidos */}

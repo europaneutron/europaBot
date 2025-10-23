@@ -310,9 +310,9 @@ INSERT INTO intent_configurations (
 ) VALUES (
   'brochure',
   'Brochure e Información',
-  ARRAY['brochure', 'catalogo', 'catálogo', 'información', 'informacion', 'folleto', 'pdf', 'documento'],
-  ARRAY['info', 'detalles', 'ficha', 'prospecto', 'material', 'archivo'],
-  ARRAY['broshure', 'brosure', 'catalgo', 'imformacion', 'foleto'],
+  ARRAY['brochure', 'catalogo', 'catálogo', 'información', 'informacion', 'info', 'folleto', 'pdf', 'documento'],
+  ARRAY['detalles', 'ficha', 'prospecto', 'material', 'archivo'],
+  ARRAY['broshure', 'brosure', 'catalgo', 'imformacion', 'foleto', 'imfo'],
   ARRAY[
     'tienes brochure',
     'tienes catálogo',
@@ -365,7 +365,7 @@ INSERT INTO intent_configurations (
 ) VALUES (
   'saludo',
   'Saludo Inicial',
-  ARRAY['hola', 'buenas', 'buenos', 'saludos', 'hey', 'que', 'qué'],
+  ARRAY['hola', 'buenas', 'buenos', 'saludos', 'hey'],
   ARRAY['buenos dias', 'buenas tardes', 'buenas noches', 'buen dia', 'que tal', 'qué tal'],
   ARRAY['ola', 'benas', 'buens'],
   ARRAY[

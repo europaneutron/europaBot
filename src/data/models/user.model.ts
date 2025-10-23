@@ -47,6 +47,12 @@ export interface UserProgress {
   brochure_completed_at?: Date;
   appointment_offered: boolean;
   appointment_offered_at?: Date;
+  // Campos para flujo de citas
+  appointment_flow_state?: string;
+  appointment_flow_data?: any;
+  // Campos para contexto de conversación
+  last_intent?: string;
+  last_intent_at?: Date;
   created_at: Date;
   updated_at: Date;
 }
