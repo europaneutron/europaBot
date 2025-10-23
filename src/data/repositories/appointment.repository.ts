@@ -87,10 +87,17 @@ export class AppointmentRepository {
   /**
    * Obtener configuración del agente por defecto
    */
-  async getDefaultAgent(): Promise<{ phone: string; name: string; template: string }> {
-    const { data, error } = await supabaseServer
+  async getDefaultAgent(): Promise<{ 
+    phone: string; 
+    name: string; 
+    template: string;
+    business_hours?: string;
+    advisor_phone?: string;
+    advisor_email?: string;
+  }> {
+    const { data, error} = await supabaseServer
       .from('agent_config')
-      .select('default_agent_phone, default_agent_name, notification_template')
+      .select('default_agent_phone, default_agent_name, notification_template, business_hours, advisor_phone, advisor_email')
       .eq('is_active', true)
       .single();
 
@@ -101,14 +108,18 @@ export class AppointmentRepository {
       return {
         phone: '+525512345678',
         name: 'Agente Europa',
-        template: 'Hola {agent_name} 👋\n\n*{visitor_name}* está interesado en una visita al fraccionamiento.\n\n📅 Fecha solicitada: {date}\n🕐 Horario: {time_slot}\n\nPuedes comunicarte con él al: {whatsapp_link}\n\n¡Que tengas un excelente día!'
+        template: 'Hola {agent_name} 👋\n\n*{visitor_name}* está interesado en una visita al fraccionamiento.\n\n📅 Fecha solicitada: {date}\n🕐 Horario: {time_slot}\n\nPuedes comunicarte con él al: {whatsapp_link}\n\n¡Que tengas un excelente día!',
+        business_hours: 'lunes a viernes 9:00 AM - 6:00 PM'
       };
     }
 
     return {
       phone: data.default_agent_phone,
       name: data.default_agent_name,
-      template: data.notification_template
+      template: data.notification_template,
+      business_hours: data.business_hours,
+      advisor_phone: data.advisor_phone,
+      advisor_email: data.advisor_email
     };
   }
 

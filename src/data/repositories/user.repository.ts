@@ -350,6 +350,26 @@ export class UserRepository {
       })
       .eq('user_id', userId);
   }
+
+  /**
+   * Activar/desactivar estado de espera de nombre para derivación a asesor
+   */
+  async updateAwaitingAdvisorName(userId: string, awaiting: boolean): Promise<void> {
+    await supabaseServer
+      .from('user_sessions')
+      .update({ awaiting_advisor_name: awaiting })
+      .eq('user_id', userId);
+  }
+
+  /**
+   * Actualizar nombre del usuario
+   */
+  async updateName(userId: string, name: string): Promise<void> {
+    await supabaseServer
+      .from('users')
+      .update({ name })
+      .eq('id', userId);
+  }
 }
 
 // Singleton

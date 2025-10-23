@@ -26,6 +26,7 @@ export interface UserSession {
   fallback_attempts: number;
   last_fallback_at?: Date;
   conversation_context: any[];
+  awaiting_advisor_name?: boolean; // Para derivación a asesor
   session_started_at: Date;
   updated_at: Date;
 }
