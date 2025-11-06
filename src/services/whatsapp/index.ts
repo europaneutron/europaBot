@@ -4,3 +4,4 @@
 
 export { WhatsAppMessageSender, whatsappSender } from './message-sender';
 export { WebhookValidator, webhookValidator } from './webhook-validator';
+export { advisorNotificationService } from './advisor-notification.service';

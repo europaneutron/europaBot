@@ -352,12 +352,17 @@ export class MessageProcessor {
     await userRepository.updateAwaitingAdvisorName(userId, false);
     await userRepository.resetFallbackAttempts(userId);
     
-    // TODO: Notificar al agente (implementar cuando tengamos whatsappService)
-    console.log('📧 Notificar al agente sobre derivación:', {
-      request_id: advisorRequest.id,
-      user_name: userName,
-      phone: user.phone_number,
-      lead_score: user.lead_score
+    // Notificar al agente
+    const { advisorNotificationService } = await import('@/services/whatsapp');
+    await advisorNotificationService.notifyAdvisorRequest({
+      requestId: advisorRequest.id,
+      userName: userName,
+      userPhone: user.phone_number,
+      leadScore: user.lead_score,
+      leadStatus: user.lead_status,
+      checkpointsCompleted: checkpointsCompleted,
+      fallbackCount: session.fallback_attempts,
+      lastMessage: messageText
     });
     
     // Mensaje de confirmación
