@@ -9,6 +9,12 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
 export async function middleware(req: NextRequest) {
+  // Permitir rutas públicas explícitamente
+  const publicPaths = ['/login', '/test', '/'];
+  if (publicPaths.includes(req.nextUrl.pathname)) {
+    return NextResponse.next();
+  }
+
   let response = NextResponse.next({
     request: {
       headers: req.headers,
@@ -95,14 +101,9 @@ export async function middleware(req: NextRequest) {
 }
 
 // Configurar rutas protegidas
+// Usar patrón que incluya tanto la ruta base como sub-rutas
 export const config = {
   matcher: [
-    '/settings/:path*',
-    '/intents/:path*',
-    '/appointments/:path*',
-    '/conversations/:path*',
-    '/advisor-requests/:path*',
-    '/users/:path*',
-    '/analytics/:path*'
+    '/((?!api|_next/static|_next/image|favicon.ico|login|test).*)',
   ],
 };
