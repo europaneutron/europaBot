@@ -4,14 +4,13 @@
  */
 
 import { intentDetectionService } from '@/core/intent-engine';
+import { fallbackHandler } from '@/core/fallback';
 import { userRepository } from '@/data/repositories/user.repository';
 import { conversationRepository } from '@/data/repositories/conversation.repository';
 import { configRepository } from '@/data/repositories/config.repository';
 import { appointmentManager } from '@/core/appointment/appointment-manager';
-import { appointmentRepository } from '@/data/repositories/appointment.repository';
-import { advisorRepository } from '@/data/repositories/advisor.repository';
 import { supabaseServer } from '@/services/supabase/server-client';
-import type { CheckpointKey, User, UserSession } from '@/data/models/user.model';
+import type { CheckpointKey } from '@/data/models/user.model';
 import type { BotResponse } from '@/types/message-fragments.types';
 
 export interface ProcessedResponse {
@@ -119,7 +118,7 @@ export class MessageProcessor {
       const session = await userRepository.getSession(user.id);
       
       if (session?.awaiting_advisor_name) {
-        return await this.handleAdvisorNameCapture(user.id, user, messageText, session);
+        return await fallbackHandler.captureAdvisorName(user.id, user, messageText, session);
       }
 
       // 4. Detectar intención con fuzzy matching
@@ -136,7 +135,7 @@ export class MessageProcessor {
 
       // 6. Si no se detectó intención → Fallback
       if (!detectionResult.detected || !detectionResult.intent) {
-        return await this.handleFallback(user.id, messageText);
+        return await fallbackHandler.handle(user.id, messageText);
       }
 
       // 7. Guardar log de intención
@@ -242,147 +241,6 @@ export class MessageProcessor {
     }
 
     return responses;
-  }
-
-  /**
-   * Manejar fallback (mensaje no entendido)
-   */
-  private async handleFallback(userId: string, messageText: string): Promise<ProcessedResponse> {
-    const currentAttempts = await userRepository.incrementFallbackAttempts(userId);
-    
-    // Obtener configuración dinámica de fallbacks
-    const maxFallbackAttempts = await configRepository.getInt('max_fallback_attempts', 3);
-    const fallbackDerivationEnabled = await configRepository.getBoolean('fallback_derivation_enabled', true);
-
-    let fallbackMessage: string;
-
-    if (currentAttempts === 1) {
-      // Nivel 1: Pregunta de clarificación
-      fallbackMessage = 
-        '🤔 Disculpa, no estoy seguro de entender.\n\n' +
-        '¿Preguntas sobre:\n' +
-        '• Precios y costos\n' +
-        '• Ubicación del proyecto\n' +
-        '• Modelos de casas\n' +
-        '• Opciones de crédito\n' +
-        '• Seguridad\n' +
-        '• Información general (brochure)\n\n' +
-        'Por favor, repite tu pregunta con otras palabras.';
-    } else if (currentAttempts === 2) {
-      // Nivel 2: Menú más específico
-      fallbackMessage =
-        'Te muestro las opciones principales:\n\n' +
-        '1️⃣ Precio - Costo de lotes y casas\n' +
-        '2️⃣ Ubicación - Dirección y cómo llegar\n' +
-        '3️⃣ Modelos - Tipos de casas disponibles\n' +
-        '4️⃣ Créditos - Financiamiento e Infonavit\n' +
-        '5️⃣ Seguridad - Vigilancia del fraccionamiento\n' +
-        '6️⃣ Brochure - Información completa en PDF\n\n' +
-        'Escribe el número o el nombre del tema que te interesa.';
-    } else if (currentAttempts >= maxFallbackAttempts && fallbackDerivationEnabled) {
-      // Nivel 3+: Derivar a asesor (si está habilitado)
-      fallbackMessage =
-        'Veo que necesitas información más específica.\n\n' +
-        '👨‍💼 Te voy a conectar con uno de nuestros asesores para que te ayude personalmente.\n\n' +
-        '¿Cuál es tu nombre completo?';
-      
-      // Activar estado de espera de nombre (NO desactivar el bot)
-      await userRepository.updateAwaitingAdvisorName(userId, true);
-    } else {
-      // Si la derivación está deshabilitada, seguir con menú
-      fallbackMessage =
-        'Te muestro las opciones principales:\n\n' +
-        '1️⃣ Precio - Costo de lotes y casas\n' +
-        '2️⃣ Ubicación - Dirección y cómo llegar\n' +
-        '3️⃣ Modelos - Tipos de casas disponibles\n' +
-        '4️⃣ Créditos - Financiamiento e Infonavit\n' +
-        '5️⃣ Seguridad - Vigilancia del fraccionamiento\n' +
-        '6️⃣ Brochure - Información completa en PDF\n\n' +
-        'Escribe el número o el nombre del tema que te interesa.';
-    }
-
-    // Guardar mensaje de fallback
-    await conversationRepository.saveOutgoingMessage(
-      userId,
-      fallbackMessage,
-      true,
-      currentAttempts
-    );
-
-    return {
-      responses: [fallbackMessage], // Fallback siempre es simple text
-      shouldSend: true,
-      wasDetected: false,
-      isFallback: true
-    };
-  }
-
-  /**
-   * Manejar captura de nombre para derivación a asesor
-   */
-  private async handleAdvisorNameCapture(
-    userId: string,
-    user: User,
-    messageText: string,
-    session: UserSession
-  ): Promise<ProcessedResponse> {
-    // Capturar nombre del usuario
-    const userName = messageText.trim();
-    
-    // Guardar nombre en users
-    await userRepository.updateName(userId, userName);
-    
-    // Obtener configuración de agente
-    const agentConfig = await appointmentRepository.getDefaultAgent();
-    
-    // Obtener checkpoints completados
-    const checkpointsCompleted = await userRepository.countCompletedCheckpoints(userId);
-    
-    // Crear solicitud de asesor
-    const advisorRequest = await advisorRepository.create({
-      user_id: userId,
-      request_reason: 'fallback_limit',
-      last_user_message: messageText,
-      fallback_count: session.fallback_attempts,
-      lead_score: user.lead_score,
-      checkpoints_completed: checkpointsCompleted
-    });
-    
-    // Resetear estado y fallback
-    await userRepository.updateAwaitingAdvisorName(userId, false);
-    await userRepository.resetFallbackAttempts(userId);
-    
-    // Notificar al agente
-    const { advisorNotificationService } = await import('@/services/whatsapp');
-    await advisorNotificationService.notifyAdvisorRequest({
-      requestId: advisorRequest.id,
-      userName: userName,
-      userPhone: user.phone_number,
-      leadScore: user.lead_score,
-      leadStatus: user.lead_status,
-      checkpointsCompleted: checkpointsCompleted,
-      fallbackCount: session.fallback_attempts,
-      lastMessage: messageText
-    });
-    
-    // Mensaje de confirmación
-    const confirmationMessage = 
-      `Gracias ${userName}. Un asesor se comunicará contigo vía WhatsApp ${agentConfig.business_hours || 'en breve'}.\n\n` +
-      'Mientras tanto, puedo ayudarte con:\n' +
-      '• Precios y modelos disponibles\n' +
-      '• Ubicación y amenidades\n' +
-      '• Opciones de financiamiento\n' +
-      '• Información general (brochure)\n\n' +
-      '¿Hay algo en lo que pueda ayudarte ahora?';
-    
-    await conversationRepository.saveOutgoingMessage(userId, confirmationMessage, false);
-    
-    return {
-      responses: [confirmationMessage],
-      shouldSend: true,
-      wasDetected: true,
-      isFallback: false
-    };
   }
 }
 

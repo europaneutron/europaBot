@@ -1,0 +1,207 @@
+/**
+ * Fallback Handler - Manejo completo del flujo de fallback
+ * 
+ * Responsabilidades:
+ * - Incrementar contador de intentos fallidos
+ * - Determinar nivel de fallback apropiado
+ * - Generar mensajes según nivel
+ * - Manejar derivación a asesor
+ * - Capturar nombre del usuario para derivación
+ */
+
+import { userRepository } from '@/data/repositories/user.repository';
+import { conversationRepository } from '@/data/repositories/conversation.repository';
+import { configRepository } from '@/data/repositories/config.repository';
+import { appointmentRepository } from '@/data/repositories/appointment.repository';
+import { advisorRepository } from '@/data/repositories/advisor.repository';
+import { FallbackLevel } from './fallback-levels.enum';
+import { FALLBACK_MESSAGES } from './fallback-messages';
+import type { User, UserSession } from '@/data/models/user.model';
+import type { ProcessedResponse } from '@/core/conversation/message-processor';
+
+export class FallbackHandler {
+  /**
+   * Manejar fallback (mensaje no entendido)
+   * 
+   * @param userId - ID del usuario
+   * @param messageText - Texto del mensaje no entendido
+   * @returns Respuesta procesada con mensaje de fallback
+   */
+  async handle(userId: string, messageText: string): Promise<ProcessedResponse> {
+    // Incrementar contador de fallback
+    const currentAttempts = await userRepository.incrementFallbackAttempts(userId);
+    
+    // Obtener configuración dinámica
+    const maxFallbackAttempts = await configRepository.getInt('max_fallback_attempts', 3);
+    const fallbackDerivationEnabled = await configRepository.getBoolean('fallback_derivation_enabled', true);
+
+    // Determinar nivel de fallback
+    const level = this.determineLevel(currentAttempts, maxFallbackAttempts);
+    
+    // Generar mensaje según nivel
+    const fallbackMessage = await this.generateMessage(
+      level,
+      userId,
+      fallbackDerivationEnabled
+    );
+
+    // Guardar mensaje de fallback
+    await conversationRepository.saveOutgoingMessage(
+      userId,
+      fallbackMessage,
+      true, // es fallback
+      currentAttempts
+    );
+
+    return {
+      responses: [fallbackMessage],
+      shouldSend: true,
+      wasDetected: false,
+      isFallback: true
+    };
+  }
+
+  /**
+   * Capturar nombre del usuario para derivación a asesor
+   * 
+   * @param userId - ID del usuario
+   * @param user - Datos del usuario
+   * @param messageText - Nombre completo del usuario
+   * @param session - Sesión actual del usuario
+   * @returns Respuesta con confirmación de derivación
+   */
+  async captureAdvisorName(
+    userId: string,
+    user: User,
+    messageText: string,
+    session: UserSession
+  ): Promise<ProcessedResponse> {
+    // Capturar y guardar nombre
+    const userName = messageText.trim();
+    await userRepository.updateName(userId, userName);
+    
+    // Obtener configuración del agente
+    const agentConfig = await appointmentRepository.getDefaultAgent();
+    
+    // Obtener checkpoints completados
+    const checkpointsCompleted = await userRepository.countCompletedCheckpoints(userId);
+    
+    // Crear solicitud de asesor
+    const advisorRequest = await advisorRepository.create({
+      user_id: userId,
+      request_reason: 'fallback_limit',
+      last_user_message: messageText,
+      fallback_count: session.fallback_attempts,
+      lead_score: user.lead_score,
+      checkpoints_completed: checkpointsCompleted
+    });
+    
+    // Resetear estado y contador
+    await userRepository.updateAwaitingAdvisorName(userId, false);
+    await userRepository.resetFallbackAttempts(userId);
+    
+    // Notificar al asesor
+    await this.notifyAdvisor({
+      requestId: advisorRequest.id,
+      userName: userName,
+      userPhone: user.phone_number,
+      leadScore: user.lead_score,
+      leadStatus: user.lead_status,
+      checkpointsCompleted: checkpointsCompleted,
+      fallbackCount: session.fallback_attempts,
+      lastMessage: messageText
+    });
+    
+    // Generar mensaje de confirmación
+    const confirmationMessage = FALLBACK_MESSAGES.CONFIRMATION_TEMPLATE(
+      userName,
+      agentConfig.business_hours || 'en breve'
+    );
+    
+    await conversationRepository.saveOutgoingMessage(userId, confirmationMessage, false);
+    
+    return {
+      responses: [confirmationMessage],
+      shouldSend: true,
+      wasDetected: true,
+      isFallback: false
+    };
+  }
+
+  /**
+   * Determinar nivel de fallback según intentos
+   * 
+   * @private
+   */
+  private determineLevel(currentAttempts: number, maxAttempts: number): FallbackLevel {
+    if (currentAttempts === 1) {
+      return FallbackLevel.LEVEL_1;
+    } else if (currentAttempts === 2) {
+      return FallbackLevel.LEVEL_2;
+    } else if (currentAttempts >= maxAttempts) {
+      return FallbackLevel.LEVEL_3;
+    }
+    
+    // Por defecto, nivel 2 (menú)
+    return FallbackLevel.LEVEL_2;
+  }
+
+  /**
+   * Generar mensaje según nivel de fallback
+   * 
+   * @private
+   */
+  private async generateMessage(
+    level: FallbackLevel,
+    userId: string,
+    derivationEnabled: boolean
+  ): Promise<string> {
+    switch (level) {
+      case FallbackLevel.LEVEL_1:
+        return FALLBACK_MESSAGES.LEVEL_1;
+      
+      case FallbackLevel.LEVEL_2:
+        return FALLBACK_MESSAGES.LEVEL_2;
+      
+      case FallbackLevel.LEVEL_3:
+        if (derivationEnabled) {
+          // Activar estado de espera de nombre
+          await userRepository.updateAwaitingAdvisorName(userId, true);
+          return FALLBACK_MESSAGES.LEVEL_3_DERIVATION;
+        } else {
+          // Si derivación deshabilitada, mostrar menú
+          return FALLBACK_MESSAGES.LEVEL_2;
+        }
+      
+      default:
+        return FALLBACK_MESSAGES.LEVEL_2;
+    }
+  }
+
+  /**
+   * Notificar al asesor sobre derivación
+   * 
+   * @private
+   */
+  private async notifyAdvisor(params: {
+    requestId: string;
+    userName: string;
+    userPhone: string;
+    leadScore: number;
+    leadStatus: string;
+    checkpointsCompleted: number;
+    fallbackCount: number;
+    lastMessage: string;
+  }): Promise<void> {
+    try {
+      const { advisorNotificationService } = await import('@/services/whatsapp');
+      await advisorNotificationService.notifyAdvisorRequest(params);
+    } catch (error) {
+      console.error('Error notifying advisor:', error);
+      // No lanzar error, solo log (no bloquear el flujo del usuario)
+    }
+  }
+}
+
+// Singleton
+export const fallbackHandler = new FallbackHandler();
