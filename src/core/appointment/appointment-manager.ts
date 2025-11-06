@@ -5,6 +5,7 @@
 
 import { appointmentRepository } from '@/data/repositories/appointment.repository';
 import { userRepository } from '@/data/repositories/user.repository';
+import { leadScorer } from '@/core/scoring';
 import { whatsappSender } from '@/services/whatsapp/message-sender';
 import type { AppointmentFlow, TimeSlot, AppointmentFlowData } from '@/types/appointment.types';
 
@@ -179,6 +180,9 @@ export class AppointmentManager {
 
     // Limpiar estado del flujo
     await userRepository.clearAppointmentFlow(userId);
+
+    // Actualizar lead score (cita agendada aumenta puntos significativamente)
+    await leadScorer.afterAppointmentCreated(userId);
 
     // Formatear mensaje de confirmación
     const timeSlotConfig = await this.getTimeSlotDisplay(flowData.time_slot);

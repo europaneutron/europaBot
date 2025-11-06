@@ -5,6 +5,7 @@
 
 import { intentDetectionService } from '@/core/intent-engine';
 import { fallbackHandler } from '@/core/fallback';
+import { leadScorer } from '@/core/scoring';
 import { userRepository } from '@/data/repositories/user.repository';
 import { conversationRepository } from '@/data/repositories/conversation.repository';
 import { configRepository } from '@/data/repositories/config.repository';
@@ -91,6 +92,9 @@ export class MessageProcessor {
         if (isPositive) {
           // Usuario acepta, iniciar flujo de cita
           await userRepository.updateAppointmentFlowState(user.id, 'ask_date');
+          
+          // Actualizar score por responder al auto-offer
+          await leadScorer.afterAutoOfferResponse(user.id);
           
           const message = '¡Perfecto! 📅 ¿Qué día prefieres visitarnos?\n\n' +
                          'Puedes escribir:\n' +
@@ -204,12 +208,8 @@ export class MessageProcessor {
       if (!isCompleted) {
         await userRepository.markCheckpointCompleted(userId, intentName as CheckpointKey);
         
-        // Actualizar lead score SOLO cuando es nuevo
-        const completedCount = await userRepository.countCompletedCheckpoints(userId);
-        // Obtener puntos configurables desde BD
-        const checkpointPoints = await configRepository.getInt('checkpoint_points', 15);
-        const newScore = completedCount * checkpointPoints;
-        await userRepository.updateLeadScore(userId, newScore);
+        // Recalcular lead score automáticamente
+        await leadScorer.afterCheckpointCompleted(userId);
       }
     }
 
