@@ -18,13 +18,6 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Redirigir si ya está autenticado
-  useEffect(() => {
-    if (user) {
-      router.push('/settings');
-    }
-  }, [user, router]);
-
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
@@ -33,22 +26,22 @@ export default function LoginPage() {
     const { success, error: signInError } = await signIn(email, password);
 
     if (success) {
-      // Middleware verificará si es admin al navegar
-      router.push('/settings');
+      // Obtener la URL a donde redirigir
+      const params = new URLSearchParams(window.location.search);
+      const redirectTo = params.get('redirectedFrom') || '/settings';
+      
+      // Esperar un momento para que las cookies se actualicen
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      // Refrescar para que Next.js revalide las cookies del servidor
+      router.refresh();
+      
+      // Navegar a la ruta protegida
+      router.push(redirectTo);
     } else {
       setError(signInError || 'Error al iniciar sesión');
       setLoading(false);
     }
-  }
-
-  if (user) {
-    return (
-      <div className="bg-white rounded-lg shadow-xl p-8">
-        <div className="flex justify-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-        </div>
-      </div>
-    );
   }
 
   return (
