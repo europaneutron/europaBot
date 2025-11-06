@@ -75,7 +75,7 @@ export default function IntentsPage() {
           </p>
         </div>
         <Link
-          href="/dashboard/intents/new"
+          href="/intents/new"
           className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center"
         >
           <span className="mr-2">+</span>
@@ -159,13 +159,13 @@ export default function IntentsPage() {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-2">
                     <Link
-                      href={`/dashboard/intents/${intent.id}`}
+                      href={`/intents/${intent.id}`}
                       className="text-blue-600 hover:text-blue-900"
                     >
                       Editar
                     </Link>
                     <Link
-                      href={`/dashboard/intents/${intent.id}/responses`}
+                      href={`/intents/${intent.id}/responses`}
                       className="text-green-600 hover:text-green-900"
                     >
                       Respuestas

@@ -17,7 +17,7 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {/* Card: Settings */}
         <a
-          href="/dashboard/settings"
+          href="/settings"
           className="block bg-white rounded-lg shadow p-6 hover:shadow-lg transition-shadow"
         >
           <div className="text-4xl mb-4">⚙️</div>
@@ -31,7 +31,7 @@ export default function DashboardPage() {
 
         {/* Card: Intents */}
         <a
-          href="/dashboard/intents"
+          href="/intents"
           className="block bg-white rounded-lg shadow p-6 hover:shadow-lg transition-shadow"
         >
           <div className="text-4xl mb-4">🎯</div>

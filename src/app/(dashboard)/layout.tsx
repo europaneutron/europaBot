@@ -39,13 +39,13 @@ export default function DashboardLayout({
             <div className="flex items-center space-x-6">
               <nav className="flex space-x-4">
                 <a href="/settings" className="text-gray-600 hover:text-gray-900">
-                  Settings
+                  Configuración
                 </a>
                 <a href="/intents" className="text-gray-600 hover:text-gray-900">
-                  Intents
+                  Intenciones
                 </a>
                 <a href="/appointments" className="text-gray-600 hover:text-gray-900">
-                  Appointments
+                  Citas
                 </a>
               </nav>
 

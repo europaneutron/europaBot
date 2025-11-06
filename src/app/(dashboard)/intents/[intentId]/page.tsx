@@ -107,7 +107,7 @@ export default function EditIntentPage({ params }: { params: { intentId: string 
       
       // Redirigir después de 2 segundos
       setTimeout(() => {
-        router.push('/dashboard/intents');
+        router.push('/intents');
       }, 2000);
 
     } catch (error) {
@@ -332,7 +332,7 @@ export default function EditIntentPage({ params }: { params: { intentId: string 
         <div className="flex justify-end space-x-4">
           <button
             type="button"
-            onClick={() => router.push('/dashboard/intents')}
+            onClick={() => router.push('/intents')}
             disabled={saving}
             className="px-6 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 disabled:opacity-50"
           >
