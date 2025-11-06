@@ -96,12 +96,17 @@ export class MessageProcessor {
           // Actualizar score por responder al auto-offer
           await leadScorer.afterAutoOfferResponse(user.id);
           
-          const message = '¡Perfecto! 📅 ¿Qué día prefieres visitarnos?\n\n' +
-                         'Puedes escribir:\n' +
-                         '• "Hoy"\n' +
-                         '• "Mañana"\n' +
-                         '• Un día de la semana: "Lunes", "Martes"\n' +
-                         '• Una fecha: "25 de octubre"';
+          // Obtener mensajes desde configuración
+          const yesResponse = await configRepository.get(
+            'auto_offer_yes_response',
+            '¡Perfecto! Vamos a agendar tu visita. 📅'
+          );
+          const requestDate = await configRepository.get(
+            'appointment_request_date',
+            '¿Qué día te gustaría visitarnos? Por favor indica una fecha (ejemplo: mañana, viernes, 15 de noviembre)'
+          );
+          
+          const message = `${yesResponse}\n\n${requestDate}`;
           
           await conversationRepository.saveOutgoingMessage(user.id, message, false);
           
@@ -112,9 +117,23 @@ export class MessageProcessor {
             isFallback: false
           };
         } else {
-          // Usuario no acepta o pregunta otra cosa, limpiar estado y continuar normal
+          // Usuario no acepta o pregunta otra cosa
           await userRepository.clearAppointmentFlow(user.id);
-          // Continuar con detección normal de intent (no hacer return)
+          
+          // Obtener mensaje de rechazo desde configuración
+          const noResponse = await configRepository.get(
+            'auto_offer_no_response',
+            'Entendido, cuando estés listo para agendar una visita solo dímelo. ¿Hay algo más en lo que pueda ayudarte?'
+          );
+          
+          await conversationRepository.saveOutgoingMessage(user.id, noResponse, false);
+          
+          return {
+            responses: [noResponse],
+            shouldSend: true,
+            wasDetected: true,
+            isFallback: false
+          };
         }
       }
 
@@ -235,8 +254,12 @@ export class MessageProcessor {
       // Guardar estado especial: esperando confirmación de oferta automática
       await userRepository.updateAppointmentFlowState(userId, 'pending_auto_offer');
       
-      // Agregar mensaje de cita al final
-      const appointmentOffer = '📅 Veo que ya tienes buena información del proyecto. ¿Te gustaría agendar una visita para conocerlo personalmente?';
+      // Obtener mensaje de auto-offer desde configuración
+      const appointmentOffer = await configRepository.get(
+        'auto_offer_message',
+        '¡Veo que estás muy interesado! 🎉 ¿Te gustaría agendar una visita para conocer el fraccionamiento en persona?'
+      );
+      
       return [...responses, appointmentOffer];
     }
 

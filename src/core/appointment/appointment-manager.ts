@@ -5,6 +5,7 @@
 
 import { appointmentRepository } from '@/data/repositories/appointment.repository';
 import { userRepository } from '@/data/repositories/user.repository';
+import { configRepository } from '@/data/repositories/config.repository';
 import { leadScorer } from '@/core/scoring';
 import { whatsappSender } from '@/services/whatsapp/message-sender';
 import type { AppointmentFlow, TimeSlot, AppointmentFlowData } from '@/types/appointment.types';
@@ -17,9 +18,15 @@ export class AppointmentManager {
     // Guardar que iniciamos el flujo
     await userRepository.updateAppointmentFlowState(userId, 'ask_confirmation');
 
+    // Obtener mensaje desde configuración
+    const message = await configRepository.get(
+      'auto_offer_message',
+      '¡Veo que estás muy interesado! 🎉 ¿Te gustaría agendar una visita para conocer el fraccionamiento en persona?'
+    );
+
     return {
       step: 'ask_confirmation',
-      message: '📅 ¿Te gustaría agendar una visita al fraccionamiento Europa?'
+      message
     };
   }
 
@@ -58,21 +65,32 @@ export class AppointmentManager {
     if (positiveResponses.some(r => normalized.includes(r))) {
       await userRepository.updateAppointmentFlowState(userId, 'ask_date');
       
+      // Obtener mensajes desde configuración
+      const yesResponse = await configRepository.get(
+        'auto_offer_yes_response',
+        '¡Perfecto! Vamos a agendar tu visita. 📅'
+      );
+      const requestDate = await configRepository.get(
+        'appointment_request_date',
+        '¿Qué día te gustaría visitarnos? Por favor indica una fecha (ejemplo: mañana, viernes, 15 de noviembre)'
+      );
+      
       return {
         step: 'ask_date',
-        message: '¡Perfecto! 📅 ¿Qué día prefieres visitarnos?\n\n' +
-                 'Puedes escribir:\n' +
-                 '• "Hoy"\n' +
-                 '• "Mañana"\n' +
-                 '• Un día de la semana: "Lunes", "Martes"\n' +
-                 '• Una fecha: "25 de octubre"'
+        message: `${yesResponse}\n\n${requestDate}`
       };
     } else {
       await userRepository.clearAppointmentFlow(userId);
       
+      // Obtener mensaje de rechazo desde configuración
+      const noResponse = await configRepository.get(
+        'auto_offer_no_response',
+        'Entendido, cuando estés listo para agendar una visita solo dímelo. ¿Hay algo más en lo que pueda ayudarte?'
+      );
+      
       return {
         step: 'completed',
-        message: 'Entendido. Cuando quieras agendar una visita, solo dímelo. ¿En qué más puedo ayudarte?'
+        message: noResponse
       };
     }
   }
@@ -84,12 +102,15 @@ export class AppointmentManager {
     const parsedDate = this.parseDate(input);
     
     if (!parsedDate) {
+      // Obtener mensaje de fecha inválida desde configuración
+      const invalidDateMsg = await configRepository.get(
+        'appointment_invalid_date',
+        'Lo siento, esa fecha no es válida o ya pasó. Por favor indica una fecha futura (ejemplo: mañana, lunes, 20 de noviembre)'
+      );
+      
       return {
         step: 'ask_date',
-        message: '🤔 No pude entender esa fecha. Por favor intenta con:\n' +
-                 '• "Hoy" o "Mañana"\n' +
-                 '• "Lunes", "Martes", etc.\n' +
-                 '• "25 de octubre"'
+        message: invalidDateMsg
       };
     }
 
@@ -97,32 +118,34 @@ export class AppointmentManager {
     await userRepository.updateAppointmentFlowData(userId, { requested_date: parsedDate });
     await userRepository.updateAppointmentFlowState(userId, 'ask_time');
 
-    // Obtener horarios configurados
-    const timeSlots = await appointmentRepository.getTimeSlots();
-    const slotsText = timeSlots
-      .map(slot => `${slot.emoji} ${slot.display_name} (${slot.start_time} - ${slot.end_time})`)
-      .join('\n');
+    // Obtener mensaje de solicitud de hora desde configuración
+    const requestTime = await configRepository.get(
+      'appointment_request_time',
+      '¿A qué hora prefieres tu cita? Horarios disponibles:\n\n9:00 AM\n11:00 AM\n1:00 PM\n3:00 PM\n5:00 PM\n\nPor favor elige una de estas opciones.'
+    );
 
     return {
       step: 'ask_time',
-      message: `Excelente. ¿En qué horario te acomoda mejor?\n\n${slotsText}\n\n` +
-               `Escribe: 'mañana', 'mediodía' o 'tarde'`
+      message: requestTime
     };
   }
 
   /**
-   * Procesar horario
+   * Procesar horario (time slot)
    */
   private async processTimeSlot(userId: string, input: string): Promise<AppointmentFlow> {
     const timeSlot = this.parseTimeSlot(input);
     
     if (!timeSlot) {
+      // Obtener mensaje de hora inválida desde configuración
+      const invalidTime = await configRepository.get(
+        'appointment_invalid_time',
+        'Esa hora no está disponible. Por favor elige uno de estos horarios:\n9:00 AM, 11:00 AM, 1:00 PM, 3:00 PM o 5:00 PM'
+      );
+      
       return {
         step: 'ask_time',
-        message: '🤔 No entendí ese horario. Por favor escribe:\n' +
-                 '• "Mañana" (9:00 - 11:00)\n' +
-                 '• "Mediodía" (12:00 - 3:00)\n' +
-                 '• "Tarde" (4:00 - 7:00)'
+        message: invalidTime
       };
     }
 
@@ -184,18 +207,29 @@ export class AppointmentManager {
     // Actualizar lead score (cita agendada aumenta puntos significativamente)
     await leadScorer.afterAppointmentCreated(userId);
 
-    // Formatear mensaje de confirmación
-    const timeSlotConfig = await this.getTimeSlotDisplay(flowData.time_slot);
+    // Formatear mensaje de confirmación con variables
     const dateDisplay = this.formatDate(flowData.requested_date);
+    const timeSlotConfig = await this.getTimeSlotDisplay(flowData.time_slot);
+    const address = await configRepository.get(
+      'appointment_address',
+      'Calle Principal #123, Fraccionamiento Europa, Ciudad'
+    );
+    
+    // Obtener mensaje de confirmación desde configuración
+    let confirmationMsg = await configRepository.get(
+      'appointment_confirmation',
+      '¡Perfecto! Tu cita está agendada para el {fecha} a las {hora}. 📅\n\nTe esperamos en:\n📍 {direccion}\n\n¿Necesitas algo más?'
+    );
+
+    // Reemplazar variables
+    confirmationMsg = confirmationMsg
+      .replace('{fecha}', dateDisplay)
+      .replace('{hora}', timeSlotConfig)
+      .replace('{direccion}', address);
 
     return {
       step: 'completed',
-      message: `¡Listo ${name}! 🎉\n\n` +
-               `Tu visita está agendada para:\n` +
-               `📅 Fecha: ${dateDisplay}\n` +
-               `🕐 Horario: ${timeSlotConfig}\n\n` +
-               `Uno de nuestros asesores te contactará pronto para confirmar.\n\n` +
-               `¿Hay algo más en lo que pueda ayudarte?`,
+      message: confirmationMsg,
       data: appointment
     };
   }

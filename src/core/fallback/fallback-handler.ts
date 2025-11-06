@@ -112,11 +112,21 @@ export class FallbackHandler {
       lastMessage: messageText
     });
     
-    // Generar mensaje de confirmación
-    const confirmationMessage = FALLBACK_MESSAGES.CONFIRMATION_TEMPLATE(
-      userName,
-      agentConfig.business_hours || 'en breve'
+    // Obtener mensaje de confirmación desde configuración
+    const businessHours = await configRepository.get(
+      'business_hours',
+      'lunes a viernes 9:00 AM - 6:00 PM'
     );
+    
+    let confirmationMessage = await configRepository.get(
+      'derivation_name_confirmed',
+      'Gracias {nombre}! Un asesor se pondrá en contacto contigo pronto. En el horario de {horario}.'
+    );
+    
+    // Reemplazar variables
+    confirmationMessage = confirmationMessage
+      .replace('{nombre}', userName)
+      .replace('{horario}', businessHours);
     
     await conversationRepository.saveOutgoingMessage(userId, confirmationMessage, false);
     
@@ -158,23 +168,46 @@ export class FallbackHandler {
   ): Promise<string> {
     switch (level) {
       case FallbackLevel.LEVEL_1:
-        return FALLBACK_MESSAGES.LEVEL_1;
+        return await configRepository.get(
+          'fallback_level_1',
+          'No estoy seguro de entender tu pregunta. ¿Podrías reformularla de otra manera?'
+        );
       
       case FallbackLevel.LEVEL_2:
-        return FALLBACK_MESSAGES.LEVEL_2;
+        return await configRepository.get(
+          'fallback_level_2',
+          'Disculpa, aún no logro comprender. ¿Podrías ser más específico sobre lo que necesitas?'
+        );
       
       case FallbackLevel.LEVEL_3:
         if (derivationEnabled) {
           // Activar estado de espera de nombre
           await userRepository.updateAwaitingAdvisorName(userId, true);
-          return FALLBACK_MESSAGES.LEVEL_3_DERIVATION;
+          
+          // Obtener mensajes desde configuración
+          const derivationIntro = await configRepository.get(
+            'derivation_intro',
+            'Entiendo que necesitas ayuda más específica. Permíteme conectarte con un asesor humano que podrá atenderte mejor. 👤'
+          );
+          const requestName = await configRepository.get(
+            'derivation_request_name',
+            'Antes de conectarte con un asesor, ¿podrías compartirme tu nombre completo?'
+          );
+          
+          return `${derivationIntro}\n\n${requestName}`;
         } else {
-          // Si derivación deshabilitada, mostrar menú
-          return FALLBACK_MESSAGES.LEVEL_2;
+          // Si derivación deshabilitada, regresar a nivel 2
+          return await configRepository.get(
+            'fallback_level_2',
+            'Disculpa, aún no logro comprender. ¿Podrías ser más específico sobre lo que necesitas?'
+          );
         }
       
       default:
-        return FALLBACK_MESSAGES.LEVEL_2;
+        return await configRepository.get(
+          'fallback_level_2',
+          'Disculpa, aún no logro comprender. ¿Podrías ser más específico sobre lo que necesitas?'
+        );
     }
   }
 
