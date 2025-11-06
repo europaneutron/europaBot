@@ -6,6 +6,7 @@
 import { intentDetectionService } from '@/core/intent-engine';
 import { userRepository } from '@/data/repositories/user.repository';
 import { conversationRepository } from '@/data/repositories/conversation.repository';
+import { configRepository } from '@/data/repositories/config.repository';
 import { appointmentManager } from '@/core/appointment/appointment-manager';
 import { appointmentRepository } from '@/data/repositories/appointment.repository';
 import { advisorRepository } from '@/data/repositories/advisor.repository';
@@ -206,7 +207,9 @@ export class MessageProcessor {
         
         // Actualizar lead score SOLO cuando es nuevo
         const completedCount = await userRepository.countCompletedCheckpoints(userId);
-        const newScore = completedCount * 15; // 15 puntos por checkpoint
+        // Obtener puntos configurables desde BD
+        const checkpointPoints = await configRepository.getInt('checkpoint_points', 15);
+        const newScore = completedCount * checkpointPoints;
         await userRepository.updateLeadScore(userId, newScore);
       }
     }
@@ -218,11 +221,15 @@ export class MessageProcessor {
       return ['Gracias por tu interés. ¿En qué más puedo ayudarte?'];
     }
 
-    // Verificar si debe ofrecer cita (4+ checkpoints completados)
+    // Verificar si debe ofrecer cita (configurable desde BD)
     const completedCount = await userRepository.countCompletedCheckpoints(userId);
     const progress = await userRepository.getProgress(userId);
+    
+    // Obtener configuración dinámica
+    const checkpointsRequired = await configRepository.getInt('checkpoints_for_appointment', 4);
+    const autoOfferEnabled = await configRepository.getBoolean('appointment_auto_offer_enabled', true);
 
-    if (completedCount >= 4 && !progress?.appointment_offered) {
+    if (autoOfferEnabled && completedCount >= checkpointsRequired && !progress?.appointment_offered) {
       // Marcar como ofrecido
       await userRepository.markAppointmentOffered(userId);
       
@@ -242,48 +249,56 @@ export class MessageProcessor {
    */
   private async handleFallback(userId: string, messageText: string): Promise<ProcessedResponse> {
     const currentAttempts = await userRepository.incrementFallbackAttempts(userId);
+    
+    // Obtener configuración dinámica de fallbacks
+    const maxFallbackAttempts = await configRepository.getInt('max_fallback_attempts', 3);
+    const fallbackDerivationEnabled = await configRepository.getBoolean('fallback_derivation_enabled', true);
 
     let fallbackMessage: string;
 
-    switch (currentAttempts) {
-      case 1:
-        // Nivel 1: Pregunta de clarificación
-        fallbackMessage = 
-          '🤔 Disculpa, no estoy seguro de entender.\n\n' +
-          '¿Preguntas sobre:\n' +
-          '• Precios y costos\n' +
-          '• Ubicación del proyecto\n' +
-          '• Modelos de casas\n' +
-          '• Opciones de crédito\n' +
-          '• Seguridad\n' +
-          '• Información general (brochure)\n\n' +
-          'Por favor, repite tu pregunta con otras palabras.';
-        break;
-
-      case 2:
-        // Nivel 2: Menú más específico
-        fallbackMessage =
-          'Te muestro las opciones principales:\n\n' +
-          '1️⃣ Precio - Costo de lotes y casas\n' +
-          '2️⃣ Ubicación - Dirección y cómo llegar\n' +
-          '3️⃣ Modelos - Tipos de casas disponibles\n' +
-          '4️⃣ Créditos - Financiamiento e Infonavit\n' +
-          '5️⃣ Seguridad - Vigilancia del fraccionamiento\n' +
-          '6️⃣ Brochure - Información completa en PDF\n\n' +
-          'Escribe el número o el nombre del tema que te interesa.';
-        break;
-
-      case 3:
-      default:
-        // Nivel 3: Pedir nombre para derivar a asesor
-        fallbackMessage =
-          'Veo que necesitas información más específica.\n\n' +
-          '👨‍💼 Te voy a conectar con uno de nuestros asesores para que te ayude personalmente.\n\n' +
-          '¿Cuál es tu nombre completo?';
-        
-        // Activar estado de espera de nombre (NO desactivar el bot)
-        await userRepository.updateAwaitingAdvisorName(userId, true);
-        break;
+    if (currentAttempts === 1) {
+      // Nivel 1: Pregunta de clarificación
+      fallbackMessage = 
+        '🤔 Disculpa, no estoy seguro de entender.\n\n' +
+        '¿Preguntas sobre:\n' +
+        '• Precios y costos\n' +
+        '• Ubicación del proyecto\n' +
+        '• Modelos de casas\n' +
+        '• Opciones de crédito\n' +
+        '• Seguridad\n' +
+        '• Información general (brochure)\n\n' +
+        'Por favor, repite tu pregunta con otras palabras.';
+    } else if (currentAttempts === 2) {
+      // Nivel 2: Menú más específico
+      fallbackMessage =
+        'Te muestro las opciones principales:\n\n' +
+        '1️⃣ Precio - Costo de lotes y casas\n' +
+        '2️⃣ Ubicación - Dirección y cómo llegar\n' +
+        '3️⃣ Modelos - Tipos de casas disponibles\n' +
+        '4️⃣ Créditos - Financiamiento e Infonavit\n' +
+        '5️⃣ Seguridad - Vigilancia del fraccionamiento\n' +
+        '6️⃣ Brochure - Información completa en PDF\n\n' +
+        'Escribe el número o el nombre del tema que te interesa.';
+    } else if (currentAttempts >= maxFallbackAttempts && fallbackDerivationEnabled) {
+      // Nivel 3+: Derivar a asesor (si está habilitado)
+      fallbackMessage =
+        'Veo que necesitas información más específica.\n\n' +
+        '👨‍💼 Te voy a conectar con uno de nuestros asesores para que te ayude personalmente.\n\n' +
+        '¿Cuál es tu nombre completo?';
+      
+      // Activar estado de espera de nombre (NO desactivar el bot)
+      await userRepository.updateAwaitingAdvisorName(userId, true);
+    } else {
+      // Si la derivación está deshabilitada, seguir con menú
+      fallbackMessage =
+        'Te muestro las opciones principales:\n\n' +
+        '1️⃣ Precio - Costo de lotes y casas\n' +
+        '2️⃣ Ubicación - Dirección y cómo llegar\n' +
+        '3️⃣ Modelos - Tipos de casas disponibles\n' +
+        '4️⃣ Créditos - Financiamiento e Infonavit\n' +
+        '5️⃣ Seguridad - Vigilancia del fraccionamiento\n' +
+        '6️⃣ Brochure - Información completa en PDF\n\n' +
+        'Escribe el número o el nombre del tema que te interesa.';
     }
 
     // Guardar mensaje de fallback
