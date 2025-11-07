@@ -18,6 +18,8 @@ export interface Conversation {
   last_message_time: string;
   last_intent: string | null;
   has_appointment: boolean;
+  appointment_date: string | null;
+  checkpoints: string[];
 }
 
 export interface ConversationFilters {
@@ -84,10 +86,11 @@ export function useConversations(filters?: ConversationFilters) {
           // Verificar si tiene cita
           const { data: appointment } = await supabase
             .from('appointments')
-            .select('id')
+            .select('id, scheduled_time')
             .eq('user_id', user.id)
             .eq('status', 'confirmed')
             .gte('scheduled_time', new Date().toISOString())
+            .order('scheduled_time', { ascending: true })
             .limit(1)
             .single();
 
@@ -99,7 +102,8 @@ export function useConversations(filters?: ConversationFilters) {
               intent_matched: lastMessage.detected_intent
             } : null,
             messageCount: messageCount || 0,
-            hasAppointment: !!appointment
+            hasAppointment: !!appointment,
+            appointmentDate: appointment?.scheduled_time || null
           };
         }) || []
       );
@@ -117,6 +121,8 @@ export function useConversations(filters?: ConversationFilters) {
           last_message_time: item.lastMessage?.created_at || item.user.created_at,
           last_intent: item.lastMessage?.intent_matched || null,
           has_appointment: item.hasAppointment,
+          appointment_date: item.appointmentDate,
+          checkpoints: Array.isArray(item.user.checkpoints) ? item.user.checkpoints : [],
         };
       });
 

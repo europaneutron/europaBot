@@ -8,6 +8,9 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useConversations, ConversationFilters } from '@/hooks/use-conversations';
+import { exportToCSV, generateCSVFilename } from '@/lib/utils/export-csv';
+import { Button } from '@/components/ui/button';
+import { Download } from 'lucide-react';
 
 export default function ConversationsPage() {
   const [filters, setFilters] = useState<ConversationFilters>({});
@@ -16,6 +19,42 @@ export default function ConversationsPage() {
   const handleFilterChange = (key: keyof ConversationFilters, value: any) => {
     setFilters((prev) => ({ ...prev, [key]: value }));
   };
+
+  function handleExportCSV() {
+    exportToCSV(
+      conversations,
+      [
+        { key: 'user_name', header: 'Nombre' },
+        { key: 'user_phone', header: 'Teléfono' },
+        { key: 'lead_status', header: 'Lead Status' },
+        { key: 'lead_score', header: 'Score' },
+        {
+          key: 'checkpoints',
+          header: 'Checkpoints',
+          format: (val: any) => (Array.isArray(val) ? val.join('; ') : ''),
+        },
+        { key: 'last_intent', header: 'Última Intención' },
+        {
+          key: 'last_message_time',
+          header: 'Última Interacción',
+          format: (val: any) => new Date(val).toLocaleString('es-MX'),
+        },
+        {
+          key: 'has_appointment',
+          header: 'Tiene Cita',
+          format: (val: any) => (val ? 'Sí' : 'No'),
+        },
+        {
+          key: 'appointment_date',
+          header: 'Fecha Cita',
+          format: (val: any) => (val ? new Date(val).toLocaleString('es-MX') : ''),
+        },
+        { key: 'last_message', header: 'Último Mensaje' },
+        { key: 'message_count', header: 'Total Mensajes' },
+      ],
+      generateCSVFilename('conversaciones')
+    );
+  }
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -116,6 +155,15 @@ export default function ConversationsPage() {
             <h3 className="text-lg font-semibold text-gray-900">
               {conversations.length} conversaciones
             </h3>
+            <Button
+              onClick={handleExportCSV}
+              variant="outline"
+              size="sm"
+              disabled={conversations.length === 0}
+            >
+              <Download className="h-4 w-4 mr-2" />
+              Exportar CSV
+            </Button>
           </div>
         </div>
 
