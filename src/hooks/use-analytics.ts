@@ -285,6 +285,8 @@ export function useUpcomingAppointments(limit: number = 5) {
     try {
       setLoading(true);
 
+      const today = new Date().toISOString().split('T')[0];
+
       const { data: appointments, error } = await supabase
         .from('appointments')
         .select(`
@@ -299,7 +301,7 @@ export function useUpcomingAppointments(limit: number = 5) {
           )
         `)
         .in('status', ['pending', 'confirmed'])
-        .gte('appointment_date', new Date().toISOString().split('T')[0])
+        .gte('appointment_date', today)
         .order('appointment_date', { ascending: true })
         .order('time_slot', { ascending: true })
         .limit(limit);
