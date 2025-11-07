@@ -34,11 +34,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     async function initAuth() {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
+        // getUser() valida con el servidor de Supabase
+        const { data: { user }, error } = await supabase.auth.getUser();
         
         if (!mounted) return;
 
-        setUser(session?.user ?? null);
+        if (error) {
+          console.error('[AuthContext] Error getting user:', error);
+          setUser(null);
+        } else {
+          setUser(user);
+        }
+        
         setLoading(false);
       } catch (error) {
         console.error('[AuthContext] Error initializing:', error);

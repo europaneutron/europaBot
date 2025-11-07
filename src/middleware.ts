@@ -32,13 +32,14 @@ export async function middleware(req: NextRequest) {
     }
   );
 
-  // Verificar sesión
+  // Verificar usuario autenticado (valida con servidor de Supabase)
   const {
-    data: { session },
-  } = await supabase.auth.getSession();
+    data: { user },
+    error: authError
+  } = await supabase.auth.getUser();
 
-  // Si no hay sesión, redirigir a login
-  if (!session) {
+  // Si no hay usuario autenticado, redirigir a login
+  if (authError || !user) {
     const redirectUrl = req.nextUrl.clone();
     redirectUrl.pathname = '/login';
     redirectUrl.searchParams.set('redirectedFrom', req.nextUrl.pathname);
@@ -50,7 +51,7 @@ export async function middleware(req: NextRequest) {
   const { data: adminUser, error } = await supabase
     .from('admin_users')
     .select('id, role, is_active')
-    .eq('id', session.user.id)
+    .eq('id', user.id)
     .eq('is_active', true)
     .single();
 
