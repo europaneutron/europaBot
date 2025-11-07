@@ -72,7 +72,7 @@ export function useAnalytics() {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       const { count: conversationsToday } = await supabase
-        .from('conversation_messages')
+        .from('conversations')
         .select('*', { count: 'exact', head: true })
         .gte('created_at', today.toISOString());
 
@@ -124,7 +124,7 @@ export function useConversationsByDay(days: number = 7) {
       startDate.setHours(0, 0, 0, 0);
 
       const { data: messages, error } = await supabase
-        .from('conversation_messages')
+        .from('conversations')
         .select('created_at')
         .gte('created_at', startDate.toISOString())
         .order('created_at', { ascending: true });
@@ -169,17 +169,17 @@ export function useIntentDistribution() {
       setLoading(true);
 
       const { data: messages, error } = await supabase
-        .from('conversation_messages')
-        .select('intent_matched')
-        .eq('is_from_user', true)
-        .not('intent_matched', 'is', null);
+        .from('conversations')
+        .select('detected_intent')
+        .eq('direction', 'inbound')
+        .not('detected_intent', 'is', null);
 
       if (error) throw error;
 
       // Contar por intención
       const counts: Record<string, number> = {};
       messages?.forEach((msg) => {
-        const intent = msg.intent_matched || 'unknown';
+        const intent = msg.detected_intent || 'unknown';
         counts[intent] = (counts[intent] || 0) + 1;
       });
 
@@ -221,7 +221,7 @@ export function useRecentConversations(limit: number = 10) {
 
       // Obtener últimos mensajes por usuario
       const { data: messages, error } = await supabase
-        .from('conversation_messages')
+        .from('conversations')
         .select(`
           user_id,
           message_text,
@@ -293,7 +293,7 @@ export function useUpcomingAppointments(limit: number = 5) {
           time_slot,
           status,
           user_id,
-          users (
+          users!appointments_user_id_fkey (
             phone_number,
             name
           )
