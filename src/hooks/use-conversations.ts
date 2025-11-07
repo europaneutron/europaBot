@@ -42,25 +42,10 @@ export function useConversations(filters?: ConversationFilters) {
       setLoading(true);
       setError(null);
 
-      // Query base: obtener usuarios con sus últimos mensajes
+      // Query base: obtener usuarios
       let query = supabase
         .from('users')
-        .select(`
-          id,
-          phone_number,
-          name,
-          lead_status,
-          lead_score,
-          conversation_messages (
-            message_text,
-            created_at,
-            intent_matched
-          ),
-          appointments (
-            id,
-            status
-          )
-        `)
+        .select('*')
         .order('updated_at', { ascending: false });
 
       // Aplicar filtros
@@ -78,27 +63,54 @@ export function useConversations(filters?: ConversationFilters) {
 
       if (queryError) throw queryError;
 
-      // Procesar datos
-      const processedConversations: Conversation[] = users?.map((user: any) => {
-        const messages = user.conversation_messages || [];
-        const lastMessage = messages[messages.length - 1];
-        const hasAppointment = user.appointments?.some(
-          (apt: any) => apt.status === 'confirmed' || apt.status === 'pending'
-        ) || false;
+      // Para cada usuario, obtener sus mensajes y citas
+      const conversationsPromises = users?.map(async (user: any) => {
+        // Obtener mensajes del usuario
+        const { data: messages } = await supabase
+          .from('conversation_messages')
+          .select('message_text, created_at, intent_matched')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false })
+          .limit(1);
+
+        // Obtener citas del usuario
+        const { data: appointments } = await supabase
+          .from('appointments')
+          .select('id, status')
+          .eq('user_id', user.id)
+          .in('status', ['confirmed', 'pending']);
+
+        // Contar total de mensajes
+        const { count: messageCount } = await supabase
+          .from('conversation_messages')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', user.id);
 
         return {
-          user_id: user.id,
-          user_phone: user.phone_number,
-          user_name: user.name,
-          lead_status: user.lead_status,
-          lead_score: user.lead_score,
-          message_count: messages.length,
-          last_message: lastMessage?.message_text || 'Sin mensajes',
-          last_message_time: lastMessage?.created_at || user.created_at,
-          last_intent: lastMessage?.intent_matched || null,
-          has_appointment: hasAppointment,
+          user,
+          lastMessage: messages?.[0] || null,
+          messageCount: messageCount || 0,
+          hasAppointment: (appointments?.length || 0) > 0,
         };
       }) || [];
+
+      const conversationsData = await Promise.all(conversationsPromises);
+
+      // Procesar datos
+      const processedConversations: Conversation[] = conversationsData.map((item) => {
+        return {
+          user_id: item.user.id,
+          user_phone: item.user.phone_number,
+          user_name: item.user.name,
+          lead_status: item.user.lead_status,
+          lead_score: item.user.lead_score,
+          message_count: item.messageCount,
+          last_message: item.lastMessage?.message_text || 'Sin mensajes',
+          last_message_time: item.lastMessage?.created_at || item.user.created_at,
+          last_intent: item.lastMessage?.intent_matched || null,
+          has_appointment: item.hasAppointment,
+        };
+      });
 
       // Filtrar por fecha si aplica
       let filtered = processedConversations;
