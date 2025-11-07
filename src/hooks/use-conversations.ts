@@ -64,40 +64,48 @@ export function useConversations(filters?: ConversationFilters) {
       if (queryError) throw queryError;
 
       // Para cada usuario, obtener sus mensajes y citas
-      const conversationsPromises = users?.map(async (user: any) => {
-        // Obtener mensajes del usuario
-        const { data: messages } = await supabase
-          .from('conversation_messages')
-          .select('message_text, created_at, intent_matched')
-          .eq('user_id', user.id)
-          .order('created_at', { ascending: false })
-          .limit(1);
+      const conversationsWithMessages = await Promise.all(
+        users?.map(async (user: any) => {
+          // Obtener último mensaje
+          const { data: lastMessage } = await supabase
+            .from('conversations')
+            .select('message_text, created_at, detected_intent')
+            .eq('user_id', user.id)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .single();
 
-        // Obtener citas del usuario
-        const { data: appointments } = await supabase
-          .from('appointments')
-          .select('id, status')
-          .eq('user_id', user.id)
-          .in('status', ['confirmed', 'pending']);
+          // Contar mensajes totales
+          const { count: messageCount } = await supabase
+            .from('conversations')
+            .select('*', { count: 'exact', head: true })
+            .eq('user_id', user.id);
 
-        // Contar total de mensajes
-        const { count: messageCount } = await supabase
-          .from('conversation_messages')
-          .select('*', { count: 'exact', head: true })
-          .eq('user_id', user.id);
+          // Verificar si tiene cita
+          const { data: appointment } = await supabase
+            .from('appointments')
+            .select('id')
+            .eq('user_id', user.id)
+            .eq('status', 'confirmed')
+            .gte('scheduled_time', new Date().toISOString())
+            .limit(1)
+            .single();
 
-        return {
-          user,
-          lastMessage: messages?.[0] || null,
-          messageCount: messageCount || 0,
-          hasAppointment: (appointments?.length || 0) > 0,
-        };
-      }) || [];
-
-      const conversationsData = await Promise.all(conversationsPromises);
+          return {
+            user,
+            lastMessage: lastMessage ? {
+              message_text: lastMessage.message_text,
+              created_at: lastMessage.created_at,
+              intent_matched: lastMessage.detected_intent
+            } : null,
+            messageCount: messageCount || 0,
+            hasAppointment: !!appointment
+          };
+        }) || []
+      );
 
       // Procesar datos
-      const processedConversations: Conversation[] = conversationsData.map((item) => {
+      const processedConversations: Conversation[] = conversationsWithMessages.map((item) => {
         return {
           user_id: item.user.id,
           user_phone: item.user.phone_number,
@@ -201,13 +209,22 @@ export function useConversationDetail(userId: string) {
       if (userError) throw userError;
 
       // Obtener mensajes
-      const { data: messages, error: messagesError } = await supabase
-        .from('conversation_messages')
+      const { data: messagesData, error: messagesError } = await supabase
+        .from('conversations')
         .select('*')
         .eq('user_id', userId)
         .order('created_at', { ascending: true });
 
       if (messagesError) throw messagesError;
+
+      // Mapear mensajes a la interfaz esperada
+      const messages = messagesData?.map(msg => ({
+        id: msg.id,
+        message_text: msg.message_text,
+        is_from_user: msg.direction === 'inbound',
+        intent_matched: msg.detected_intent,
+        created_at: msg.created_at
+      })) || [];
 
       // Obtener citas
       const { data: appointments, error: appointmentsError } = await supabase

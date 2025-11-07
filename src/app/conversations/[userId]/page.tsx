@@ -5,19 +5,27 @@
 
 'use client';
 
-import { use } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useConversationDetail } from '@/hooks/use-conversations';
 
 export default function ConversationDetailPage({
   params,
 }: {
-  params: Promise<{ userId: string }>;
+  params: { userId: string };
 }) {
-  const resolvedParams = use(params);
-  const { detail, loading, error } = useConversationDetail(resolvedParams.userId);
+  const [userId, setUserId] = useState<string>('');
 
-  if (loading) {
+  useEffect(() => {
+    // Resolver params de forma asíncrona si es necesario
+    if (params && params.userId) {
+      setUserId(params.userId);
+    }
+  }, [params]);
+
+  const { detail, loading, error } = useConversationDetail(userId);
+
+  if (!userId || loading) {
     return (
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="text-center py-12 text-gray-500">
