@@ -21,7 +21,7 @@ export class ConversationRepository {
       .insert({
         user_id: userId,
         message_id: messageId,
-        direction: 'incoming',
+        direction: 'inbound',
         message_text: messageText,
         message_type: 'text',
         detected_intent: detectedIntent?.intent_name,
@@ -48,7 +48,7 @@ export class ConversationRepository {
       .from('conversations')
       .insert({
         user_id: userId,
-        direction: 'outgoing',
+        direction: 'outbound',
         message_text: messageText,
         message_type: 'text',
         was_fallback: wasFallback,

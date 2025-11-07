@@ -82,7 +82,7 @@ export default function ConversationDetailPage({
               </h3>
             </div>
 
-            <div className="p-6 space-y-4 max-h-[600px] overflow-y-auto">
+            <div className="p-6 space-y-4 max-h-[600px] overflow-y-auto bg-gray-50">
               {detail.messages.length === 0 ? (
                 <div className="text-center py-8 text-gray-500">
                   No hay mensajes en esta conversación
@@ -96,23 +96,39 @@ export default function ConversationDetailPage({
                     }`}
                   >
                     <div
-                      className={`max-w-[70%] rounded-lg px-4 py-3 ${
+                      className={`max-w-[70%] rounded-2xl px-4 py-3 shadow-sm ${
                         message.is_from_user
-                          ? 'bg-gray-100 text-gray-900'
-                          : 'bg-blue-600 text-white'
+                          ? 'bg-white text-gray-900 rounded-tl-none border border-gray-200'
+                          : 'bg-blue-500 text-white rounded-tr-none'
                       }`}
                     >
-                      <p className="text-sm whitespace-pre-wrap">
+                      {/* Etiqueta de remitente */}
+                      <div
+                        className={`text-xs font-semibold mb-1 ${
+                          message.is_from_user ? 'text-gray-500' : 'text-blue-100'
+                        }`}
+                      >
+                        {message.is_from_user ? '👤 Usuario' : '🤖 Bot Europa'}
+                      </div>
+
+                      {/* Texto del mensaje */}
+                      <p className="text-sm whitespace-pre-wrap leading-relaxed">
                         {message.message_text}
                       </p>
+
+                      {/* Intent detectado (solo para mensajes del usuario) */}
                       {message.intent_matched && message.is_from_user && (
-                        <div className="mt-2 text-xs text-gray-500">
-                          🎯 Intent: {message.intent_matched}
+                        <div className="mt-2 pt-2 border-t border-gray-200">
+                          <span className="text-xs text-gray-500">
+                            🎯 Intent: <span className="font-medium">{message.intent_matched}</span>
+                          </span>
                         </div>
                       )}
+
+                      {/* Timestamp */}
                       <div
                         className={`mt-2 text-xs ${
-                          message.is_from_user ? 'text-gray-500' : 'text-blue-100'
+                          message.is_from_user ? 'text-gray-400' : 'text-blue-100'
                         }`}
                       >
                         {new Date(message.created_at).toLocaleString('es-ES', {
