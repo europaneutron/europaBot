@@ -86,11 +86,12 @@ export function useConversations(filters?: ConversationFilters) {
           // Verificar si tiene cita
           const { data: appointment } = await supabase
             .from('appointments')
-            .select('id, scheduled_time')
+            .select('id, appointment_date, time_slot_start')
             .eq('user_id', user.id)
             .eq('status', 'confirmed')
-            .gte('scheduled_time', new Date().toISOString())
-            .order('scheduled_time', { ascending: true })
+            .gte('appointment_date', new Date().toISOString().split('T')[0])
+            .order('appointment_date', { ascending: true })
+            .order('time_slot_start', { ascending: true })
             .limit(1)
             .single();
 
@@ -103,7 +104,7 @@ export function useConversations(filters?: ConversationFilters) {
             } : null,
             messageCount: messageCount || 0,
             hasAppointment: !!appointment,
-            appointmentDate: appointment?.scheduled_time || null
+            appointmentDate: appointment?.appointment_date || null
           };
         }) || []
       );
@@ -122,7 +123,7 @@ export function useConversations(filters?: ConversationFilters) {
           last_intent: item.lastMessage?.intent_matched || null,
           has_appointment: item.hasAppointment,
           appointment_date: item.appointmentDate,
-          checkpoints: Array.isArray(item.user.checkpoints) ? item.user.checkpoints : [],
+          checkpoints: [], // Los checkpoints están en user_progress, no en users
         };
       });
 

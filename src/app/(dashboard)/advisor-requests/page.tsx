@@ -53,13 +53,9 @@ export default function AdvisorRequestsPage() {
           header: 'Fecha Solicitud',
           format: (val) => new Date(val).toLocaleString('es-MX'),
         },
-        {
-          key: 'checkpoints_at_request',
-          header: 'Checkpoints',
-          format: (val) => (Array.isArray(val) ? val.join('; ') : ''),
-        },
+        { key: 'checkpoints_completed', header: 'Checkpoints Completados' },
         { key: 'lead_score', header: 'Score' },
-        { key: 'lead_status', header: 'Lead Status' },
+        { key: 'user.lead_status', header: 'Lead Status' },
         {
           key: 'contacted',
           header: 'Contactado',
@@ -230,20 +226,17 @@ export default function AdvisorRequestsPage() {
                     })}
                   </TableCell>
                   <TableCell>
-                    <div className="flex flex-wrap gap-1 max-w-[200px]">
-                      {Array.isArray(request.checkpoints_at_request) &&
-                      request.checkpoints_at_request.length > 0 ? (
-                        request.checkpoints_at_request.map((cp, idx) => (
-                          <Badge key={idx} variant="secondary" className="text-xs">
-                            {cp}
-                          </Badge>
-                        ))
-                      ) : (
-                        <span className="text-sm text-muted-foreground">
-                          Sin checkpoints
-                        </span>
-                      )}
-                    </div>
+                    <Badge 
+                      variant={
+                        (request.checkpoints_completed || 0) >= 4
+                          ? 'default'
+                          : (request.checkpoints_completed || 0) >= 2
+                          ? 'secondary'
+                          : 'outline'
+                      }
+                    >
+                      {request.checkpoints_completed || 0} / 6
+                    </Badge>
                   </TableCell>
                   <TableCell>
                     <Badge
@@ -260,7 +253,7 @@ export default function AdvisorRequestsPage() {
                   </TableCell>
                   <TableCell>
                     <span className="text-sm">
-                      {request.lead_status || 'N/A'}
+                      {request.user?.lead_status || 'N/A'}
                     </span>
                   </TableCell>
                   <TableCell className="text-center">

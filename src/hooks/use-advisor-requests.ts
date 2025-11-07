@@ -13,13 +13,13 @@ export interface AdvisorRequest {
   user_id: string;
   status: string;
   created_at: string;
-  checkpoints_at_request: string[];
+  checkpoints_completed: number | null;
   lead_score: number | null;
-  lead_status: string | null;
   contacted: boolean;
   user: {
     name: string | null;
     phone_number: string;
+    lead_status: string | null;
   };
 }
 
@@ -51,13 +51,13 @@ export function useAdvisorRequests(filters: AdvisorRequestFilters = {}) {
           user_id,
           status,
           created_at,
-          checkpoints_at_request,
+          checkpoints_completed,
           lead_score,
-          lead_status,
           contacted,
           user:users!user_id (
             name,
-            phone_number
+            phone_number,
+            lead_status
           )
         `)
         .order('created_at', { ascending: false });

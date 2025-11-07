@@ -17,7 +17,7 @@ export default function ConversationsPage() {
   const { conversations, loading, error } = useConversations(filters);
 
   const handleFilterChange = (key: keyof ConversationFilters, value: any) => {
-    setFilters((prev) => ({ ...prev, [key]: value }));
+    setFilters((prev: ConversationFilters) => ({ ...prev, [key]: value }));
   };
 
   function handleExportCSV() {
@@ -28,11 +28,6 @@ export default function ConversationsPage() {
         { key: 'user_phone', header: 'Teléfono' },
         { key: 'lead_status', header: 'Lead Status' },
         { key: 'lead_score', header: 'Score' },
-        {
-          key: 'checkpoints',
-          header: 'Checkpoints',
-          format: (val: any) => (Array.isArray(val) ? val.join('; ') : ''),
-        },
         { key: 'last_intent', header: 'Última Intención' },
         {
           key: 'last_message_time',
@@ -209,7 +204,7 @@ export default function ConversationsPage() {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {conversations.map((conv) => (
+                {conversations.map((conv: any) => (
                   <tr key={conv.user_id} className="hover:bg-gray-50">
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div>

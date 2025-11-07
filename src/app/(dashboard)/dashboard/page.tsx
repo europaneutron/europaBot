@@ -125,7 +125,7 @@ export default function DashboardPage() {
             </div>
           ) : (
             <div className="space-y-3">
-              {recentConversations.map((conv) => (
+              {recentConversations.map((conv: any) => (
                 <div 
                   key={conv.id}
                   className="border-l-4 border-blue-500 bg-gray-50 p-3 rounded"
@@ -172,7 +172,7 @@ export default function DashboardPage() {
             </div>
           ) : (
             <div className="space-y-3">
-              {upcomingAppointments.map((apt) => (
+              {upcomingAppointments.map((apt: any) => (
                 <div 
                   key={apt.id}
                   className="border-l-4 border-green-500 bg-gray-50 p-3 rounded"

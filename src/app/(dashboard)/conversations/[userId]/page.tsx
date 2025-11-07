@@ -88,7 +88,7 @@ export default function ConversationDetailPage({
                   No hay mensajes en esta conversación
                 </div>
               ) : (
-                detail.messages.map((message) => (
+                detail.messages.map((message: any) => (
                   <div
                     key={message.id}
                     className={`flex ${
@@ -240,7 +240,7 @@ export default function ConversationDetailPage({
               </h3>
 
               <div className="space-y-3">
-                {detail.appointments.map((apt) => (
+                {detail.appointments.map((apt: any) => (
                   <div
                     key={apt.id}
                     className="border-l-4 border-green-500 bg-gray-50 p-3 rounded"
