@@ -77,25 +77,20 @@ export function useAdvisorRequests(filters: AdvisorRequestFilters = {}) {
         query = query.lte('created_at', filters.dateTo);
       }
 
+      // Filtro por búsqueda (nombre o teléfono) - OPTIMIZADO: En servidor
+      if (filters.searchTerm) {
+        // Buscar en users.name o users.phone_number usando ilike (case-insensitive)
+        query = query.or(
+          `users.name.ilike.%${filters.searchTerm}%,users.phone_number.ilike.%${filters.searchTerm}%`
+        );
+      }
+
       const { data, error: fetchError } = await query;
 
       if (fetchError) throw fetchError;
 
-      let results = data || [];
-
-      // Filtro por búsqueda (nombre o teléfono)
-      if (filters.searchTerm) {
-        const term = filters.searchTerm.toLowerCase();
-        results = results.filter((req: any) => {
-          const userData = Array.isArray(req.user) ? req.user[0] : req.user;
-          const name = userData?.name?.toLowerCase() || '';
-          const phone = userData?.phone_number?.toLowerCase() || '';
-          return name.includes(term) || phone.includes(term);
-        });
-      }
-
-      // Normalizar user (de array a objeto)
-      const normalized = results.map((req: any) => ({
+      // Normalizar user (de array a objeto si es necesario)
+      const normalized = (data || []).map((req: any) => ({
         ...req,
         user: Array.isArray(req.user) ? req.user[0] : req.user,
       }));
