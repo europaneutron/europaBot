@@ -65,49 +65,68 @@ export function useConversations(filters?: ConversationFilters) {
 
       if (queryError) throw queryError;
 
-      // Para cada usuario, obtener sus mensajes y citas
-      const conversationsWithMessages = await Promise.all(
-        users?.map(async (user: any) => {
-          // Obtener último mensaje
-          const { data: lastMessage } = await supabase
-            .from('conversations')
-            .select('message_text, created_at, detected_intent')
-            .eq('user_id', user.id)
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .single();
+      if (!users || users.length === 0) {
+        setConversations([]);
+        return;
+      }
 
-          // Contar mensajes totales
-          const { count: messageCount } = await supabase
-            .from('conversations')
-            .select('*', { count: 'exact', head: true })
-            .eq('user_id', user.id);
+      // OPTIMIZACIÓN: Obtener todos los datos necesarios en 3 queries en paralelo
+      const userIds = users.map((u: any) => u.id);
+      const today = new Date().toISOString().split('T')[0];
 
-          // Verificar si tiene cita
-          const { data: appointment } = await supabase
-            .from('appointments')
-            .select('id, appointment_date, time_slot_start')
-            .eq('user_id', user.id)
-            .eq('status', 'confirmed')
-            .gte('appointment_date', new Date().toISOString().split('T')[0])
-            .order('appointment_date', { ascending: true })
-            .order('time_slot_start', { ascending: true })
-            .limit(1)
-            .single();
+      const [conversationsData, appointmentsData] = await Promise.all([
+        // 1 query: Obtener últimos mensajes de TODOS los usuarios
+        supabase
+          .from('conversations')
+          .select('user_id, message_text, created_at, detected_intent')
+          .in('user_id', userIds)
+          .order('created_at', { ascending: false }),
+        
+        // 1 query: Obtener próximas citas de TODOS los usuarios
+        supabase
+          .from('appointments')
+          .select('user_id, appointment_date')
+          .in('user_id', userIds)
+          .eq('status', 'confirmed')
+          .gte('appointment_date', today)
+          .order('appointment_date', { ascending: true })
+      ]);
 
-          return {
-            user,
-            lastMessage: lastMessage ? {
-              message_text: lastMessage.message_text,
-              created_at: lastMessage.created_at,
-              intent_matched: lastMessage.detected_intent
-            } : null,
-            messageCount: messageCount || 0,
-            hasAppointment: !!appointment,
-            appointmentDate: appointment?.appointment_date || null
-          };
-        }) || []
-      );
+      // Agrupar mensajes por user_id
+      const messagesByUser = new Map();
+      conversationsData.data?.forEach((msg: any) => {
+        if (!messagesByUser.has(msg.user_id)) {
+          messagesByUser.set(msg.user_id, []);
+        }
+        messagesByUser.get(msg.user_id).push(msg);
+      });
+
+      // Agrupar citas por user_id
+      const appointmentsByUser = new Map();
+      appointmentsData.data?.forEach((apt: any) => {
+        if (!appointmentsByUser.has(apt.user_id)) {
+          appointmentsByUser.set(apt.user_id, apt);
+        }
+      });
+
+      // Procesar datos combinando todo
+      const conversationsWithMessages = users.map((user: any) => {
+        const userMessages = messagesByUser.get(user.id) || [];
+        const lastMessage = userMessages[0] || null;
+        const appointment = appointmentsByUser.get(user.id) || null;
+
+        return {
+          user,
+          lastMessage: lastMessage ? {
+            message_text: lastMessage.message_text,
+            created_at: lastMessage.created_at,
+            intent_matched: lastMessage.detected_intent
+          } : null,
+          messageCount: userMessages.length,
+          hasAppointment: !!appointment,
+          appointmentDate: appointment?.appointment_date || null
+        };
+      });
 
       // Procesar datos
       const processedConversations: Conversation[] = conversationsWithMessages.map((item) => {

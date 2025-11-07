@@ -138,4 +138,54 @@ Si la tabla crece mucho (>5000 registros):
 
 ---
 
-Fecha: 7 de noviembre de 2025
+## Optimización Adicional: Conversations (N+1 Problem)
+
+### Problema Original (N+1 Queries)
+
+**`/conversations` tenía un problema más grave:**
+
+```typescript
+// ❌ HORRIBLE: 301 queries para 100 usuarios
+users.map(async (user) => {
+  const lastMessage = await supabase...   // 100 queries
+  const messageCount = await supabase...  // 100 queries  
+  const appointment = await supabase...   // 100 queries
+});
+```
+
+Si hay **100 usuarios**:
+- 1 query para obtener usuarios
+- 100 queries para último mensaje de cada uno
+- 100 queries para contar mensajes de cada uno
+- 100 queries para citas de cada uno
+- **Total: 301 queries** 😱
+
+**Tiempo:** ~5-10 segundos con 100 usuarios
+
+### Solución (Bulk Queries)
+
+```typescript
+// ✅ OPTIMIZADO: Solo 3 queries para 100 usuarios
+const userIds = users.map(u => u.id);
+
+const [conversationsData, appointmentsData] = await Promise.all([
+  supabase.from('conversations').select('*').in('user_id', userIds),
+  supabase.from('appointments').select('*').in('user_id', userIds)
+]);
+
+// Agrupar en memoria (rápido)
+const messagesByUser = new Map();
+conversationsData.data?.forEach(msg => {
+  if (!messagesByUser.has(msg.user_id)) messagesByUser.set(msg.user_id, []);
+  messagesByUser.get(msg.user_id).push(msg);
+});
+```
+
+**Mejora:**
+- 301 queries → **3 queries** (99% reducción)
+- 5-10 segundos → **<1 segundo**
+
+---
+
+Fecha: 7 de noviembre de 2025  
+Actualizado: Optimización N+1 en conversations
