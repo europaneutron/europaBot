@@ -5,7 +5,12 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
+
+interface Button {
+  id: string;
+  title: string;
+}
 
 interface Message {
   id: string;
@@ -14,6 +19,7 @@ interface Message {
   timestamp: Date;
   intent?: string;
   confidence?: number;
+  buttons?: Button[];
 }
 
 export default function BotTestingPage() {
@@ -22,6 +28,12 @@ export default function BotTestingPage() {
   const [phoneNumber, setPhoneNumber] = useState('+521234567890');
   const [tempPhoneNumber, setTempPhoneNumber] = useState('+521234567890');
   const [isLoading, setIsLoading] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll al final cuando llegan nuevos mensajes
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
 
   const changePhoneNumber = () => {
     setPhoneNumber(tempPhoneNumber);
@@ -31,6 +43,119 @@ export default function BotTestingPage() {
   const handlePhoneKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
       changePhoneNumber();
+    }
+  };
+
+  // Función para resetear usuario completamente
+  const resetUser = async () => {
+    if (!confirm('¿Estás seguro? Esto eliminará todo el progreso y conversación del usuario.')) {
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/test/reset-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phoneNumber })
+      });
+
+      if (response.ok) {
+        setMessages([]);
+        alert('✅ Usuario reseteado completamente');
+      } else {
+        alert('❌ Error al resetear usuario');
+      }
+    } catch (error) {
+      console.error('Error resetting user:', error);
+      alert('❌ Error al resetear usuario');
+    }
+  };
+
+  // Función para manejar clic en botones
+  const handleButtonClick = async (buttonId: string) => {
+    // Crear mensaje del usuario con el ID del botón
+    const userMessage: Message = {
+      id: Date.now().toString(),
+      direction: 'incoming',
+      text: buttonId,
+      timestamp: new Date()
+    };
+
+    setMessages(prev => [...prev, userMessage]);
+    setIsLoading(true);
+
+    try {
+      // Procesar el mensaje con el ID del botón
+      const response = await fetch('/api/test/process-message', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phoneNumber,
+          message: buttonId,
+          messageId: `test_${Date.now()}`
+        })
+      });
+
+      const data = await response.json();
+
+      if (data.responses && Array.isArray(data.responses)) {
+        const newMessages: Message[] = data.responses.map((resp: any, index: number) => {
+          let text: string;
+          let buttons: Button[] | undefined;
+          
+          if (typeof resp === 'string') {
+            text = resp;
+            
+            // Detectar botones
+            if (text.includes('¡Veo que estás muy interesado!') || 
+                text.includes('Te gustaría agendar una visita')) {
+              buttons = [
+                { id: 'appointment_yes', title: 'Sí, me interesa' },
+                { id: 'appointment_no', title: 'No, gracias' }
+              ];
+            } else if (text.includes('¿En qué momento del día') || 
+                       text.includes('momento del día prefieres')) {
+              buttons = [
+                { id: 'morning', title: 'Mañana' },
+                { id: 'afternoon', title: 'Tarde' },
+                { id: 'evening', title: 'Noche' }
+              ];
+            }
+          } else if (resp.fragments) {
+            text = resp.fragments
+              .map((f: any) => {
+                if (f.type === 'text') return f.content;
+                return `[${f.type.toUpperCase()}: ${f.url || f.name || 'contenido'}]`;
+              })
+              .join('\n\n');
+          } else {
+            text = 'Error: formato de respuesta desconocido';
+          }
+
+          return {
+            id: (Date.now() + index + 1).toString(),
+            direction: 'outgoing' as const,
+            text,
+            timestamp: new Date(),
+            intent: data.intent,
+            confidence: data.confidence,
+            buttons
+          };
+        });
+
+        setMessages(prev => [...prev, ...newMessages]);
+      }
+    } catch (error) {
+      console.error('Error:', error);
+      const errorMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        direction: 'outgoing',
+        text: '❌ Error al procesar el mensaje',
+        timestamp: new Date()
+      };
+      setMessages(prev => [...prev, errorMessage]);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -67,10 +192,31 @@ export default function BotTestingPage() {
         // Procesar cada respuesta (puede ser string o fragmentada)
         const newMessages: Message[] = data.responses.map((resp: any, index: number) => {
           let text: string;
+          let buttons: Button[] | undefined;
           
           if (typeof resp === 'string') {
             // Respuesta simple
             text = resp;
+            
+            // Detectar si el mensaje requiere botones
+            // Auto-offer de cita
+            if (text.includes('¡Veo que estás muy interesado!') || 
+                text.includes('Te gustaría agendar una visita')) {
+              buttons = [
+                { id: 'appointment_yes', title: 'Sí, me interesa' },
+                { id: 'appointment_no', title: 'No, gracias' }
+              ];
+            }
+            // Selección de horario
+            else if (text.includes('¿En qué horario prefieres') || 
+                     text.includes('¿En qué momento del día') || 
+                     text.includes('momento del día prefieres')) {
+              buttons = [
+                { id: 'morning', title: 'Mañana' },
+                { id: 'afternoon', title: 'Tarde' },
+                { id: 'evening', title: 'Noche' }
+              ];
+            }
           } else if (resp.fragments) {
             // Respuesta fragmentada - convertir a texto para visualización
             text = resp.fragments
@@ -89,7 +235,8 @@ export default function BotTestingPage() {
             text,
             timestamp: new Date(),
             intent: data.intent,
-            confidence: data.confidence
+            confidence: data.confidence,
+            buttons
           };
         });
 
@@ -126,6 +273,7 @@ export default function BotTestingPage() {
     'Aceptan credito?',
     'Es seguro?',
     'Tienes brochure?',
+    'Quiero agendar una cita',
     'presio', // typo
     'mensaje random sin sentido'
   ];
@@ -200,10 +348,11 @@ export default function BotTestingPage() {
                 Usuario 3
               </button>
               <button
-                onClick={() => setMessages([])}
+                onClick={resetUser}
                 className="text-xs px-2 py-1 bg-red-100 text-red-700 rounded hover:bg-red-200 ml-auto"
+                title="Resetea completamente el usuario: checkpoints, citas, mensajes"
               >
-                🗑️ Limpiar chat
+                🗑️ Reset completo
               </button>
             </div>
           </div>
@@ -243,22 +392,39 @@ export default function BotTestingPage() {
                 key={msg.id}
                 className={`flex ${msg.direction === 'incoming' ? 'justify-end' : 'justify-start'}`}
               >
-                <div
-                  className={`max-w-xs px-4 py-2 rounded-lg ${
-                    msg.direction === 'incoming'
-                      ? 'bg-blue-500 text-white'
-                      : 'bg-white border border-gray-300'
-                  }`}
-                >
-                  <p className="text-sm">{msg.text}</p>
-                  {msg.intent && (
-                    <p className="text-xs mt-1 opacity-70">
-                      🎯 Intent: {msg.intent} ({(msg.confidence! * 100).toFixed(0)}%)
+                <div className="flex flex-col">
+                  <div
+                    className={`max-w-xs px-4 py-2 rounded-lg ${
+                      msg.direction === 'incoming'
+                        ? 'bg-blue-500 text-white'
+                        : 'bg-white border border-gray-300'
+                    }`}
+                  >
+                    <p className="text-sm whitespace-pre-wrap">{msg.text}</p>
+                    {msg.intent && (
+                      <p className="text-xs mt-1 opacity-70">
+                        🎯 Intent: {msg.intent} ({(msg.confidence! * 100).toFixed(0)}%)
+                      </p>
+                    )}
+                    <p className="text-xs mt-1 opacity-50">
+                      {msg.timestamp.toLocaleTimeString()}
                     </p>
+                  </div>
+                  
+                  {/* Botones interactivos */}
+                  {msg.buttons && msg.buttons.length > 0 && (
+                    <div className="flex gap-2 mt-2 flex-wrap">
+                      {msg.buttons.map((button) => (
+                        <button
+                          key={button.id}
+                          onClick={() => handleButtonClick(button.id)}
+                          className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors shadow-sm text-sm font-medium"
+                        >
+                          {button.title}
+                        </button>
+                      ))}
+                    </div>
                   )}
-                  <p className="text-xs mt-1 opacity-50">
-                    {msg.timestamp.toLocaleTimeString()}
-                  </p>
                 </div>
               </div>
             ))}
@@ -274,6 +440,9 @@ export default function BotTestingPage() {
                 </div>
               </div>
             )}
+            
+            {/* Elemento para auto-scroll */}
+            <div ref={messagesEndRef} />
           </div>
 
           {/* Input */}
@@ -304,6 +473,10 @@ export default function BotTestingPage() {
           <p className="text-sm text-yellow-800">
             💡 <strong>Nota:</strong> Este es un entorno de testing local. Los mensajes NO se envían a WhatsApp real.
             Prueba diferentes mensajes para ver cómo responde el bot.
+          </p>
+          <p className="text-sm text-yellow-800 mt-2">
+            🎯 <strong>Botones interactivos:</strong> Los botones verdes que aparecen debajo de algunos mensajes 
+            simulan los botones de WhatsApp. Haz clic en ellos para responder automáticamente.
           </p>
         </div>
       </div>

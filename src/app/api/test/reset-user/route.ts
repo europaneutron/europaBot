@@ -1,0 +1,118 @@
+/**
+ * Test Endpoint - Reset User
+ * Resetea completamente el estado de un usuario para testing
+ */
+
+import { NextRequest, NextResponse } from 'next/server';
+
+export async function POST(request: NextRequest) {
+  try {
+    const { phoneNumber } = await request.json();
+
+    if (!phoneNumber) {
+      return NextResponse.json(
+        { error: 'Phone number is required' },
+        { status: 400 }
+      );
+    }
+
+    const { supabaseServer } = await import('@/services/supabase/server-client');
+
+    // Buscar usuario
+    const { data: user } = await supabaseServer
+      .from('users')
+      .select('id')
+      .eq('phone_number', phoneNumber)
+      .single();
+
+    if (!user) {
+      return NextResponse.json(
+        { error: 'User not found' },
+        { status: 404 }
+      );
+    }
+
+    // Resetear user_progress completamente
+    const { error: resetError } = await supabaseServer
+      .from('user_progress')
+      .update({
+        precio_completed: false,
+        precio_completed_at: null,
+        ubicacion_completed: false,
+        ubicacion_completed_at: null,
+        modelo_completed: false,
+        modelo_completed_at: null,
+        creditos_completed: false,
+        creditos_completed_at: null,
+        seguridad_completed: false,
+        seguridad_completed_at: null,
+        brochure_completed: false,
+        brochure_completed_at: null,
+        appointment_offered: false,
+        appointment_offered_at: null,
+        appointment_flow_state: null,
+        appointment_flow_data: null,
+        last_intent: null,
+        last_intent_at: null
+      })
+      .eq('user_id', user.id);
+
+    if (resetError) {
+      console.error('Error resetting user_progress:', resetError);
+      throw resetError;
+    }
+
+    // Limpiar mensajes de conversación
+    const { error: messagesError } = await supabaseServer
+      .from('conversation_messages')
+      .delete()
+      .eq('user_id', user.id);
+
+    if (messagesError) {
+      console.warn('Error deleting messages:', messagesError);
+    }
+
+    // Limpiar intent logs
+    const { error: logsError } = await supabaseServer
+      .from('intent_logs')
+      .delete()
+      .eq('user_id', user.id);
+
+    if (logsError) {
+      console.warn('Error deleting intent logs:', logsError);
+    }
+
+    // Resetear fallback counter en user_session
+    const { error: sessionError } = await supabaseServer
+      .from('user_session')
+      .update({
+        fallback_count: 0,
+        awaiting_advisor_name: false
+      })
+      .eq('user_id', user.id);
+
+    if (sessionError) {
+      console.warn('Error resetting user_session:', sessionError);
+    }
+
+    console.log(`✅ Usuario ${phoneNumber} (${user.id}) reseteado completamente:`);
+    console.log('   - Checkpoints: reseteados');
+    console.log('   - Appointment offer: reseteado');
+    console.log('   - Mensajes: eliminados');
+    console.log('   - Intent logs: eliminados');
+    console.log('   - Session: reseteada');
+
+    return NextResponse.json({
+      success: true,
+      message: 'Usuario reseteado completamente',
+      userId: user.id
+    });
+
+  } catch (error) {
+    console.error('❌ Error resetting user:', error);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}

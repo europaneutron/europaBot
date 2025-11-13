@@ -85,7 +85,7 @@ export class AppointmentManager {
       // Obtener mensaje de rechazo desde configuración
       const noResponse = await configRepository.get(
         'auto_offer_no_response',
-        'Entendido, cuando estés listo para agendar una visita solo dímelo. ¿Hay algo más en lo que pueda ayudarte?'
+        'Entendido, cuando estés listo para agendar una cita puedes pedirme: "Agendar una cita".\n\n¿Hay algo más en lo que pueda ayudarte?'
       );
       
       return {
@@ -118,15 +118,11 @@ export class AppointmentManager {
     await userRepository.updateAppointmentFlowData(userId, { requested_date: parsedDate });
     await userRepository.updateAppointmentFlowState(userId, 'ask_time');
 
-    // Obtener mensaje de solicitud de hora desde configuración
-    const requestTime = await configRepository.get(
-      'appointment_request_time',
-      '¿A qué hora prefieres tu cita? Horarios disponibles:\n\n9:00 AM\n11:00 AM\n1:00 PM\n3:00 PM\n5:00 PM\n\nPor favor elige una de estas opciones.'
-    );
-
+    // No retornamos mensaje aquí, el webhook lo enviará con botones
+    // Similar al patrón de auto-offer
     return {
       step: 'ask_time',
-      message: requestTime
+      message: '' // Vacío, el webhook enviará el mensaje con botones
     };
   }
 
@@ -336,6 +332,12 @@ export class AppointmentManager {
   private parseTimeSlot(input: string): TimeSlot | null {
     const normalized = input.toLowerCase().trim();
 
+    // Detectar IDs de botones directamente
+    if (normalized === 'morning') return 'morning';
+    if (normalized === 'afternoon') return 'afternoon';
+    if (normalized === 'evening') return 'evening';
+
+    // Fallback a detección por texto
     if (normalized.includes('mañana') || normalized.includes('manana')) {
       return 'morning';
     }

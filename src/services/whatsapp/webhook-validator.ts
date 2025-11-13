@@ -34,7 +34,7 @@ export class WebhookValidator {
   }
 
   /**
-   * Extraer mensaje de texto del payload de WhatsApp
+   * Extraer mensaje de texto o respuesta de botón del payload de WhatsApp
    */
   extractMessage(body: any): {
     from: string;
@@ -48,16 +48,38 @@ export class WebhookValidator {
       const value = change?.value;
       const message = value?.messages?.[0];
 
-      if (!message || message.type !== 'text') {
+      if (!message) {
         return null;
       }
 
       const contact = value?.contacts?.[0];
+      let text: string;
+
+      // Manejar mensajes de texto normales
+      if (message.type === 'text') {
+        text = message.text.body;
+      } 
+      // Manejar respuestas de botones interactivos
+      else if (message.type === 'interactive') {
+        if (message.interactive?.type === 'button_reply') {
+          // Usuario presionó un botón, usar el ID del botón como texto
+          text = message.interactive.button_reply.id;
+        } else if (message.interactive?.type === 'list_reply') {
+          // Usuario seleccionó de una lista
+          text = message.interactive.list_reply.id;
+        } else {
+          return null;
+        }
+      } 
+      else {
+        // Tipo de mensaje no soportado
+        return null;
+      }
 
       return {
         from: message.from,
         messageId: message.id,
-        text: message.text.body,
+        text: text,
         name: contact?.profile?.name
       };
     } catch (error) {

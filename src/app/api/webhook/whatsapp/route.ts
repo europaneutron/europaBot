@@ -76,13 +76,31 @@ export async function POST(request: NextRequest) {
       // Enviar cada respuesta (puede ser simple o fragmentada)
       for (const botResponse of response.responses) {
         if (typeof botResponse === 'string') {
-          // Respuesta simple: enviar texto
-          console.log(`📤 Enviando texto: "${botResponse.substring(0, 50)}..."`);
+          // Verificar si es el mensaje de selección de horario y enviar con botones
+          const isTimeSelection = botResponse.includes('¿En qué momento del día') || 
+                                 botResponse.includes('momento del día prefieres');
           
-          await whatsappSender.sendTextMessage({
-            to: from,
-            message: botResponse
-          });
+          if (isTimeSelection) {
+            console.log(`📤 Enviando selección de horario con botones`);
+            
+            await whatsappSender.sendInteractiveButtons({
+              to: from,
+              bodyText: botResponse,
+              buttons: [
+                { id: 'morning', title: 'Mañana' },
+                { id: 'afternoon', title: 'Tarde' },
+                { id: 'evening', title: 'Noche' }
+              ]
+            });
+          } else {
+            // Respuesta simple normal: enviar texto
+            console.log(`📤 Enviando texto: "${botResponse.substring(0, 50)}..."`);
+            
+            await whatsappSender.sendTextMessage({
+              to: from,
+              message: botResponse
+            });
+          }
 
           // Guardar en BD
           if (user) {
@@ -115,6 +133,104 @@ export async function POST(request: NextRequest) {
                 response.isFallback
               );
             }
+          }
+        }
+      }
+      
+      // DESPUÉS de enviar las respuestas normales, verificar si hay auto-offer pendiente
+      if (user) {
+        const { userRepository } = await import('@/data/repositories/user.repository');
+        const { configRepository } = await import('@/data/repositories/config.repository');
+        
+        // Obtener estado Y progreso
+        const flowState = await userRepository.getAppointmentFlowState(user.id);
+        const progress = await userRepository.getProgress(user.id);
+        
+        // Si el estado es pending_auto_offer
+        // Y el último mensaje del bot NO fue el auto-offer (para evitar duplicados)
+        if (flowState === 'pending_auto_offer' && 
+            response.wasDetected && 
+            !response.isFallback) {
+          
+          // Verificar si el último mensaje enviado YA fue el auto-offer
+          const { data: lastMessage } = await supabaseServer
+            .from('conversation_messages')
+            .select('message_text')
+            .eq('user_id', user.id)
+            .eq('is_from_user', false)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .single();
+          
+          const appointmentOffer = await configRepository.get(
+            'auto_offer_message',
+            '¡Veo que estás muy interesado! 🎉 ¿Te gustaría agendar una visita para conocer el fraccionamiento en persona?'
+          );
+          
+          // Solo enviar si el último mensaje NO es el auto-offer
+          if (!lastMessage || !lastMessage.message_text.includes('¡Veo que estás muy interesado!')) {
+            console.log(`📤 Enviando auto-offer con botones después de confirmar estado en BD`);
+            
+            // Esperar 300ms para asegurar consistencia en BD
+            await new Promise(resolve => setTimeout(resolve, 300));
+            
+            // Enviar con botones interactivos
+            await whatsappSender.sendInteractiveButtons({
+              to: from,
+              bodyText: appointmentOffer,
+              buttons: [
+                { id: 'appointment_yes', title: 'Sí, me interesa' },
+                { id: 'appointment_no', title: 'No, gracias' }
+              ]
+            });
+            
+            await conversationRepository.saveOutgoingMessage(
+              user.id,
+              appointmentOffer,
+              false
+            );
+          }
+        }
+        
+        // Si el estado es ask_time, enviar pregunta con botones de horario
+        // Similar al patrón de auto-offer
+        if (flowState === 'ask_time' && 
+            response.wasDetected && 
+            !response.isFallback) {
+          
+          // Verificar que no hayamos enviado ya la pregunta
+          const { data: lastMessage } = await supabaseServer
+            .from('conversation_messages')
+            .select('message_text')
+            .eq('user_id', user.id)
+            .eq('is_from_user', false)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .single();
+          
+          // Solo enviar si el último mensaje NO es la pregunta de horario
+          if (!lastMessage || !lastMessage.message_text.includes('¿En qué horario prefieres')) {
+            console.log(`📤 Enviando pregunta de horario con botones después de confirmar estado en BD`);
+            
+            // Esperar 300ms para asegurar consistencia en BD
+            await new Promise(resolve => setTimeout(resolve, 300));
+            
+            // Enviar con botones interactivos
+            await whatsappSender.sendInteractiveButtons({
+              to: from,
+              bodyText: '¿En qué horario prefieres visitarnos?',
+              buttons: [
+                { id: 'morning', title: 'Mañana' },
+                { id: 'afternoon', title: 'Tarde' },
+                { id: 'evening', title: 'Noche' }
+              ]
+            });
+            
+            await conversationRepository.saveOutgoingMessage(
+              user.id,
+              '¿En qué horario prefieres visitarnos?',
+              false
+            );
           }
         }
       }

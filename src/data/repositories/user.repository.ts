@@ -298,6 +298,7 @@ export class UserRepository {
 
   /**
    * Limpiar estado y datos del flujo de cita
+   * NO resetea appointment_offered - el usuario ya recibió la oferta una vez
    */
   async clearAppointmentFlow(userId: string): Promise<void> {
     await supabaseServer

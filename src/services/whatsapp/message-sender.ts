@@ -3,7 +3,7 @@
  * Envía mensajes a través de WhatsApp Business API
  */
 
-const WHATSAPP_API_URL = 'https://graph.facebook.com/v18.0';
+const WHATSAPP_API_URL = 'https://graph.facebook.com/v24.0';
 const WHATSAPP_PHONE_ID = process.env.WHATSAPP_PHONE_NUMBER_ID!;
 const WHATSAPP_TOKEN = process.env.WHATSAPP_API_TOKEN!;
 
@@ -11,6 +11,17 @@ export interface SendMessageParams {
   to: string;
   message: string;
   previewUrl?: boolean;
+}
+
+export interface ReplyButton {
+  id: string;
+  title: string; // Máximo 20 caracteres
+}
+
+export interface SendButtonsParams {
+  to: string;
+  bodyText: string;
+  buttons: ReplyButton[];
 }
 
 export class WhatsAppMessageSender {
@@ -382,6 +393,58 @@ export class WhatsAppMessageSender {
     }
 
     return messageIds;
+  }
+
+  /**
+   * Enviar mensaje con botones interactivos (Reply Buttons)
+   * Máximo 3 botones, 20 caracteres por botón
+   */
+  async sendInteractiveButtons({ to, bodyText, buttons }: SendButtonsParams): Promise<{ messageId: string }> {
+    if (buttons.length > 3) {
+      throw new Error('WhatsApp permite máximo 3 botones de respuesta');
+    }
+
+    const url = `${WHATSAPP_API_URL}/${WHATSAPP_PHONE_ID}/messages`;
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${WHATSAPP_TOKEN}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to: to,
+        type: 'interactive',
+        interactive: {
+          type: 'button',
+          body: {
+            text: bodyText
+          },
+          action: {
+            buttons: buttons.map(btn => ({
+              type: 'reply',
+              reply: {
+                id: btn.id,
+                title: btn.title.substring(0, 20) // Asegurar máximo 20 chars
+              }
+            }))
+          }
+        }
+      })
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      console.error('WhatsApp API error:', error);
+      throw new Error(`Failed to send interactive buttons: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return {
+      messageId: data.messages[0].id
+    };
   }
 }
 

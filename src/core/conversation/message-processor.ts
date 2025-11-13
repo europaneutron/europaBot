@@ -52,22 +52,73 @@ export class MessageProcessor {
       // 3.5. Verificar si hay flujo de cita activo
       const hasAppointmentFlow = await appointmentManager.hasActiveFlow(user.id);
       if (hasAppointmentFlow) {
-        // Usuario está en medio del flujo de cita, procesar su respuesta
-        const flowResult = await appointmentManager.processFlowStep(user.id, messageText);
+        // Detectar si el usuario quiere cancelar o cambiar de tema
+        const normalized = messageText.toLowerCase().trim();
+        const cancelPhrases = [
+          'cancelar', 'no quiero', 'después', 'luego', 'más tarde',
+          'información', 'informacion', 'otra cosa', 'pregunta',
+          'precio', 'ubicacion', 'modelo', 'credito', 'seguridad',
+          'cuanto', 'donde', 'como', 'que'
+        ];
         
-        // Guardar mensaje de respuesta
-        await conversationRepository.saveOutgoingMessage(
-          user.id,
-          flowResult.message,
-          false
-        );
+        const wantsToCancel = cancelPhrases.some(phrase => normalized.includes(phrase));
+        
+        if (wantsToCancel) {
+          // Usuario quiere hacer otra cosa, cancelar el flujo
+          await userRepository.clearAppointmentFlow(user.id);
+          
+          const cancelMessage = await configRepository.get(
+            'appointment_flow_cancelled',
+            'Entendido, cancelé el proceso de agendamiento.\n\nSi vuelves a estar interesado en una cita, puedes pedirme: "Agendar una cita".\n\n¿En qué más puedo ayudarte?'
+          );
+          
+          await conversationRepository.saveOutgoingMessage(user.id, cancelMessage, false);
+          
+          // Retornar mensaje de cancelación inmediatamente
+          return {
+            responses: [cancelMessage],
+            shouldSend: true,
+            wasDetected: true,
+            isFallback: false
+          };
+        } else {
+          // Usuario está respondiendo al flujo, procesar su respuesta
+          const flowResult = await appointmentManager.processFlowStep(user.id, messageText);
+          
+          // Guardar mensaje entrante del usuario
+          await conversationRepository.saveIncomingMessage(
+            user.id,
+            messageId,
+            messageText,
+            {
+              intent_name: 'appointment_flow',
+              confidence: 1.0,
+              matched_keywords: ['appointment', 'flow'],
+              fuzzy_matches: [],
+              detection_method: 'exact'
+            }
+          );
+          
+          // Si el mensaje está vacío (ask_time), no lo enviamos aquí
+          // El webhook lo enviará con botones (patrón similar a auto-offer)
+          const responses: string[] = flowResult.message ? [flowResult.message] : [];
+          
+          // Solo guardar mensaje si no está vacío
+          if (flowResult.message) {
+            await conversationRepository.saveOutgoingMessage(
+              user.id,
+              flowResult.message,
+              false
+            );
+          }
 
-        return {
-          responses: [flowResult.message],
-          shouldSend: true,
-          wasDetected: true,
-          isFallback: false
-        };
+          return {
+            responses,
+            shouldSend: true,
+            wasDetected: true,
+            isFallback: false
+          };
+        }
       }
 
       // 3.6. Verificar si está esperando confirmación de oferta automática
@@ -75,65 +126,93 @@ export class MessageProcessor {
       if (flowState === 'pending_auto_offer') {
         const normalized = messageText.toLowerCase().trim();
         
-        // Palabras afirmativas específicas que no interfieren con otros intents
-        const positiveResponses = [
-          'si', 'sí', 'claro', 'ok', 'vale', 'dale', 'yes',
-          'por favor', 'porfavor', 'esta bien', 'está bien',
-          'adelante', 'vamos', 'perfecto', 'excelente',
-          'me interesa', 'quiero', 'acepto'
-        ];
+        // Detectar si es una pregunta nueva en lugar de respuesta a la oferta
+        const isNewQuestion = normalized.includes('?') || 
+                             normalized.includes('información') ||
+                             normalized.includes('informacion') ||
+                             normalized.includes('que') ||
+                             normalized.includes('qué') ||
+                             normalized.includes('cuanto') ||
+                             normalized.includes('cuánto') ||
+                             normalized.includes('donde') ||
+                             normalized.includes('dónde') ||
+                             normalized.includes('como') ||
+                             normalized.includes('cómo') ||
+                             normalized.includes('más') ||
+                             normalized.includes('mas');
         
-        const isPositive = positiveResponses.some(phrase => {
-          // Buscar coincidencia exacta o como palabra completa
-          const regex = new RegExp(`\\b${phrase}\\b`, 'i');
-          return regex.test(normalized) || normalized === phrase;
-        });
-
-        if (isPositive) {
-          // Usuario acepta, iniciar flujo de cita
-          await userRepository.updateAppointmentFlowState(user.id, 'ask_date');
-          
-          // Actualizar score por responder al auto-offer
-          await leadScorer.afterAutoOfferResponse(user.id);
-          
-          // Obtener mensajes desde configuración
-          const yesResponse = await configRepository.get(
-            'auto_offer_yes_response',
-            '¡Perfecto! Vamos a agendar tu visita. 📅'
-          );
-          const requestDate = await configRepository.get(
-            'appointment_request_date',
-            '¿Qué día te gustaría visitarnos? Por favor indica una fecha (ejemplo: mañana, viernes, 15 de noviembre)'
-          );
-          
-          const message = `${yesResponse}\n\n${requestDate}`;
-          
-          await conversationRepository.saveOutgoingMessage(user.id, message, false);
-          
-          return {
-            responses: [message],
-            shouldSend: true,
-            wasDetected: true,
-            isFallback: false
-          };
-        } else {
-          // Usuario no acepta o pregunta otra cosa
+        if (isNewQuestion && normalized.length > 10) {
+          // Es una pregunta nueva, cancelar oferta pendiente
           await userRepository.clearAppointmentFlow(user.id);
+          // Continuar con el flujo normal sin retornar
+        } else {
+          // Es una respuesta a la oferta
+          // Detectar si es respuesta de botón o texto
+          let isPositive: boolean;
           
-          // Obtener mensaje de rechazo desde configuración
-          const noResponse = await configRepository.get(
-            'auto_offer_no_response',
-            'Entendido, cuando estés listo para agendar una visita solo dímelo. ¿Hay algo más en lo que pueda ayudarte?'
-          );
-          
-          await conversationRepository.saveOutgoingMessage(user.id, noResponse, false);
-          
-          return {
-            responses: [noResponse],
-            shouldSend: true,
-            wasDetected: true,
-            isFallback: false
-          };
+          if (normalized === 'appointment_yes') {
+            // Botón "Sí, me interesa"
+            isPositive = true;
+          } else if (normalized === 'appointment_no') {
+            // Botón "No, gracias"
+            isPositive = false;
+          } else {
+            // Si no es botón, verificar palabras afirmativas
+            isPositive = ['si', 'sí', 'claro', 'ok', 'vale', 'dale', 'yes',
+                         'por favor', 'porfavor', 'esta bien', 'está bien',
+                         'adelante', 'vamos', 'perfecto', 'excelente',
+                         'me interesa', 'quiero', 'acepto'].some(phrase => {
+                          const regex = new RegExp(`\\b${phrase}\\b`, 'i');
+                          return regex.test(normalized) || normalized === phrase;
+                        });
+          }
+
+          if (isPositive) {
+            // Usuario acepta, iniciar flujo de cita
+            await userRepository.updateAppointmentFlowState(user.id, 'ask_date');
+            
+            // Actualizar score por responder al auto-offer
+            await leadScorer.afterAutoOfferResponse(user.id);
+            
+            // Obtener mensajes desde configuración
+            const yesResponse = await configRepository.get(
+              'auto_offer_yes_response',
+              '¡Perfecto! Vamos a agendar tu visita. 📅'
+            );
+            const requestDate = await configRepository.get(
+              'appointment_request_date',
+              '¿Qué día te gustaría visitarnos? Por favor indica una fecha (ejemplo: mañana, viernes, 15 de noviembre)'
+            );
+            
+            const message = `${yesResponse}\n\n${requestDate}`;
+            
+            await conversationRepository.saveOutgoingMessage(user.id, message, false);
+            
+            return {
+              responses: [message],
+              shouldSend: true,
+              wasDetected: true,
+              isFallback: false
+            };
+          } else {
+            // Usuario no acepta o pregunta otra cosa
+            await userRepository.clearAppointmentFlow(user.id);
+            
+            // Obtener mensaje de rechazo desde configuración
+            const noResponse = await configRepository.get(
+              'auto_offer_no_response',
+              'Entendido, cuando estés listo para agendar una cita puedes pedirme: "Agendar una cita".\n\n¿Hay algo más en lo que pueda ayudarte?'
+            );
+            
+            await conversationRepository.saveOutgoingMessage(user.id, noResponse, false);
+            
+            return {
+              responses: [noResponse],
+              shouldSend: true,
+              wasDetected: true,
+              isFallback: false
+            };
+          }
         }
       }
 
@@ -248,19 +327,12 @@ export class MessageProcessor {
     const autoOfferEnabled = await configRepository.getBoolean('appointment_auto_offer_enabled', true);
 
     if (autoOfferEnabled && completedCount >= checkpointsRequired && !progress?.appointment_offered) {
-      // Marcar como ofrecido
+      // Marcar como ofrecido y establecer estado ANTES de enviar mensaje
       await userRepository.markAppointmentOffered(userId);
-      
-      // Guardar estado especial: esperando confirmación de oferta automática
       await userRepository.updateAppointmentFlowState(userId, 'pending_auto_offer');
       
-      // Obtener mensaje de auto-offer desde configuración
-      const appointmentOffer = await configRepository.get(
-        'auto_offer_message',
-        '¡Veo que estás muy interesado! 🎉 ¿Te gustaría agendar una visita para conocer el fraccionamiento en persona?'
-      );
-      
-      return [...responses, appointmentOffer];
+      // NO enviar el auto-offer aquí, se enviará después en el webhook
+      // para asegurar que el estado ya está guardado en BD
     }
 
     return responses;
