@@ -6,6 +6,7 @@
 
 import { useState, useEffect } from 'react';
 import { intentConfigRepositoryClient, IntentConfiguration, BotResponse } from '@/data/repositories/intent-config.repository.client';
+import MediaLibrary from '@/components/admin/MediaLibrary';
 
 export default function IntentResponsesPage({ params }: { params: { intentId: string } }) {
   const [intent, setIntent] = useState<IntentConfiguration | null>(null);
@@ -15,6 +16,7 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
   
   const [showForm, setShowForm] = useState(false);
   const [editingResponse, setEditingResponse] = useState<BotResponse | null>(null);
+  const [showMediaLibrary, setShowMediaLibrary] = useState(false);
   
   const [formData, setFormData] = useState({
     response_key: '',
@@ -289,13 +291,41 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Media URL (opcional)
                 </label>
-                <input
-                  type="url"
-                  value={formData.media_url}
-                  onChange={(e) => setFormData({ ...formData, media_url: e.target.value })}
-                  placeholder="https://..."
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
+                <div className="space-y-2">
+                  <div className="flex gap-2">
+                    <input
+                      type="url"
+                      value={formData.media_url}
+                      onChange={(e) => setFormData({ ...formData, media_url: e.target.value })}
+                      placeholder="https://... o selecciona de la biblioteca"
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowMediaLibrary(true)}
+                      className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 whitespace-nowrap"
+                    >
+                      📁 Biblioteca
+                    </button>
+                    {formData.media_url && (
+                      <button
+                        type="button"
+                        onClick={() => setFormData({ ...formData, media_url: '' })}
+                        className="px-3 py-2 bg-red-100 text-red-700 rounded-md hover:bg-red-200"
+                        title="Limpiar"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                  {formData.media_url && (
+                    <div className="p-2 bg-gray-50 border border-gray-200 rounded text-xs">
+                      <p className="text-gray-600 truncate" title={formData.media_url}>
+                        📎 {formData.media_url}
+                      </p>
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div>
@@ -342,6 +372,17 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
             </div>
           </form>
         </div>
+      )}
+
+      {/* Media Library Modal */}
+      {showMediaLibrary && (
+        <MediaLibrary
+          onSelect={(url) => {
+            setFormData({ ...formData, media_url: url });
+            setShowMediaLibrary(false);
+          }}
+          onClose={() => setShowMediaLibrary(false)}
+        />
       )}
     </div>
   );
