@@ -95,10 +95,20 @@ export interface FragmentedResponse {
 }
 
 // =====================================================
-// RESPUESTA DEL BOT: Simple o Fragmentada
+// RESPUESTA SIMPLE CON MEDIA
 // =====================================================
 
-export type BotResponse = string | FragmentedResponse;
+export interface SimpleResponseWithMedia {
+  text: string;
+  media_url: string;
+  media_type?: 'image' | 'document' | 'video';
+}
+
+// =====================================================
+// RESPUESTA DEL BOT: Simple, Con Media o Fragmentada
+// =====================================================
+
+export type BotResponse = string | SimpleResponseWithMedia | FragmentedResponse;
 
 // =====================================================
 // TYPE GUARDS: Verificar tipo en runtime
@@ -106,6 +116,10 @@ export type BotResponse = string | FragmentedResponse;
 
 export function isFragmentedResponse(response: BotResponse): response is FragmentedResponse {
   return typeof response === 'object' && 'fragments' in response;
+}
+
+export function isSimpleResponseWithMedia(response: BotResponse): response is SimpleResponseWithMedia {
+  return typeof response === 'object' && 'media_url' in response && 'text' in response;
 }
 
 export function isTextFragment(fragment: MessageFragment): fragment is TextFragment {

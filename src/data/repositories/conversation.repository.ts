@@ -159,7 +159,7 @@ export class ConversationRepository {
   async getBotResponses(intentName: string): Promise<import('@/types/message-fragments.types').BotResponse[]> {
     const { data, error } = await supabaseServer
       .from('bot_responses')
-      .select('message_text, response_type, order_priority')
+      .select('message_text, media_url, response_type, order_priority')
       .eq('intent_name', intentName)
       .eq('is_active', true)
       .order('order_priority', { ascending: true});
@@ -172,8 +172,17 @@ export class ConversationRepository {
         return row.message_text as import('@/types/message-fragments.types').FragmentedResponse;
       }
       
-      // Si es simple, message_text es un string (JSONB lo mantiene como string)
-      // PostgreSQL convierte strings a JSONB como "string con comillas", hay que extraer
+      // Si tiene media_url, crear SimpleResponseWithMedia
+      if (row.media_url && typeof row.media_url === 'string' && row.media_url.trim()) {
+        const text = typeof row.message_text === 'string' ? row.message_text : String(row.message_text);
+        return {
+          text,
+          media_url: row.media_url,
+          media_type: this.detectMediaType(row.media_url)
+        } as import('@/types/message-fragments.types').SimpleResponseWithMedia;
+      }
+      
+      // Si es simple sin media, message_text es un string
       if (typeof row.message_text === 'string') {
         return row.message_text;
       }
@@ -181,6 +190,19 @@ export class ConversationRepository {
       // Si PostgreSQL lo devolvió como string JSON, parsearlo
       return String(row.message_text);
     });
+  }
+
+  /**
+   * Detectar tipo de archivo por extensión
+   */
+  private detectMediaType(url: string): 'image' | 'document' | 'video' | undefined {
+    const ext = url.split('.').pop()?.toLowerCase();
+    
+    if (['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(ext || '')) return 'image';
+    if (['pdf', 'doc', 'docx'].includes(ext || '')) return 'document';
+    if (['mp4', 'mov', 'avi'].includes(ext || '')) return 'video';
+    
+    return undefined;
   }
 }
 

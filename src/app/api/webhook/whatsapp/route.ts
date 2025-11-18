@@ -9,6 +9,7 @@ import { webhookValidator } from '@/services/whatsapp/webhook-validator';
 import { whatsappSender } from '@/services/whatsapp/message-sender';
 import { messageProcessor } from '@/core/conversation/message-processor';
 import { conversationRepository } from '@/data/repositories/conversation.repository';
+import { isSimpleResponseWithMedia } from '@/types/message-fragments.types';
 
 /**
  * GET - Verificación del webhook (requerido por Meta)
@@ -73,7 +74,7 @@ export async function POST(request: NextRequest) {
         .eq('phone_number', from)
         .single();
 
-      // Enviar cada respuesta (puede ser simple o fragmentada)
+      // Enviar cada respuesta (puede ser simple, con media o fragmentada)
       for (const botResponse of response.responses) {
         if (typeof botResponse === 'string') {
           // Verificar si es el mensaje de selección de horario y enviar con botones
@@ -107,6 +108,50 @@ export async function POST(request: NextRequest) {
             await conversationRepository.saveOutgoingMessage(
               user.id,
               botResponse,
+              response.isFallback
+            );
+          }
+
+        } else if (isSimpleResponseWithMedia(botResponse)) {
+          // Respuesta con archivo adjunto
+          console.log(`📤 Enviando respuesta con media: ${botResponse.media_type} - ${botResponse.media_url}`);
+          
+          // 1. Enviar texto primero (si hay)
+          if (botResponse.text && botResponse.text.trim()) {
+            await whatsappSender.sendTextMessage({
+              to: from,
+              message: botResponse.text
+            });
+            
+            // Pequeño delay para que lleguen en orden
+            await new Promise(resolve => setTimeout(resolve, 500));
+          }
+          
+          // 2. Enviar archivo según su tipo
+          const mediaType = botResponse.media_type;
+          const mediaUrl = botResponse.media_url;
+          
+          if (mediaType === 'image') {
+            await whatsappSender.sendImage(from, mediaUrl);
+          } else if (mediaType === 'document') {
+            await whatsappSender.sendDocument(from, mediaUrl);
+          } else if (mediaType === 'video') {
+            await whatsappSender.sendVideo(from, mediaUrl);
+          } else {
+            // Tipo desconocido, intentar como documento
+            console.warn(`⚠️ Tipo de media desconocido: ${mediaType}, enviando como documento`);
+            await whatsappSender.sendDocument(from, mediaUrl);
+          }
+          
+          // Guardar en BD
+          if (user) {
+            const messageText = botResponse.text 
+              ? `${botResponse.text}\n[Archivo adjunto: ${mediaUrl}]`
+              : `[Archivo adjunto: ${mediaUrl}]`;
+            
+            await conversationRepository.saveOutgoingMessage(
+              user.id,
+              messageText,
               response.isFallback
             );
           }

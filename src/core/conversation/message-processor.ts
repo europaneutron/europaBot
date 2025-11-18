@@ -13,6 +13,7 @@ import { appointmentManager } from '@/core/appointment/appointment-manager';
 import { supabaseServer } from '@/services/supabase/server-client';
 import type { CheckpointKey } from '@/data/models/user.model';
 import type { BotResponse } from '@/types/message-fragments.types';
+import { isSimpleResponseWithMedia } from '@/types/message-fragments.types';
 
 export interface ProcessedResponse {
   responses: BotResponse[]; // Cambiado de 'message: string' a 'responses: BotResponse[]'
