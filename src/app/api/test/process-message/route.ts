@@ -26,9 +26,16 @@ export async function POST(request: NextRequest) {
       'Usuario Test'
     );
 
+    const { isFragmentedResponse, isSimpleResponseWithMedia } = await import('@/types/message-fragments.types');
+
     // Convertir responses a texto para logging
     const responseText = result.responses
-      .map(r => typeof r === 'string' ? r : `[Fragmentado: ${r.fragments.length} partes]`)
+      .map(r => {
+        if (typeof r === 'string') return r;
+        if (isFragmentedResponse(r)) return `[Fragmentado: ${r.fragments.length} partes]`;
+        if (isSimpleResponseWithMedia(r)) return `[Media: ${r.media_type} - ${r.text}]`;
+        return '[Desconocido]';
+      })
       .join('\n---\n');
 
     console.log(`📤 [TEST] Respuesta: "${responseText.substring(0, 100)}..."`);

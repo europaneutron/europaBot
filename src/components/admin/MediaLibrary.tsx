@@ -30,7 +30,7 @@ const FOLDERS = {
   brochures: 'brochures/'
 };
 
-export default function MediaLibrary({ onSelect, onClose }: MediaLibraryProps) {
+function MediaLibrary({ onSelect, onClose }: MediaLibraryProps) {
   const supabase = createClientComponentClient();
   
   const [files, setFiles] = useState<MediaFile[]>([]);
@@ -460,3 +460,5 @@ export default function MediaLibrary({ onSelect, onClose }: MediaLibraryProps) {
     </div>
   );
 }
+
+export default MediaLibrary;

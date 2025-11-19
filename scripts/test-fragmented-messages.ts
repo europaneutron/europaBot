@@ -10,7 +10,7 @@ config({ path: resolve(__dirname, '../.env.local') });
 
 // Ahora sí, importar los demás módulos
 import type { BotResponse, FragmentedResponse, MessageFragment } from '@/types/message-fragments.types';
-import { isFragmentedResponse } from '@/types/message-fragments.types';
+import { isFragmentedResponse, isSimpleResponseWithMedia } from '@/types/message-fragments.types';
 
 console.log('🧪 Pruebas de Mensajes Fragmentados\n');
 
@@ -57,8 +57,13 @@ async function testRepository() {
     responses.forEach((response, index) => {
       if (isFragmentedResponse(response)) {
         console.log(`   [${index + 1}] Tipo: FRAGMENTADO (${response.fragments.length} fragmentos)`);
+      } else if (isSimpleResponseWithMedia(response)) {
+        console.log(`   [${index + 1}] Tipo: MEDIA (${response.media_type})`);
+        console.log(`       Texto: "${response.text}"`);
+        console.log(`       URL: "${response.media_url}"`);
       } else {
-        console.log(`   [${index + 1}] Tipo: SIMPLE (${response.length} caracteres)`);
+        const text = response as string;
+        console.log(`   [${index + 1}] Tipo: SIMPLE (${text.length} caracteres)`);
       }
     });
     
@@ -104,8 +109,11 @@ async function testMessageProcessor() {
         response.fragments.forEach((frag, fragIndex) => {
           console.log(`       ${fragIndex + 1}. ${frag.type} (delay: ${frag.delay}ms)`);
         });
+      } else if (isSimpleResponseWithMedia(response)) {
+        console.log(`   [${index + 1}] MEDIA: ${response.media_type} - "${response.text.substring(0, 50)}..."`);
       } else {
-        console.log(`   [${index + 1}] SIMPLE: "${response.substring(0, 50)}..."`);
+        const text = response as string;
+        console.log(`   [${index + 1}] SIMPLE: "${text.substring(0, 50)}..."`);
       }
     });
     
