@@ -33,19 +33,27 @@ class AdvisorNotificationService {
         return false;
       }
 
-      // Determinar emoji según lead status
-      const statusEmoji = this.getStatusEmoji(data.leadStatus);
+      // Limpiar teléfono para formato internacional
+      const cleanPhone = data.userPhone.replace(/[^0-9]/g, '');
       
-      // Construir mensaje de notificación
-      const message = this.buildNotificationMessage(data, statusEmoji);
-      
-      // Enviar mensaje al asesor
-      await whatsappSender.sendTextMessage({ 
-        to: advisorPhone, 
-        message 
+      // Enviar notificación usando template de WhatsApp
+      await whatsappSender.sendTemplateMessage({
+        to: advisorPhone,
+        templateName: 'advisor_request_notification',
+        languageCode: 'es_MX',
+        components: [
+          {
+            type: 'body',
+            parameters: [
+              { type: 'text', text: data.userName },
+              { type: 'text', text: cleanPhone },
+              { type: 'text', text: data.leadScore.toString() }
+            ]
+          }
+        ]
       });
       
-      console.log('[AdvisorNotification] Notification sent successfully', {
+      console.log('[AdvisorNotification] Notification sent successfully via template', {
         requestId: data.requestId,
         advisorPhone
       });

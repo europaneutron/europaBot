@@ -131,16 +131,21 @@ export async function POST(request: NextRequest) {
           const mediaType = botResponse.media_type;
           const mediaUrl = botResponse.media_url;
           
+          // Extraer nombre de archivo limpio (sin timestamp)
+          const rawFileName = mediaUrl.split('/').pop() || 'archivo';
+          // Remover timestamp al inicio (formato: 1763590848232_nombre.pdf -> nombre.pdf)
+          const fileName = rawFileName.replace(/^\d+_/, '') || rawFileName;
+          
           if (mediaType === 'image') {
             await whatsappSender.sendImage(from, mediaUrl);
           } else if (mediaType === 'document') {
-            await whatsappSender.sendDocument(from, mediaUrl);
+            await whatsappSender.sendDocument(from, mediaUrl, fileName);
           } else if (mediaType === 'video') {
             await whatsappSender.sendVideo(from, mediaUrl);
           } else {
             // Tipo desconocido, intentar como documento
             console.warn(`⚠️ Tipo de media desconocido: ${mediaType}, enviando como documento`);
-            await whatsappSender.sendDocument(from, mediaUrl);
+            await whatsappSender.sendDocument(from, mediaUrl, fileName);
           }
           
           // Guardar en BD

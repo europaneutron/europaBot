@@ -231,7 +231,7 @@ export class AppointmentManager {
   }
 
   /**
-   * Notificar al agente por WhatsApp
+   * Notificar al agente por WhatsApp usando template
    */
   private async notifyAgent(appointment: any, visitorPhone: string): Promise<void> {
     const agentConfig = await appointmentRepository.getDefaultAgent();
@@ -240,22 +240,30 @@ export class AppointmentManager {
 
     // Limpiar el teléfono para el link de WhatsApp
     const cleanPhone = visitorPhone.replace(/\D/g, '');
+    const whatsappLink = `https://wa.me/${cleanPhone}`;
 
-    const message = agentConfig.template
-      .replace('{agent_name}', agentConfig.name)
-      .replace('{visitor_name}', appointment.visitor_name)
-      .replace('{date}', dateDisplay)
-      .replace('{time_slot}', timeSlotDisplay)
-      .replace('{whatsapp_link}', `https://wa.me/${cleanPhone}`);
-
-    await whatsappSender.sendTextMessage({
+    // Enviar usando template de WhatsApp
+    await whatsappSender.sendTemplateMessage({
       to: agentConfig.phone,
-      message
+      templateName: 'appointment_notification',
+      languageCode: 'es_MX',
+      components: [
+        {
+          type: 'body',
+          parameters: [
+            { type: 'text', text: agentConfig.name },
+            { type: 'text', text: appointment.visitor_name },
+            { type: 'text', text: dateDisplay },
+            { type: 'text', text: timeSlotDisplay },
+            { type: 'text', text: whatsappLink }
+          ]
+        }
+      ]
     });
 
     await appointmentRepository.markAgentNotified(appointment.id);
     
-    console.log(`✅ Agente notificado: ${agentConfig.name} (${agentConfig.phone})`);
+    console.log(`✅ Agente notificado vía template: ${agentConfig.name} (${agentConfig.phone})`);
   }
 
   /**

@@ -292,17 +292,6 @@ export class MessageProcessor {
       // Verificar si ya completó este tema
       const isCompleted = await userRepository.isCheckpointCompleted(userId, intentName as CheckpointKey);
       
-      if (isCompleted) {
-        // Obtener respuesta y compartirla nuevamente con un mensaje amigable
-        const responses = await conversationRepository.getBotResponses(intentName);
-        
-        if (responses.length > 0) {
-          // Agregar mensaje amigable al inicio
-          const friendlyMessage = 'Con gusto te la comparto nuevamente 😊';
-          return [friendlyMessage, ...responses];
-        }
-      }
-
       // Marcar como completado (solo si no lo estaba antes)
       if (!isCompleted) {
         await userRepository.markCheckpointCompleted(userId, intentName as CheckpointKey);

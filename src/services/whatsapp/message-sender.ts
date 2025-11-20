@@ -187,6 +187,53 @@ export class WhatsAppMessageSender {
   }
 
   /**
+   * Enviar mensaje usando template de WhatsApp
+   */
+  async sendTemplateMessage(params: {
+    to: string;
+    templateName: string;
+    languageCode: string;
+    components: Array<{
+      type: string;
+      parameters: Array<{ type: string; text: string }>;
+    }>;
+  }): Promise<{ messageId: string }> {
+    const url = `${WHATSAPP_API_URL}/${WHATSAPP_PHONE_ID}/messages`;
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${WHATSAPP_TOKEN}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to: params.to,
+        type: 'template',
+        template: {
+          name: params.templateName,
+          language: {
+            code: params.languageCode
+          },
+          components: params.components
+        }
+      })
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      console.error('WhatsApp template send error:', error);
+      throw new Error(`Failed to send template message: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return {
+      messageId: data.messages[0].id
+    };
+  }
+
+  /**
    * Enviar ubicación
    */
   async sendLocation(

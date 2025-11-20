@@ -6,7 +6,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { createBrowserClient } from '@supabase/ssr';
 
 interface MediaFile {
   name: string;
@@ -31,7 +31,10 @@ const FOLDERS = {
 };
 
 function MediaLibrary({ onSelect, onClose }: MediaLibraryProps) {
-  const supabase = createClientComponentClient();
+  const supabase = createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  );
   
   const [files, setFiles] = useState<MediaFile[]>([]);
   const [filteredFiles, setFilteredFiles] = useState<MediaFile[]>([]);
@@ -85,7 +88,13 @@ function MediaLibrary({ onSelect, onClose }: MediaLibraryProps) {
       if (listError) throw listError;
 
       const filesWithUrls: MediaFile[] = (data || [])
-        .filter(item => !item.name.includes('.emptyFolderPlaceholder'))
+        .filter(item => {
+          // Filtrar carpetas y placeholders
+          if (item.name.includes('.emptyFolderPlaceholder')) return false;
+          if (item.id === null) return false; // Las carpetas tienen id null
+          // Solo archivos con extensión
+          return item.name.includes('.');
+        })
         .map(item => {
           const fullPath = folder + item.name;
           const { data: urlData } = supabase.storage
