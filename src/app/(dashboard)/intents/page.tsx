@@ -8,11 +8,25 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { intentConfigRepositoryClient, IntentConfiguration } from '@/data/repositories/intent-config.repository.client';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import { Badge } from '@/components/ui/badge';
+import { Search, RefreshCw, Archive, ArchiveRestore, Edit, MessageSquare } from 'lucide-react';
 
 export default function IntentsPage() {
   const [intents, setIntents] = useState<IntentConfiguration[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [showArchived, setShowArchived] = useState(false);
 
   useEffect(() => {
     loadIntents();
@@ -31,155 +45,201 @@ export default function IntentsPage() {
     }
   }
 
-  async function toggleActive(id: string, currentStatus: boolean) {
+  async function handleArchive(id: string, currentStatus: boolean) {
+    const action = currentStatus ? 'archivar' : 'restaurar';
+    if (!confirm(`¿Estás seguro de ${action} esta intención?`)) return;
+
     try {
       await intentConfigRepositoryClient.update(id, { is_active: !currentStatus });
-      // Recargar lista
       await loadIntents();
     } catch (err) {
-      console.error('Error toggling intent:', err);
-      alert('Error al actualizar intención');
+      console.error('Error updating intent:', err);
+      alert(`Error al ${action} intención`);
     }
   }
 
-  if (loading) {
-    return (
-      <div className="p-8">
-        <div className="animate-pulse">
-          <div className="h-8 bg-gray-200 rounded w-1/4 mb-4"></div>
-          <div className="h-64 bg-gray-200 rounded"></div>
-        </div>
-      </div>
-    );
-  }
+  const filteredIntents = intents
+    .filter(intent => showArchived ? !intent.is_active : intent.is_active)
+    .filter(intent => {
+      if (!searchTerm) return true;
+      const search = searchTerm.toLowerCase();
+      return (
+        intent.display_name.toLowerCase().includes(search) ||
+        intent.intent_name.toLowerCase().includes(search) ||
+        intent.keywords.some(k => k.toLowerCase().includes(search))
+      );
+    });
 
   if (error) {
     return (
-      <div className="p-8">
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-          <p className="text-red-800">{error}</p>
+      <div className="p-6">
+        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-800">
+          Error al cargar intenciones: {error}
         </div>
       </div>
     );
   }
 
+  const activeCount = intents.filter(i => i.is_active).length;
+  const archivedCount = intents.filter(i => !i.is_active).length;
+
   return (
-    <div className="p-8 max-w-7xl mx-auto">
-      <div className="flex justify-between items-center mb-8">
+    <div className="p-6 space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">
-            🎯 Intenciones del Bot
+          <h1 className="text-3xl font-bold tracking-tight">
+            Intenciones del Bot
           </h1>
-          <p className="text-gray-600">
-            Gestiona las intenciones y patrones de reconocimiento del bot
+          <p className="text-muted-foreground mt-1">
+            {activeCount} activas · {archivedCount} archivadas
           </p>
         </div>
-        <Link
-          href="/intents/new"
-          className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center"
-        >
-          <span className="mr-2">+</span>
-          Nueva Intención
-        </Link>
+        <div className="flex gap-2">
+          <Button
+            onClick={loadIntents}
+            variant="outline"
+            size="sm"
+            disabled={loading}
+          >
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Actualizar
+          </Button>
+          <Link href="/intents/new">
+            <Button size="sm">
+              Nueva Intención
+            </Button>
+          </Link>
+        </div>
       </div>
 
-      <div className="bg-white rounded-lg shadow overflow-hidden">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Nombre
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Estado
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Checkpoint
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Prioridad
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Keywords
-              </th>
-              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Acciones
-              </th>
-            </tr>
-          </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
-            {intents.length === 0 ? (
-              <tr>
-                <td colSpan={6} className="px-6 py-12 text-center text-gray-500">
-                  No hay intenciones configuradas
-                </td>
-              </tr>
+      {/* Filtros */}
+      <div className="flex flex-wrap gap-4 items-end">
+        <div className="flex-1 min-w-[200px]">
+          <label className="text-sm font-medium mb-2 block">Buscar</label>
+          <div className="flex gap-2">
+            <Input
+              placeholder="Nombre, keyword..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+            <Button size="sm" variant="ghost">
+              <Search className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+
+        <div>
+          <label className="text-sm font-medium mb-2 block">Vista</label>
+          <Button
+            onClick={() => setShowArchived(!showArchived)}
+            variant={showArchived ? 'default' : 'outline'}
+            size="sm"
+          >
+            {showArchived ? (
+              <>
+                <Archive className="h-4 w-4 mr-2" />
+                Archivados ({archivedCount})
+              </>
             ) : (
-              intents.map((intent) => (
-                <tr key={intent.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex items-center">
-                      <div>
-                        <div className="text-sm font-medium text-gray-900">
-                          {intent.display_name}
-                        </div>
-                        <div className="text-sm text-gray-500">
-                          {intent.intent_name}
-                        </div>
+              <>
+                Activos ({activeCount})
+              </>
+            )}
+          </Button>
+        </div>
+      </div>
+
+      {/* Tabla */}
+      <div className="rounded-md border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Nombre</TableHead>
+              <TableHead>Checkpoint</TableHead>
+              <TableHead className="text-center">Prioridad</TableHead>
+              <TableHead>Keywords</TableHead>
+              <TableHead className="text-right">Acciones</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {loading ? (
+              <TableRow>
+                <TableCell colSpan={5} className="text-center py-8">
+                  <div className="flex items-center justify-center gap-2">
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                    Cargando...
+                  </div>
+                </TableCell>
+              </TableRow>
+            ) : filteredIntents.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                  {showArchived ? 'No hay intenciones archivadas' : 'No se encontraron intenciones'}
+                </TableCell>
+              </TableRow>
+            ) : (
+              filteredIntents.map((intent) => (
+                <TableRow key={intent.id}>
+                  <TableCell>
+                    <div>
+                      <div className="font-medium">{intent.display_name}</div>
+                      <div className="text-sm text-muted-foreground">
+                        {intent.intent_name}
                       </div>
                     </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <button
-                      onClick={() => toggleActive(intent.id, intent.is_active)}
-                      className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                        intent.is_active
-                          ? 'bg-green-100 text-green-800'
-                          : 'bg-gray-100 text-gray-800'
-                      }`}
-                    >
-                      {intent.is_active ? '✅ Activo' : '❌ Inactivo'}
-                    </button>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                      intent.is_checkpoint
-                        ? 'bg-blue-100 text-blue-800'
-                        : 'bg-gray-100 text-gray-800'
-                    }`}>
-                      {intent.is_checkpoint ? '✅ Sí' : '—'}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {intent.priority}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-500">
-                    {intent.keywords.slice(0, 3).join(', ')}
-                    {intent.keywords.length > 3 && ` (+${intent.keywords.length - 3})`}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-2">
-                    <Link
-                      href={`/intents/${intent.id}`}
-                      className="text-blue-600 hover:text-blue-900"
-                    >
-                      Editar
-                    </Link>
-                    <Link
-                      href={`/intents/${intent.id}/responses`}
-                      className="text-green-600 hover:text-green-900"
-                    >
-                      Respuestas
-                    </Link>
-                  </td>
-                </tr>
+                  </TableCell>
+                  <TableCell>
+                    {intent.is_checkpoint ? (
+                      <Badge variant="secondary">Checkpoint</Badge>
+                    ) : (
+                      <span className="text-muted-foreground text-sm">-</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-center">
+                    <Badge variant="outline">{intent.priority}</Badge>
+                  </TableCell>
+                  <TableCell>
+                    <div className="text-sm">
+                      {intent.keywords.slice(0, 3).join(', ')}
+                      {intent.keywords.length > 3 && (
+                        <span className="text-muted-foreground">
+                          {' '}+{intent.keywords.length - 3}
+                        </span>
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex items-center justify-end gap-2">
+                      <Link href={`/intents/${intent.id}`}>
+                        <Button variant="ghost" size="sm">
+                          <Edit className="h-4 w-4" />
+                        </Button>
+                      </Link>
+                      <Link href={`/intents/${intent.id}/responses`}>
+                        <Button variant="ghost" size="sm">
+                          <MessageSquare className="h-4 w-4" />
+                        </Button>
+                      </Link>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleArchive(intent.id, intent.is_active)}
+                        title={intent.is_active ? 'Archivar' : 'Restaurar'}
+                      >
+                        {intent.is_active ? (
+                          <Archive className="h-4 w-4" />
+                        ) : (
+                          <ArchiveRestore className="h-4 w-4" />
+                        )}
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
               ))
             )}
-          </tbody>
-        </table>
-      </div>
-
-      <div className="mt-4 text-sm text-gray-600">
-        Total de intenciones: {intents.length} | Activas: {intents.filter(i => i.is_active).length} | Checkpoints: {intents.filter(i => i.is_checkpoint).length}
+          </TableBody>
+        </Table>
       </div>
     </div>
   );

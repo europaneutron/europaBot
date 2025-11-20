@@ -11,6 +11,7 @@ import { conversationRepository } from '@/data/repositories/conversation.reposit
 import { configRepository } from '@/data/repositories/config.repository';
 import { appointmentManager } from '@/core/appointment/appointment-manager';
 import { supabaseServer } from '@/services/supabase/server-client';
+import { whatsappSender } from '@/services/whatsapp/message-sender';
 import type { CheckpointKey } from '@/data/models/user.model';
 import type { BotResponse } from '@/types/message-fragments.types';
 import { isSimpleResponseWithMedia } from '@/types/message-fragments.types';
@@ -33,6 +34,13 @@ export class MessageProcessor {
     userName?: string
   ): Promise<ProcessedResponse> {
     try {
+      // 0. Enviar indicador de "escribiendo..." si está habilitado
+      const typingEnabled = await configRepository.getBoolean('typing_indicator_enabled', true);
+      if (typingEnabled) {
+        // No await - ejecutar en paralelo para no bloquear
+        whatsappSender.sendTypingIndicator(phoneNumber, messageId).catch(() => {});
+      }
+
       // 1. Buscar o crear usuario
       const user = await userRepository.findOrCreateByPhone(phoneNumber, userName);
 

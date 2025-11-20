@@ -187,6 +187,41 @@ export class WhatsAppMessageSender {
   }
 
   /**
+   * Enviar indicador de "escribiendo..." (typing indicator)
+   * Se muestra por máximo 25 segundos o hasta enviar un mensaje
+   */
+  async sendTypingIndicator(to: string, messageId: string): Promise<void> {
+    const url = `${WHATSAPP_API_URL}/${WHATSAPP_PHONE_ID}/messages`;
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${WHATSAPP_TOKEN}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          status: 'read',
+          message_id: messageId,
+          typing_indicator: {
+            type: 'text'
+          }
+        })
+      });
+
+      if (!response.ok) {
+        const error = await response.text();
+        console.warn(`Failed to send typing indicator: ${response.status}`, error);
+        // No lanzar error, es un feature no crítico
+      }
+    } catch (error) {
+      console.warn('Error sending typing indicator:', error);
+      // No lanzar error para no bloquear el flujo principal
+    }
+  }
+
+  /**
    * Enviar mensaje usando template de WhatsApp
    */
   async sendTemplateMessage(params: {
