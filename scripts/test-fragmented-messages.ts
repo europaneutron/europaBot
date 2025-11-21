@@ -110,7 +110,8 @@ async function testMessageProcessor() {
           console.log(`       ${fragIndex + 1}. ${frag.type} (delay: ${frag.delay}ms)`);
         });
       } else if (isSimpleResponseWithMedia(response)) {
-        console.log(`   [${index + 1}] MEDIA: ${response.media_type} - "${response.text.substring(0, 50)}..."`);
+        const textPreview = response.text ? response.text.substring(0, 50) : '(solo media)';
+        console.log(`   [${index + 1}] MEDIA: ${response.media_type} - "${textPreview}..."`);
       } else {
         const text = response as string;
         console.log(`   [${index + 1}] SIMPLE: "${text.substring(0, 50)}..."`);

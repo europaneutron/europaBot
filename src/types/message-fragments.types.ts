@@ -99,7 +99,7 @@ export interface FragmentedResponse {
 // =====================================================
 
 export interface SimpleResponseWithMedia {
-  text: string;
+  text: string | null;
   media_url: string;
   media_type?: 'image' | 'document' | 'video';
 }

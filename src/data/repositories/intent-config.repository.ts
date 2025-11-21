@@ -26,7 +26,7 @@ export interface BotResponse {
   id: string;
   intent_name: string;
   response_key: string;
-  message_text: string;
+  message_text: string | null;
   media_url: string | null;
   variables: any;
   is_active: boolean;

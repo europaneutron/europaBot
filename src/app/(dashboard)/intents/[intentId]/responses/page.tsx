@@ -28,6 +28,7 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
   const [showForm, setShowForm] = useState(false);
   const [editingResponse, setEditingResponse] = useState<BotResponse | null>(null);
   const [showMediaLibrary, setShowMediaLibrary] = useState(false);
+  const [mediaOnlyMode, setMediaOnlyMode] = useState(false);
   
   const [formData, setFormData] = useState({
     response_key: '',
@@ -67,6 +68,7 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
 
   function handleNewResponse() {
     setEditingResponse(null);
+    setMediaOnlyMode(false);
     setFormData({
       response_key: '',
       message_text: '',
@@ -80,9 +82,12 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
 
   function handleEditResponse(response: BotResponse) {
     setEditingResponse(response);
+    // Detectar si es modo solo-media
+    const isMediaOnly = !response.message_text && !!response.media_url;
+    setMediaOnlyMode(isMediaOnly);
     setFormData({
       response_key: response.response_key,
-      message_text: response.message_text,
+      message_text: response.message_text || '',
       media_url: response.media_url || '',
       order_priority: response.order_priority,
       is_active: response.is_active,
@@ -96,8 +101,14 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
     
     if (!intent) return;
     
-    if (!formData.response_key.trim() || !formData.message_text.trim()) {
-      setMessage({ type: 'error', text: 'Response key y mensaje son requeridos' });
+    // Validar que tenga response_key y al menos texto o media
+    if (!formData.response_key.trim()) {
+      setMessage({ type: 'error', text: 'Response key es requerido' });
+      return;
+    }
+    
+    if (!formData.message_text.trim() && !formData.media_url.trim()) {
+      setMessage({ type: 'error', text: 'Debes proporcionar al menos un mensaje de texto o una imagen/video' });
       return;
     }
 
@@ -106,7 +117,7 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
       const responseData = {
         intent_name: intent.intent_name,
         response_key: formData.response_key.trim(),
-        message_text: formData.message_text.trim(),
+        message_text: formData.message_text.trim() || null,
         media_url: formData.media_url.trim() || null,
         order_priority: formData.order_priority,
         is_active: formData.is_active,
@@ -238,9 +249,15 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
                           <Badge variant="outline">Inactiva</Badge>
                         )}
                       </div>
-                      <p className="whitespace-pre-wrap">
-                        {response.message_text}
-                      </p>
+                      {response.message_text ? (
+                        <p className="whitespace-pre-wrap">
+                          {response.message_text}
+                        </p>
+                      ) : (
+                        <p className="text-sm text-muted-foreground italic">
+                          (Solo imagen/video)
+                        </p>
+                      )}
                       {response.media_url && (
                         <p className="text-sm text-blue-600">
                           Media: {response.media_url}
@@ -303,21 +320,42 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
                 </p>
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="message_text">Mensaje *</Label>
-                <Textarea
-                  id="message_text"
-                  value={formData.message_text}
-                  onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setFormData({ ...formData, message_text: e.target.value })}
-                  placeholder="Escribe el mensaje que el bot enviará..."
-                  rows={6}
-                  required
+              {/* Toggle para modo solo imagen/video */}
+              <div className="flex items-center space-x-2 p-4 bg-muted/50 rounded-lg">
+                <Checkbox
+                  id="media_only_mode"
+                  checked={mediaOnlyMode}
+                  onCheckedChange={(checked: boolean) => {
+                    setMediaOnlyMode(checked);
+                    if (checked) {
+                      // Limpiar mensaje cuando se activa modo solo-media
+                      setFormData({ ...formData, message_text: '' });
+                    }
+                  }}
                   disabled={saving}
                 />
-                <p className="text-xs text-muted-foreground">
-                  Usa \n para saltos de línea
-                </p>
+                <Label htmlFor="media_only_mode" className="text-sm font-normal cursor-pointer">
+                  Solo enviar imagen/video (sin texto)
+                </Label>
               </div>
+
+              {/* Mensaje de texto - oculto en modo solo-media */}
+              {!mediaOnlyMode && (
+                <div className="space-y-2">
+                  <Label htmlFor="message_text">Mensaje de texto</Label>
+                  <Textarea
+                    id="message_text"
+                    value={formData.message_text}
+                    onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setFormData({ ...formData, message_text: e.target.value })}
+                    placeholder="Escribe el mensaje que el bot enviará..."
+                    rows={6}
+                    disabled={saving}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Usa \n para saltos de línea.
+                  </p>
+                </div>
+              )}
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
