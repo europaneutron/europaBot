@@ -17,7 +17,7 @@ interface Props {
 
 export function SettingsForm({ configs, onReload }: Props) {
   return (
-    <div className="space-y-8">
+    <div className="contents">
       <CheckpointsSection configs={configs.appointments} onReload={onReload} />
       <ScoringSection configs={configs.scoring} onReload={onReload} />
       <FallbackSection configs={configs.fallback} onReload={onReload} />

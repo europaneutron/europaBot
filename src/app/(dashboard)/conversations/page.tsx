@@ -1,5 +1,5 @@
 /**
- * Página de lista de conversaciones con filtros
+ * Página de lista de conversaciones con filtros (shadcn/ui)
  * Ruta: /conversations
  */
 
@@ -10,7 +10,25 @@ import Link from 'next/link';
 import { useConversations, ConversationFilters } from '@/hooks/use-conversations';
 import { exportToCSV, generateCSVFilename } from '@/lib/utils/export-csv';
 import { Button } from '@/components/ui/button';
-import { Download } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Download, Search, X, Eye, CalendarCheck } from 'lucide-react';
 
 export default function ConversationsPage() {
   const [filters, setFilters] = useState<ConversationFilters>({});
@@ -18,6 +36,10 @@ export default function ConversationsPage() {
 
   const handleFilterChange = (key: keyof ConversationFilters, value: any) => {
     setFilters((prev: ConversationFilters) => ({ ...prev, [key]: value }));
+  };
+
+  const clearFilters = () => {
+    setFilters({});
   };
 
   function handleExportCSV() {
@@ -51,105 +73,113 @@ export default function ConversationsPage() {
     );
   }
 
+  const hasActiveFilters = Object.keys(filters).length > 0;
+
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <div className="p-6 space-y-6">
       {/* Header */}
-      <div className="mb-8">
-        <h2 className="text-3xl font-bold text-gray-900 mb-2">
-          Conversaciones
-        </h2>
-        <p className="text-gray-600">
+      <div>
+        <h1 className="text-3xl font-bold tracking-tight">Conversaciones</h1>
+        <p className="text-muted-foreground mt-1">
           Gestiona y revisa todas las conversaciones del bot
         </p>
       </div>
 
       {/* Filtros */}
-      <div className="bg-white rounded-lg shadow p-6 mb-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Filtros</h3>
-        
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          {/* Búsqueda */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Buscar
-            </label>
-            <input
-              type="text"
-              placeholder="Teléfono o nombre..."
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              onChange={(e) => handleFilterChange('searchQuery', e.target.value)}
-            />
+      <Card>
+        <CardHeader>
+          <CardTitle>Filtros</CardTitle>
+          <CardDescription>Refina la búsqueda de conversaciones</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            {/* Búsqueda */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Buscar</label>
+              <div className="relative">
+                <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Teléfono o nombre..."
+                  className="pl-8"
+                  value={filters.searchQuery || ''}
+                  onChange={(e) => handleFilterChange('searchQuery', e.target.value || undefined)}
+                />
+              </div>
+            </div>
+
+            {/* Lead Status */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Estado de Lead</label>
+              <Select
+                value={filters.leadStatus || 'all'}
+                onValueChange={(value) => handleFilterChange('leadStatus', value === 'all' ? undefined : value)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Todos" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos</SelectItem>
+                  <SelectItem value="cold">COLD</SelectItem>
+                  <SelectItem value="warm">WARM</SelectItem>
+                  <SelectItem value="hot">HOT</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Tiene Cita */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Citas</label>
+              <Select
+                value={filters.hasAppointment === undefined ? 'all' : filters.hasAppointment ? 'true' : 'false'}
+                onValueChange={(value) => {
+                  handleFilterChange(
+                    'hasAppointment',
+                    value === 'all' ? undefined : value === 'true'
+                  );
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Todos" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos</SelectItem>
+                  <SelectItem value="true">Con cita</SelectItem>
+                  <SelectItem value="false">Sin cita</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Fecha */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Fecha desde</label>
+              <Input
+                type="date"
+                value={filters.startDate || ''}
+                onChange={(e) => handleFilterChange('startDate', e.target.value || undefined)}
+              />
+            </div>
           </div>
 
-          {/* Lead Status */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Estado de Lead
-            </label>
-            <select
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              onChange={(e) => handleFilterChange('leadStatus', e.target.value || undefined)}
-            >
-              <option value="">Todos</option>
-              <option value="cold">COLD</option>
-              <option value="warm">WARM</option>
-              <option value="hot">HOT</option>
-            </select>
-          </div>
-
-          {/* Tiene Cita */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Citas
-            </label>
-            <select
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              onChange={(e) => {
-                const value = e.target.value;
-                handleFilterChange(
-                  'hasAppointment',
-                  value === '' ? undefined : value === 'true'
-                );
-              }}
-            >
-              <option value="">Todos</option>
-              <option value="true">Con cita</option>
-              <option value="false">Sin cita</option>
-            </select>
-          </div>
-
-          {/* Fecha */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Fecha desde
-            </label>
-            <input
-              type="date"
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              onChange={(e) => handleFilterChange('startDate', e.target.value || undefined)}
-            />
-          </div>
-        </div>
-
-        {/* Botón limpiar filtros */}
-        <div className="mt-4">
-          <button
-            onClick={() => setFilters({})}
-            className="text-sm text-blue-600 hover:text-blue-800"
-          >
-            Limpiar filtros
-          </button>
-        </div>
-      </div>
+          {/* Botón limpiar filtros */}
+          {hasActiveFilters && (
+            <div className="mt-4">
+              <Button variant="ghost" size="sm" onClick={clearFilters}>
+                <X className="h-4 w-4 mr-2" />
+                Limpiar filtros
+              </Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Lista de conversaciones */}
-      <div className="bg-white rounded-lg shadow">
-        {/* Header de tabla */}
-        <div className="px-6 py-4 border-b border-gray-200">
+      <Card>
+        <CardHeader>
           <div className="flex items-center justify-between">
-            <h3 className="text-lg font-semibold text-gray-900">
-              {conversations.length} conversaciones
-            </h3>
+            <div>
+              <CardTitle>{conversations.length} conversaciones</CardTitle>
+              <CardDescription>Historial de interacciones con usuarios</CardDescription>
+            </div>
             <Button
               onClick={handleExportCSV}
               variant="outline"
@@ -160,124 +190,117 @@ export default function ConversationsPage() {
               Exportar CSV
             </Button>
           </div>
-        </div>
-
-        {/* Tabla */}
-        {loading ? (
-          <div className="p-8 text-center text-gray-500">
-            Cargando conversaciones...
-          </div>
-        ) : error ? (
-          <div className="p-8 text-center text-red-500">
-            {error}
-          </div>
-        ) : conversations.length === 0 ? (
-          <div className="p-8 text-center text-gray-500">
-            No se encontraron conversaciones
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Usuario
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Lead Status
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Score
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Mensajes
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Último mensaje
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Cita
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Acciones
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {conversations.map((conv: any) => (
-                  <tr key={conv.user_id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div>
-                        <div className="text-sm font-medium text-gray-900">
-                          {conv.user_name || 'Sin nombre'}
+        </CardHeader>
+        <CardContent>
+          {loading ? (
+            <div className="py-8 text-center text-muted-foreground">
+              Cargando conversaciones...
+            </div>
+          ) : error ? (
+            <div className="py-8 text-center text-destructive">
+              {error}
+            </div>
+          ) : conversations.length === 0 ? (
+            <div className="py-8 text-center text-muted-foreground">
+              No se encontraron conversaciones
+            </div>
+          ) : (
+            <div className="rounded-md border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Usuario</TableHead>
+                    <TableHead>Lead Status</TableHead>
+                    <TableHead>Score</TableHead>
+                    <TableHead>Mensajes</TableHead>
+                    <TableHead>Último mensaje</TableHead>
+                    <TableHead className="text-center">Cita</TableHead>
+                    <TableHead className="text-right">Acciones</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {conversations.map((conv: any) => (
+                    <TableRow key={conv.user_id}>
+                      <TableCell>
+                        <div>
+                          <div className="font-medium">
+                            {conv.user_name || 'Sin nombre'}
+                          </div>
+                          <div className="text-sm text-muted-foreground">
+                            {conv.user_phone}
+                          </div>
                         </div>
-                        <div className="text-sm text-gray-500">
-                          {conv.user_phone}
+                      </TableCell>
+                      <TableCell>
+                        <LeadBadge status={conv.lead_status} />
+                      </TableCell>
+                      <TableCell>
+                        <span className={`font-medium ${
+                          conv.lead_score >= 70 ? 'text-red-600' :
+                          conv.lead_score >= 40 ? 'text-orange-600' :
+                          'text-blue-600'
+                        }`}>
+                          {conv.lead_score}
+                        </span>
+                      </TableCell>
+                      <TableCell>{conv.message_count}</TableCell>
+                      <TableCell>
+                        <div className="max-w-xs">
+                          <div className="text-sm truncate">
+                            {conv.last_message}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {new Date(conv.last_message_time).toLocaleString('es-ES')}
+                          </div>
                         </div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <LeadBadge status={conv.lead_status} />
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {conv.lead_score}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {conv.message_count}
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="text-sm text-gray-900 max-w-xs truncate">
-                        {conv.last_message}
-                      </div>
-                      <div className="text-xs text-gray-500">
-                        {new Date(conv.last_message_time).toLocaleString('es-ES')}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      {conv.has_appointment ? (
-                        <span className="text-green-600 text-sm">✓ Sí</span>
-                      ) : (
-                        <span className="text-gray-400 text-sm">—</span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm">
-                      <Link
-                        href={`/conversations/${conv.user_id}`}
-                        className="text-blue-600 hover:text-blue-800 font-medium"
-                      >
-                        Ver detalle →
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {conv.has_appointment ? (
+                          <div className="flex items-center justify-center gap-1">
+                            <CalendarCheck className="h-4 w-4 text-green-600" />
+                            <span className="text-xs text-muted-foreground">
+                              {conv.appointment_date ? new Date(conv.appointment_date).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit' }) : ''}
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button variant="ghost" size="sm" asChild>
+                          <Link href={`/conversations/${conv.user_id}`}>
+                            <Eye className="h-4 w-4 mr-2" />
+                            Ver
+                          </Link>
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
 
 /**
- * Badge para lead status
+ * Badge para lead status con colores
  */
 function LeadBadge({ status }: { status: string }) {
-  const colors: Record<string, string> = {
-    hot: 'bg-red-100 text-red-800',
-    warm: 'bg-yellow-100 text-yellow-800',
-    cold: 'bg-blue-100 text-blue-800',
+  const statusConfig: Record<string, { className: string; label: string }> = {
+    hot: { className: 'bg-red-100 text-red-700 border-red-200', label: 'HOT' },
+    warm: { className: 'bg-orange-100 text-orange-700 border-orange-200', label: 'WARM' },
+    cold: { className: 'bg-blue-100 text-blue-700 border-blue-200', label: 'COLD' },
   };
 
-  const labels: Record<string, string> = {
-    hot: 'HOT',
-    warm: 'WARM',
-    cold: 'COLD',
-  };
+  const config = statusConfig[status] || statusConfig.cold;
 
   return (
-    <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${colors[status] || colors.cold}`}>
-      {labels[status] || status.toUpperCase()}
-    </span>
+    <Badge variant="outline" className={config.className}>
+      {config.label}
+    </Badge>
   );
 }

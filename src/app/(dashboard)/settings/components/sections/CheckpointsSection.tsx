@@ -35,12 +35,7 @@ export function CheckpointsSection({ configs, onReload }: Props) {
       const formData = new FormData(e.currentTarget);
       const updates: Array<{ key: string; value: string }> = [];
 
-      // Manejar inputs regulares
-      formData.forEach((value, key) => {
-        updates.push({ key, value: value.toString() });
-      });
-
-      // Manejar checkboxes manualmente (shadcn Checkbox no usa FormData)
+      // Manejar checkboxes manualmente primero
       const checkbox = e.currentTarget.querySelector('input[name="appointment_auto_offer_enabled"]') as HTMLInputElement;
       if (checkbox) {
         updates.push({ 
@@ -48,6 +43,13 @@ export function CheckpointsSection({ configs, onReload }: Props) {
           value: checkbox.checked ? 'true' : 'false' 
         });
       }
+
+      // Manejar inputs regulares (excluir checkboxes ya procesados)
+      formData.forEach((value, key) => {
+        if (key !== 'appointment_auto_offer_enabled') {
+          updates.push({ key, value: value.toString() });
+        }
+      });
 
       await configRepositoryClient.updateMultiple(updates);
       await onReload();

@@ -35,12 +35,7 @@ export function FallbackSection({ configs, onReload }: Props) {
       const formData = new FormData(e.currentTarget);
       const updates: Array<{ key: string; value: string }> = [];
 
-      // Manejar inputs regulares
-      formData.forEach((value, key) => {
-        updates.push({ key, value: value.toString() });
-      });
-
-      // Manejar checkbox manualmente
+      // Manejar checkboxes manualmente primero
       const checkbox = e.currentTarget.querySelector('input[name="fallback_derivation_enabled"]') as HTMLInputElement;
       if (checkbox) {
         updates.push({ 
@@ -48,6 +43,13 @@ export function FallbackSection({ configs, onReload }: Props) {
           value: checkbox.checked ? 'true' : 'false' 
         });
       }
+
+      // Manejar inputs regulares (excluir checkboxes ya procesados)
+      formData.forEach((value, key) => {
+        if (key !== 'fallback_derivation_enabled') {
+          updates.push({ key, value: value.toString() });
+        }
+      });
 
       await configRepositoryClient.updateMultiple(updates);
       await onReload();

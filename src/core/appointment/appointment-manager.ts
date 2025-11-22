@@ -13,12 +13,31 @@ import type { AppointmentFlow, TimeSlot, AppointmentFlowData } from '@/types/app
 export class AppointmentManager {
   /**
    * Iniciar flujo de agendamiento
+   * @param skipConfirmation - Si es true, salta directo a pedir fecha (cuando usuario dice explícitamente "agendar cita")
    */
-  async startFlow(userId: string): Promise<AppointmentFlow> {
-    // Guardar que iniciamos el flujo
+  async startFlow(userId: string, skipConfirmation: boolean = false): Promise<AppointmentFlow> {
+    if (skipConfirmation) {
+      // Usuario ya dijo explícitamente que quiere agendar, ir directo a fecha
+      await userRepository.updateAppointmentFlowState(userId, 'ask_date');
+      
+      const yesResponse = await configRepository.get(
+        'auto_offer_yes_response',
+        '¡Perfecto! Vamos a agendar tu visita. 📅'
+      );
+      const requestDate = await configRepository.get(
+        'appointment_request_date',
+        '¿Qué día te gustaría visitarnos? Por favor indica una fecha (ejemplo: mañana, viernes, 15 de noviembre)'
+      );
+      
+      return {
+        step: 'ask_date',
+        message: `${yesResponse}\n\n${requestDate}`
+      };
+    }
+    
+    // Flujo normal: preguntar primero si quiere agendar (usado en auto-offer)
     await userRepository.updateAppointmentFlowState(userId, 'ask_confirmation');
 
-    // Obtener mensaje desde configuración
     const message = await configRepository.get(
       'auto_offer_message',
       '¡Veo que estás muy interesado! 🎉 ¿Te gustaría agendar una visita para conocer el fraccionamiento en persona?'
@@ -42,6 +61,9 @@ export class AppointmentManager {
       
       case 'ask_date':
         return this.processDate(userId, input);
+      
+      case 'confirm_date':
+        return this.processDateConfirmation(userId, input);
       
       case 'ask_time':
         return this.processTimeSlot(userId, input);
@@ -102,10 +124,25 @@ export class AppointmentManager {
     const parsedDate = this.parseDate(input);
     
     if (!parsedDate) {
-      // Obtener mensaje de fecha inválida desde configuración
+      // Mensaje de error más útil con ejemplos específicos
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const nextWeek = new Date();
+      nextWeek.setDate(nextWeek.getDate() + 7);
+      
+      const tomorrowStr = tomorrow.toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'long' });
+      const nextWeekStr = nextWeek.toLocaleDateString('es-MX', { weekday: 'long' });
+      
       const invalidDateMsg = await configRepository.get(
         'appointment_invalid_date',
-        'Lo siento, esa fecha no es válida o ya pasó. Por favor indica una fecha futura (ejemplo: mañana, lunes, 20 de noviembre)'
+        `Lo siento, no pude entender esa fecha. 😅
+
+Puedes escribir:
+• "mañana" (${tomorrowStr})
+• Un día de la semana: "${nextWeekStr}"
+• Una fecha específica: "25 de noviembre"
+
+¿Qué día prefieres para tu visita?`
       );
       
       return {
@@ -116,13 +153,60 @@ export class AppointmentManager {
 
     // Guardar fecha en estado temporal
     await userRepository.updateAppointmentFlowData(userId, { requested_date: parsedDate });
-    await userRepository.updateAppointmentFlowState(userId, 'ask_time');
+    await userRepository.updateAppointmentFlowState(userId, 'confirm_date');
 
-    // No retornamos mensaje aquí, el webhook lo enviará con botones
-    // Similar al patrón de auto-offer
+    // Formatear fecha para mostrar al usuario
+    const dateObj = new Date(parsedDate + 'T00:00:00');
+    const dateDisplay = dateObj.toLocaleDateString('es-MX', { 
+      weekday: 'long', 
+      day: 'numeric', 
+      month: 'long' 
+    });
+
+    // No retornamos mensaje aquí, el webhook lo enviará con botones de confirmación
     return {
-      step: 'ask_time',
+      step: 'confirm_date',
       message: '' // Vacío, el webhook enviará el mensaje con botones
+    };
+  }
+
+  /**
+   * Procesar confirmación de fecha
+   */
+  private async processDateConfirmation(userId: string, input: string): Promise<AppointmentFlow> {
+    const normalized = input.toLowerCase().trim();
+    
+    // Detectar confirmación (Sí / continuar)
+    if (normalized === 'confirm_date' || normalized.includes('sí') || normalized.includes('si') || normalized.includes('continuar')) {
+      await userRepository.updateAppointmentFlowState(userId, 'ask_time');
+      
+      return {
+        step: 'ask_time',
+        message: '' // El webhook enviará el mensaje con botones de horario
+      };
+    }
+    
+    // Detectar rechazo (cambiar fecha)
+    if (normalized === 'change_date' || normalized.includes('cambiar') || normalized.includes('no')) {
+      // Limpiar fecha guardada
+      await userRepository.updateAppointmentFlowData(userId, { requested_date: null });
+      await userRepository.updateAppointmentFlowState(userId, 'ask_date');
+      
+      const askDateMsg = await configRepository.get(
+        'appointment_ask_date',
+        'Sin problema. ¿Qué día te gustaría visitarnos? Por favor indica una fecha (ejemplo: mañana, viernes, 25 de noviembre)'
+      );
+      
+      return {
+        step: 'ask_date',
+        message: askDateMsg
+      };
+    }
+    
+    // Si no entendimos la respuesta
+    return {
+      step: 'confirm_date',
+      message: 'Por favor, selecciona una opción usando los botones.'
     };
   }
 
@@ -268,19 +352,21 @@ export class AppointmentManager {
 
   /**
    * Parsear fecha en español (con regex para "25 de octubre")
+   * Intenta múltiples estrategias para ser tolerante con errores del usuario
+   * PRIORIDAD: palabras clave (hoy/mañana) > día semana > fecha explícita
    */
   private parseDate(input: string): string | null {
     const normalized = input.toLowerCase().trim();
     const today = new Date();
     today.setHours(0, 0, 0, 0); // Resetear horas
 
-    // Hoy
-    if (normalized === 'hoy') {
+    // PRIORIDAD 1: Hoy (buscar en cualquier parte del texto)
+    if (normalized.includes('hoy')) {
       return today.toISOString().split('T')[0];
     }
 
-    // Mañana
-    if (normalized === 'mañana' || normalized === 'manana') {
+    // PRIORIDAD 2: Mañana (buscar en cualquier parte del texto)
+    if (normalized.includes('mañana') || normalized.includes('manana')) {
       const tomorrow = new Date(today);
       tomorrow.setDate(tomorrow.getDate() + 1);
       return tomorrow.toISOString().split('T')[0];
@@ -292,17 +378,22 @@ export class AppointmentManager {
       'jueves': 4, 'viernes': 5, 'sábado': 6, 'sabado': 6
     };
 
-    for (const [day, targetDay] of Object.entries(daysMap)) {
-      if (normalized.includes(day)) {
-        const result = new Date(today);
-        const currentDay = result.getDay();
-        const diff = (targetDay + 7 - currentDay) % 7 || 7;
-        result.setDate(result.getDate() + diff);
-        return result.toISOString().split('T')[0];
+    // ESTRATEGIA 1: Solo día de semana (más común y seguro)
+    // Buscar solo nombre de día sin números
+    const hasNumber = /\d/.test(normalized);
+    if (!hasNumber) {
+      for (const [day, targetDay] of Object.entries(daysMap)) {
+        if (normalized.includes(day)) {
+          const result = new Date(today);
+          const currentDay = result.getDay();
+          const diff = (targetDay + 7 - currentDay) % 7 || 7;
+          result.setDate(result.getDate() + diff);
+          return result.toISOString().split('T')[0];
+        }
       }
     }
 
-    // Fechas explícitas: "25 de octubre" o "25 octubre"
+    // ESTRATEGIA 2: Fecha explícita con número: "25 de octubre" o "25 octubre"
     const dateRegex = /(\d{1,2})\s+(?:de\s+)?(\w+)/i;
     const match = input.match(dateRegex);
     
@@ -320,14 +411,47 @@ export class AppointmentManager {
       
       if (month !== undefined && day >= 1 && day <= 31) {
         const year = today.getFullYear();
-        const date = new Date(year, month, day);
+        let date = new Date(year, month, day);
+        
+        // Validar que la fecha sea válida (no sea fecha imposible como 31 feb)
+        if (date.getDate() !== day || date.getMonth() !== month) {
+          return null; // Fecha inválida
+        }
         
         // Si la fecha ya pasó este año, usar el próximo año
         if (date < today) {
-          date.setFullYear(year + 1);
+          date = new Date(year + 1, month, day);
+          // Volver a validar para el próximo año
+          if (date.getDate() !== day || date.getMonth() !== month) {
+            return null;
+          }
         }
         
         return date.toISOString().split('T')[0];
+      }
+    }
+
+    // ESTRATEGIA 3: Solo número (interpretar como día del mes actual/siguiente)
+    const dayOnlyMatch = normalized.match(/^(\d{1,2})$/);
+    if (dayOnlyMatch) {
+      const day = parseInt(dayOnlyMatch[1]);
+      if (day >= 1 && day <= 31) {
+        const currentMonth = today.getMonth();
+        const currentYear = today.getFullYear();
+        
+        // Intentar en el mes actual
+        let date = new Date(currentYear, currentMonth, day);
+        
+        // Si es válido y no pasó, usarlo
+        if (date.getDate() === day && date >= today) {
+          return date.toISOString().split('T')[0];
+        }
+        
+        // Intentar en el próximo mes
+        date = new Date(currentYear, currentMonth + 1, day);
+        if (date.getDate() === day) {
+          return date.toISOString().split('T')[0];
+        }
       }
     }
 

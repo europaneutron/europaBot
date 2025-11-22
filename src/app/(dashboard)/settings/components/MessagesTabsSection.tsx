@@ -38,7 +38,7 @@ export function MessagesTabsSection({ configs, onReload }: Props) {
   }
 
   return (
-    <Card className="mt-12">
+    <Card>
       <CardHeader>
         <CardTitle>Mensajes Personalizables del Bot</CardTitle>
         <CardDescription>

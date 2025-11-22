@@ -14,6 +14,7 @@ export interface ConfigsByCategory {
   fallback_messages: BotConfig[];
   appointment_messages: BotConfig[];
   derivation_messages: BotConfig[];
+  followup: BotConfig[];
 }
 
 export interface MessageState {

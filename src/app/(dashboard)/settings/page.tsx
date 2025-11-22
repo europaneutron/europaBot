@@ -5,10 +5,14 @@
 
 'use client';
 
-import { SettingsIcon } from 'lucide-react';
 import { useSettingsConfig } from './hooks/useSettingsConfig';
-import { SettingsForm } from './components/SettingsForm';
+import { CheckpointsSection } from './components/sections/CheckpointsSection';
+import { ScoringSection } from './components/sections/ScoringSection';
+import { FallbackSection } from './components/sections/FallbackSection';
+import { ContactSection } from './components/sections/ContactSection';
+import { MessagesSection } from './components/sections/MessagesSection';
 import { MessagesTabsSection } from './components/MessagesTabsSection';
+import { FollowupSection } from './components/sections/FollowupSection';
 
 export default function SettingsPage() {
   const { configs, loading, message, loadConfigs } = useSettingsConfig();
@@ -30,19 +34,12 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <div className="flex items-center gap-2 mb-2">
-            <SettingsIcon className="h-8 w-8" />
-            <h1 className="text-3xl font-bold tracking-tight">
-              Configuración del Bot
-            </h1>
-          </div>
-          <p className="text-muted-foreground">
-            Ajusta el comportamiento del bot sin necesidad de modificar código
-          </p>
-        </div>
+    <div className="p-6 space-y-6">
+      <div>
+        <h1 className="text-3xl font-bold tracking-tight">Configuración del Bot</h1>
+        <p className="text-muted-foreground mt-1">
+          Ajusta el comportamiento del bot sin necesidad de modificar código
+        </p>
       </div>
 
       {/* Mensaje de estado */}
@@ -56,8 +53,15 @@ export default function SettingsPage() {
         </div>
       )}
 
-      {/* Formulario de configuraciones generales */}
-      <SettingsForm configs={configs} onReload={loadConfigs} />
+      {/* Configuraciones generales */}
+      <CheckpointsSection configs={configs.appointments} onReload={loadConfigs} />
+      <ScoringSection configs={configs.scoring} onReload={loadConfigs} />
+      <FallbackSection configs={configs.fallback} onReload={loadConfigs} />
+      <ContactSection configs={configs.contact} onReload={loadConfigs} />
+      <MessagesSection configs={configs.messages} onReload={loadConfigs} />
+
+      {/* Sección de Follow-up automático */}
+      <FollowupSection configs={configs} onReload={loadConfigs} />
 
       {/* Sección de mensajes personalizables */}
       <MessagesTabsSection configs={configs} onReload={loadConfigs} />

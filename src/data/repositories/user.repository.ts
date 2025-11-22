@@ -255,7 +255,7 @@ export class UserRepository {
    */
   async updateAppointmentFlowState(
     userId: string, 
-    step: 'pending_auto_offer' | 'ask_confirmation' | 'ask_date' | 'ask_time' | 'ask_name' | 'completed'
+    step: 'pending_auto_offer' | 'ask_confirmation' | 'ask_date' | 'confirm_date' | 'ask_time' | 'ask_name' | 'completed'
   ): Promise<void> {
     await supabaseServer
       .from('user_progress')

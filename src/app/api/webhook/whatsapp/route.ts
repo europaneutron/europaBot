@@ -242,13 +242,11 @@ export async function POST(request: NextRequest) {
           }
         }
         
-        // Si el estado es ask_time, enviar pregunta con botones de horario
-        // Similar al patrón de auto-offer
-        if (flowState === 'ask_time' && 
+        // Si el estado es confirm_date, enviar confirmación con botones
+        if (flowState === 'confirm_date' && 
             response.wasDetected && 
             !response.isFallback) {
           
-          // Verificar que no hayamos enviado ya la pregunta
           const { data: lastMessage } = await supabaseServer
             .from('conversation_messages')
             .select('message_text')
@@ -258,27 +256,76 @@ export async function POST(request: NextRequest) {
             .limit(1)
             .single();
           
-          // Solo enviar si el último mensaje NO es la pregunta de horario
-          if (!lastMessage || !lastMessage.message_text.includes('¿En qué horario prefieres')) {
-            console.log(`📤 Enviando pregunta de horario con botones después de confirmar estado en BD`);
+          if (!lastMessage || !lastMessage.message_text.includes('¿Es correcto?')) {
+            console.log(`📤 Enviando confirmación de fecha con botones`);
             
-            // Esperar 300ms para asegurar consistencia en BD
             await new Promise(resolve => setTimeout(resolve, 300));
             
-            // Enviar con botones interactivos
+            const flowData = await userRepository.getAppointmentFlowData(user.id);
+            const requestedDate = flowData?.requested_date;
+            
+            if (requestedDate) {
+              const dateObj = new Date(requestedDate + 'T00:00:00');
+              const dateText = dateObj.toLocaleDateString('es-MX', { 
+                weekday: 'long', 
+                day: 'numeric', 
+                month: 'long' 
+              });
+              
+              const bodyText = `📅 Entendido, quieres visitarnos el *${dateText}*.\n\n¿Es correcto?`;
+              
+              await whatsappSender.sendInteractiveButtons({
+                to: from,
+                bodyText,
+                buttons: [
+                  { id: 'confirm_date', title: '✅ Sí, continuar' },
+                  { id: 'change_date', title: '❌ Cambiar fecha' }
+                ]
+              });
+              
+              await conversationRepository.saveOutgoingMessage(
+                user.id,
+                bodyText,
+                false
+              );
+            }
+          }
+        }
+        
+        // Si el estado es ask_time, enviar pregunta con botones de horario
+        if (flowState === 'ask_time' && 
+            response.wasDetected && 
+            !response.isFallback) {
+          
+          const { data: lastMessage } = await supabaseServer
+            .from('conversation_messages')
+            .select('message_text')
+            .eq('user_id', user.id)
+            .eq('is_from_user', false)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .single();
+          
+          if (!lastMessage || !lastMessage.message_text.includes('¿En qué horario prefieres')) {
+            console.log(`📤 Enviando pregunta de horario con botones`);
+            
+            await new Promise(resolve => setTimeout(resolve, 300));
+            
+            const bodyText = '¿En qué horario prefieres visitarnos?';
+            
             await whatsappSender.sendInteractiveButtons({
               to: from,
-              bodyText: '¿En qué horario prefieres visitarnos?',
+              bodyText,
               buttons: [
-                { id: 'morning', title: 'Mañana' },
-                { id: 'afternoon', title: 'Tarde' },
-                { id: 'evening', title: 'Noche' }
+                { id: 'morning', title: 'Mañana 9-12' },
+                { id: 'afternoon', title: 'Tarde 12-15' },
+                { id: 'evening', title: 'Noche 15-18' }
               ]
             });
             
             await conversationRepository.saveOutgoingMessage(
               user.id,
-              '¿En qué horario prefieres visitarnos?',
+              bodyText,
               false
             );
           }

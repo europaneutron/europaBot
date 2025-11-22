@@ -10,7 +10,8 @@ export type AppointmentStatus = 'pending' | 'confirmed' | 'cancelled' | 'complet
 export type AppointmentFlowStep = 
   | 'pending_auto_offer'  // Esperando confirmación de oferta automática
   | 'ask_confirmation' 
-  | 'ask_date' 
+  | 'ask_date'
+  | 'confirm_date'  // Confirmar fecha interpretada
   | 'ask_time' 
   | 'ask_name' 
   | 'completed';

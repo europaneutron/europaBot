@@ -288,8 +288,9 @@ export class MessageProcessor {
    */
   private async handleIntent(userId: string, intentName: string): Promise<BotResponse[]> {
     // Si es intent "cita", iniciar flujo de agendamiento
+    // skipConfirmation = true porque el usuario ya dijo explícitamente que quiere agendar
     if (intentName === 'cita') {
-      const flowResult = await appointmentManager.startFlow(userId);
+      const flowResult = await appointmentManager.startFlow(userId, true);
       return [flowResult.message];
     }
 

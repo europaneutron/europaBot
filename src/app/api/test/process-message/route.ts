@@ -84,10 +84,8 @@ export async function POST(request: NextRequest) {
           }
         }
         
-        // Si el estado es ask_time, agregar pregunta con botones
-        // Similar al patrón de auto-offer
-        if (flowState === 'ask_time') {
-          // Verificar que no hayamos enviado ya la pregunta
+        // Si el estado es confirm_date, agregar confirmación
+        if (flowState === 'confirm_date') {
           const { data: lastMessage } = await supabaseServer
             .from('conversation_messages')
             .select('message_text')
@@ -97,10 +95,40 @@ export async function POST(request: NextRequest) {
             .limit(1)
             .single();
           
-          // Solo agregar si el último mensaje NO es la pregunta de horario
+          if (!lastMessage || !lastMessage.message_text.includes('¿Es correcto?')) {
+            const flowData = await userRepository.getAppointmentFlowData(user.id);
+            const requestedDate = flowData?.requested_date;
+            
+            if (requestedDate) {
+              const dateObj = new Date(requestedDate + 'T00:00:00');
+              const dateText = dateObj.toLocaleDateString('es-MX', { 
+                weekday: 'long', 
+                day: 'numeric', 
+                month: 'long' 
+              });
+              
+              console.log(`📤 [TEST] Agregando confirmación de fecha`);
+              allResponses.push(
+                `📅 Entendido, quieres visitarnos el *${dateText}*.\n\n¿Es correcto?\n\n[Sí, continuar] [Cambiar fecha]`
+              );
+            }
+          }
+        }
+        
+        // Si el estado es ask_time, agregar pregunta con botones
+        if (flowState === 'ask_time') {
+          const { data: lastMessage } = await supabaseServer
+            .from('conversation_messages')
+            .select('message_text')
+            .eq('user_id', user.id)
+            .eq('is_from_user', false)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .single();
+          
           if (!lastMessage || !lastMessage.message_text.includes('¿En qué horario prefieres')) {
-            console.log(`📤 [TEST] Agregando pregunta de horario con botones`);
-            allResponses.push('¿En qué horario prefieres visitarnos?');
+            console.log(`📤 [TEST] Agregando pregunta de horario`);
+            allResponses.push('¿En qué horario prefieres visitarnos?\n\n[Mañana 9-12] [Tarde 12-15] [Noche 15-18]');
           }
         }
       }

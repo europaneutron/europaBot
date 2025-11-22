@@ -35,12 +35,7 @@ export function MessagesSection({ configs, onReload }: Props) {
       const formData = new FormData(e.currentTarget);
       const updates: Array<{ key: string; value: string }> = [];
 
-      // Manejar textareas
-      formData.forEach((value, key) => {
-        updates.push({ key, value: value.toString() });
-      });
-
-      // Manejar checkboxes manualmente
+      // Manejar checkboxes manualmente primero
       const typingCheckbox = e.currentTarget.querySelector('input[name="typing_indicator_enabled"]') as HTMLInputElement;
       if (typingCheckbox) {
         updates.push({ 
@@ -56,6 +51,13 @@ export function MessagesSection({ configs, onReload }: Props) {
           value: welcomeCheckbox.checked ? 'true' : 'false' 
         });
       }
+
+      // Manejar textareas (excluir checkboxes ya procesados)
+      formData.forEach((value, key) => {
+        if (key !== 'typing_indicator_enabled' && key !== 'welcome_message_enabled') {
+          updates.push({ key, value: value.toString() });
+        }
+      });
 
       await configRepositoryClient.updateMultiple(updates);
       await onReload();
