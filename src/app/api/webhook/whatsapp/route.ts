@@ -62,17 +62,17 @@ export async function POST(request: NextRequest) {
     // Procesar mensaje con el cerebro del bot
     const response = await messageProcessor.processMessage(from, text, messageId, name);
 
+    // Obtener userId SIEMPRE (necesario para verificar flow state)
+    const { supabaseServer } = await import('@/services/supabase/server-client');
+    const { data: user } = await supabaseServer
+      .from('users')
+      .select('id')
+      .eq('phone_number', from)
+      .single();
+
     // Enviar respuesta(s) si es necesario
     if (response.shouldSend && response.responses && response.responses.length > 0) {
       const { isFragmentedResponse } = await import('@/types/message-fragments.types');
-      
-      // Obtener userId desde el phone number (para guardar en BD)
-      const { supabaseServer } = await import('@/services/supabase/server-client');
-      const { data: user } = await supabaseServer
-        .from('users')
-        .select('id')
-        .eq('phone_number', from)
-        .single();
 
       // Enviar cada respuesta (puede ser simple, con media o fragmentada)
       for (const botResponse of response.responses) {
@@ -186,21 +186,20 @@ export async function POST(request: NextRequest) {
           }
         }
       }
+    }
       
-      // DESPUÉS de enviar las respuestas normales, verificar si hay auto-offer pendiente
-      if (user) {
-        const { userRepository } = await import('@/data/repositories/user.repository');
-        const { configRepository } = await import('@/data/repositories/config.repository');
-        
-        // Obtener estado Y progreso
-        const flowState = await userRepository.getAppointmentFlowState(user.id);
-        const progress = await userRepository.getProgress(user.id);
-        
-        // Si el estado es pending_auto_offer
-        // Y el último mensaje del bot NO fue el auto-offer (para evitar duplicados)
-        if (flowState === 'pending_auto_offer' && 
-            response.wasDetected && 
-            !response.isFallback) {
+    // DESPUÉS de enviar las respuestas normales, verificar si hay flow states pendientes
+    // IMPORTANTE: Esto se ejecuta SIEMPRE que haya usuario y wasDetected, incluso si responses está vacío
+    if (user && response.wasDetected && !response.isFallback) {
+      const { userRepository } = await import('@/data/repositories/user.repository');
+      const { configRepository } = await import('@/data/repositories/config.repository');
+      
+      // Obtener estado actual del flujo
+      const flowState = await userRepository.getAppointmentFlowState(user.id);
+      
+      // Si el estado es pending_auto_offer
+      // Y el último mensaje del bot NO fue el auto-offer (para evitar duplicados)
+      if (flowState === 'pending_auto_offer') {
           
           // Verificar si el último mensaje enviado YA fue el auto-offer
           const { data: lastMessage } = await supabaseServer
@@ -243,9 +242,7 @@ export async function POST(request: NextRequest) {
         }
         
         // Si el estado es confirm_date, enviar confirmación con botones
-        if (flowState === 'confirm_date' && 
-            response.wasDetected && 
-            !response.isFallback) {
+        if (flowState === 'confirm_date') {
           
           const { data: lastMessage } = await supabaseServer
             .from('conversation_messages')
@@ -293,9 +290,7 @@ export async function POST(request: NextRequest) {
         }
         
         // Si el estado es ask_time, enviar pregunta con botones de horario
-        if (flowState === 'ask_time' && 
-            response.wasDetected && 
-            !response.isFallback) {
+        if (flowState === 'ask_time') {
           
           const { data: lastMessage } = await supabaseServer
             .from('conversation_messages')
@@ -331,7 +326,6 @@ export async function POST(request: NextRequest) {
           }
         }
       }
-    }
 
     return NextResponse.json({ 
       status: 'received',
