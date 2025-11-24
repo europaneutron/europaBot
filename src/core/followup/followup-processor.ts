@@ -148,24 +148,26 @@ export class FollowupProcessor {
   }
 
   /**
-   * Obtiene conversaciones abandonadas en ventana 6-30 horas
+   * Obtiene conversaciones abandonadas en ventana 6-18 horas
    * 
-   * Ventana: Ayer 3am - Hoy 3am
-   * - Mínimo 6 horas (evita molestar muy temprano)
-   * - Máximo 30 horas (garantiza ventana 24h WhatsApp)
+   * Sistema de doble envío (8am y 8pm):
+   * - CRON 8AM: Procesa ayer 2pm → hoy 2am (hace 6-18h)
+   * - CRON 8PM: Procesa hoy 2am → hoy 2pm (hace 6-18h)
+   * 
+   * Cobertura completa 24h sin solapamiento
    */
   private async getAbandonedConversations(): Promise<AbandonedConversation[]> {
     const now = new Date();
     
-    // Ventana de búsqueda
+    // Ventana de búsqueda: 6-18 horas atrás
     const windowEnd = new Date(now);
-    windowEnd.setHours(windowEnd.getHours() - 6); // Hace 6 horas (hoy 3am)
+    windowEnd.setHours(windowEnd.getHours() - 6); // Hace 6 horas
     
     const windowStart = new Date(now);
-    windowStart.setHours(windowStart.getHours() - 30); // Hace 30 horas (ayer 3am)
+    windowStart.setHours(windowStart.getHours() - 18); // Hace 18 horas
 
     console.log(`[FollowupProcessor] Ventana de búsqueda:`);
-    console.log(`  Desde: ${windowStart.toISOString()} (hace 30h)`);
+    console.log(`  Desde: ${windowStart.toISOString()} (hace 18h)`);
     console.log(`  Hasta: ${windowEnd.toISOString()} (hace 6h)`);
 
     const { data, error } = await supabaseServer

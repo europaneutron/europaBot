@@ -1,16 +1,18 @@
 /**
- * CRON JOB: Procesar Follow-ups (Sistema Simplificado)
+ * CRON JOB: Procesar Follow-ups (Sistema Doble Envío)
  * 
- * Ejecuta diario a las 9am para:
- * - Buscar conversaciones con último mensaje hace 6-30 horas
+ * Ejecuta 2 veces al día (8am y 8pm México) para:
+ * - Buscar conversaciones con último mensaje hace 6-18 horas
  * - Filtrar: sin cita, sin advisor_request, sin followup_sent
  * - Enviar mensaje inmediatamente
  * - Marcar como procesado permanentemente (followup_sent = true)
  * 
  * Protección: Requiere CRON_SECRET en header Authorization
- * Vercel Cron: "0 9 * * *" (diario 9am, 1 ejecución/día)
+ * Vercel Cron (hora México UTC-6):
+ *   - "0 14 * * *" → 8am México (procesa ayer 2pm - hoy 2am)
+ *   - "0 2 * * *"  → 8pm México (procesa hoy 2am - hoy 2pm)
  * 
- * Ventana de búsqueda: Ayer 3am - Hoy 3am (6-30 horas atrás)
+ * Ventana de búsqueda: 6-18 horas atrás (cobertura completa 24h)
  */
 
 import { NextRequest, NextResponse } from 'next/server';
