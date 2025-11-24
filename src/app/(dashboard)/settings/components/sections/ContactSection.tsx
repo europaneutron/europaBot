@@ -75,6 +75,9 @@ export function ContactSection({ configs, onReload }: Props) {
               placeholder="+52XXXXXXXXXX"
               disabled={saving}
             />
+            <p className="text-sm text-muted-foreground">
+              Recibe notificaciones de citas agendadas y derivaciones
+            </p>
           </div>
 
           <div className="space-y-2">

@@ -124,23 +124,55 @@ export class AppointmentManager {
     const parsedDate = this.parseDate(input);
     
     if (!parsedDate) {
-      // Mensaje de error más útil con ejemplos específicos
-      const tomorrow = new Date();
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      const nextWeek = new Date();
-      nextWeek.setDate(nextWeek.getDate() + 7);
+      // Generar opciones de ejemplo útiles
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
       
-      const tomorrowStr = tomorrow.toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'long' });
-      const nextWeekStr = nextWeek.toLocaleDateString('es-MX', { weekday: 'long' });
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      
+      // Calcular el próximo sábado
+      const nextSaturday = new Date(today);
+      const daysUntilSaturday = (6 - today.getDay() + 7) % 7 || 7;
+      nextSaturday.setDate(today.getDate() + daysUntilSaturday);
+      
+      // Calcular el próximo domingo
+      const nextSunday = new Date(today);
+      const daysUntilSunday = (7 - today.getDay()) % 7 || 7;
+      nextSunday.setDate(today.getDate() + daysUntilSunday);
+      
+      const tomorrowStr = tomorrow.toLocaleDateString('es-MX', { 
+        weekday: 'long', 
+        day: 'numeric', 
+        month: 'long' 
+      });
+      
+      const saturdayStr = nextSaturday.toLocaleDateString('es-MX', { 
+        weekday: 'long', 
+        day: 'numeric', 
+        month: 'long' 
+      });
+      
+      const sundayStr = nextSunday.toLocaleDateString('es-MX', { 
+        weekday: 'long', 
+        day: 'numeric', 
+        month: 'long' 
+      });
       
       const invalidDateMsg = await configRepository.get(
         'appointment_invalid_date',
-        `Lo siento, no pude entender esa fecha. 😅
+        `⚠️ Puede que esa fecha haya pasado o sea inválida.
+
+Por favor, verifica que:
+• La fecha sea futura
+• Si indicas día y número, que coincidan (ej: "viernes 29" debe ser viernes)
+• El formato sea correcto
 
 Puedes escribir:
-• "mañana" (${tomorrowStr})
-• Un día de la semana: "${nextWeekStr}"
-• Una fecha específica: "25 de noviembre"
+• "mañana" → ${tomorrowStr}
+• "sábado" → ${saturdayStr}
+• "domingo" → ${sundayStr}
+• Una fecha específica: "25 de diciembre"
 
 ¿Qué día prefieres para tu visita?`
       );
@@ -316,9 +348,17 @@ Puedes escribir:
 
   /**
    * Notificar al agente por WhatsApp usando template
+   * Usa configuración dinámica desde bot_config (Settings) - solo teléfono
    */
   private async notifyAgent(appointment: any, visitorPhone: string): Promise<void> {
-    const agentConfig = await appointmentRepository.getDefaultAgent();
+    // Obtener teléfono dinámico desde bot_config (Settings)
+    const advisorPhone = await configRepository.get('advisor_phone', '');
+    
+    if (!advisorPhone) {
+      console.error('❌ No hay teléfono de asesor configurado en Settings');
+      throw new Error('advisor_phone no configurado en bot_config');
+    }
+    
     const timeSlotDisplay = await this.getTimeSlotDisplay(appointment.time_slot);
     const dateDisplay = this.formatDate(appointment.requested_date);
 
@@ -328,14 +368,14 @@ Puedes escribir:
 
     // Enviar usando template de WhatsApp
     await whatsappSender.sendTemplateMessage({
-      to: agentConfig.phone,
+      to: advisorPhone,
       templateName: 'appointment_notification',
       languageCode: 'es_MX',
       components: [
         {
           type: 'body',
           parameters: [
-            { type: 'text', text: agentConfig.name },
+            { type: 'text', text: 'Asesor' }, // Nombre genérico fijo
             { type: 'text', text: appointment.visitor_name },
             { type: 'text', text: dateDisplay },
             { type: 'text', text: timeSlotDisplay },
@@ -347,7 +387,7 @@ Puedes escribir:
 
     await appointmentRepository.markAgentNotified(appointment.id);
     
-    console.log(`✅ Agente notificado vía template: ${agentConfig.name} (${agentConfig.phone})`);
+    console.log(`✅ Asesor notificado vía template: ${advisorPhone}`);
   }
 
   /**
@@ -393,8 +433,9 @@ Puedes escribir:
       }
     }
 
-    // ESTRATEGIA 2: Fecha explícita con número: "25 de octubre" o "25 octubre"
-    const dateRegex = /(\d{1,2})\s+(?:de\s+)?(\w+)/i;
+    // ESTRATEGIA 2: Fecha explícita con número: "25 de octubre", "15 noviembre", "viernes 15 de noviembre"
+    // Regex mejorado para capturar el mes correctamente (no "de")
+    const dateRegex = /(\d{1,2})\s+(?:de\s+)?(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)/i;
     const match = input.match(dateRegex);
     
     if (match) {
@@ -411,19 +452,32 @@ Puedes escribir:
       
       if (month !== undefined && day >= 1 && day <= 31) {
         const year = today.getFullYear();
-        let date = new Date(year, month, day);
+        const date = new Date(year, month, day);
         
         // Validar que la fecha sea válida (no sea fecha imposible como 31 feb)
         if (date.getDate() !== day || date.getMonth() !== month) {
-          return null; // Fecha inválida
+          return null; // Fecha inválida (ej: 31 de febrero)
         }
         
-        // Si la fecha ya pasó este año, usar el próximo año
+        // NUNCA permitir fechas pasadas - retornar null para que muestre error
         if (date < today) {
-          date = new Date(year + 1, month, day);
-          // Volver a validar para el próximo año
-          if (date.getDate() !== day || date.getMonth() !== month) {
-            return null;
+          return null; // Fecha ya pasó
+        }
+        
+        // VALIDACIÓN: Si el usuario especificó un día de la semana, verificar que coincida
+        // Ejemplo: "viernes 15 de noviembre" -> verificar que 15 de noviembre sea viernes
+        for (const [dayName, targetDayOfWeek] of Object.entries(daysMap)) {
+          if (normalized.includes(dayName)) {
+            const actualDayOfWeek = date.getDay();
+            
+            if (actualDayOfWeek !== targetDayOfWeek) {
+              // El día de la semana NO coincide con la fecha
+              console.log(`⚠️ Conflicto: Usuario dijo "${dayName}" pero ${day} de ${monthName} es día ${actualDayOfWeek}`);
+              return null; // Día no coincide con la fecha
+            }
+            
+            // Coincide, todo bien
+            break;
           }
         }
         
