@@ -1,6 +1,6 @@
 /**
  * Página de Login
- * Autenticación con Supabase Auth
+ * Autenticación con Supabase Auth + Rate Limiting
  */
 
 'use client';
@@ -17,13 +17,14 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isLocked, setIsLocked] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setLoading(true);
 
-    const { success, error: signInError } = await signIn(email, password);
+    const { success, error: signInError, isLocked: locked } = await signIn(email, password);
 
     if (success) {
       // Obtener la URL a donde redirigir
@@ -40,6 +41,7 @@ export default function LoginPage() {
       router.push(redirectTo);
     } else {
       setError(signInError || 'Error al iniciar sesión');
+      setIsLocked(locked || false);
       setLoading(false);
     }
   }
@@ -100,15 +102,24 @@ export default function LoginPage() {
 
         {/* Error message */}
         {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
-            <p className="text-sm">{error}</p>
+          <div className={`px-4 py-3 rounded-lg ${
+            isLocked 
+              ? 'bg-yellow-50 border border-yellow-200 text-yellow-800' 
+              : 'bg-red-50 border border-red-200 text-red-700'
+          }`}>
+            <p className="text-sm font-medium">{error}</p>
+            {isLocked && (
+              <p className="text-xs mt-1 opacity-75">
+                Por seguridad, la cuenta ha sido bloqueada temporalmente.
+              </p>
+            )}
           </div>
         )}
 
         {/* Submit button */}
         <button
           type="submit"
-          disabled={loading}
+          disabled={loading || isLocked}
           className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 focus:ring-4 focus:ring-blue-300 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           {loading ? (
@@ -124,21 +135,6 @@ export default function LoginPage() {
           )}
         </button>
       </form>
-
-      {/* Credenciales de prueba (solo desarrollo) */}
-      {process.env.NODE_ENV === 'development' && (
-        <div className="mt-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
-          <p className="text-xs text-gray-600 font-semibold mb-2">
-            Credenciales de prueba:
-          </p>
-          <p className="text-xs text-gray-500">
-            Email: admin@europa.com
-          </p>
-          <p className="text-xs text-gray-500">
-            Password: europa2025
-          </p>
-        </div>
-      )}
     </div>
   );
 }

@@ -5,6 +5,7 @@
  * - Middleware verifica autorización ANTES de llegar aquí
  * - Si el usuario llega aquí, está autorizado (confiamos en middleware)
  * - NO duplicamos verificaciones de seguridad
+ * - Session timeout: 30 min de inactividad cierra sesión
  */
 
 'use client';
@@ -12,6 +13,8 @@
 import { useAuth } from '@/hooks/use-auth';
 import { Sidebar } from '@/components/layout/sidebar';
 import { MobileNav } from '@/components/layout/mobile-nav';
+import { useSessionTimeout } from '@/hooks/use-session-timeout';
+import { SessionTimeoutWarning } from '@/components/ui/SessionTimeoutWarning';
 
 export default function DashboardLayout({
   children,
@@ -19,6 +22,9 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const { user } = useAuth();
+  const { showWarning, secondsRemaining, extendSession, logout } = useSessionTimeout({
+    enabled: !!user, // Solo activar cuando hay usuario
+  });
 
   // Middleware garantiza que solo usuarios autorizados llegan aquí
   // Solo mostramos loading si el estado inicial no está listo
@@ -42,6 +48,14 @@ export default function DashboardLayout({
 
       {/* Mobile Navigation */}
       <MobileNav />
+
+      {/* Session Timeout Warning */}
+      <SessionTimeoutWarning
+        isOpen={showWarning}
+        secondsRemaining={secondsRemaining}
+        onExtend={extendSession}
+        onLogout={logout}
+      />
     </div>
   );
 }

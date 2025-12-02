@@ -2,11 +2,32 @@
  * Middleware para proteger rutas del dashboard
  * Verificación SERVER-SIDE: única fuente de autorización
  * Cliente confía en esta verificación (no duplica queries)
+ * 
+ * SEGURIDAD:
+ * - Headers de seguridad en todas las respuestas
+ * - Verificación de sesión activa
+ * - Admin verification via admin_users table
  */
 
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+
+// Security headers para todas las respuestas
+const securityHeaders = {
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY',
+  'X-XSS-Protection': '1; mode=block',
+  'Referrer-Policy': 'strict-origin-when-cross-origin',
+  'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+};
+
+function applySecurityHeaders(response: NextResponse): NextResponse {
+  Object.entries(securityHeaders).forEach(([key, value]) => {
+    response.headers.set(key, value);
+  });
+  return response;
+}
 
 export async function middleware(req: NextRequest) {
   // El matcher ya filtra las rutas, no necesitamos verificar publicPaths aquí
@@ -14,6 +35,9 @@ export async function middleware(req: NextRequest) {
   let response = NextResponse.next({
     request: req,
   });
+
+  // Aplicar security headers
+  applySecurityHeaders(response);
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
