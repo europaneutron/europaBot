@@ -1,15 +1,16 @@
 /**
  * Middleware para proteger rutas del dashboard
- * Verificación SERVER-SIDE: única fuente de autorización
- * Cliente confía en esta verificación (no duplica queries)
+ * Verificacion SERVER-SIDE: unica fuente de autorizacion
+ * Cliente confia en esta verificacion (no duplica queries)
  * 
  * SEGURIDAD:
  * - Headers de seguridad en todas las respuestas
- * - Verificación de sesión activa
+ * - Verificacion de sesion activa
  * - Admin verification via admin_users table
+ * - Redireccion automatica login <-> dashboard
  */
 
-import { createServerClient, type CookieOptions } from '@supabase/ssr';
+import { createServerClient } from '@supabase/ssr';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
@@ -30,7 +31,8 @@ function applySecurityHeaders(response: NextResponse): NextResponse {
 }
 
 export async function middleware(req: NextRequest) {
-  // El matcher ya filtra las rutas, no necesitamos verificar publicPaths aquí
+  const pathname = req.nextUrl.pathname;
+  const isLoginPage = pathname === '/login';
   
   let response = NextResponse.next({
     request: req,
@@ -62,6 +64,30 @@ export async function middleware(req: NextRequest) {
     error: authError
   } = await supabase.auth.getUser();
 
+  // Si es la pagina de login
+  if (isLoginPage) {
+    // Si hay usuario autenticado, verificar si es admin
+    if (user && !authError) {
+      const { data: adminUser } = await supabase
+        .from('admin_users')
+        .select('id')
+        .eq('id', user.id)
+        .eq('is_active', true)
+        .single();
+      
+      // Si es admin, redirigir a dashboard
+      if (adminUser) {
+        const redirectUrl = req.nextUrl.clone();
+        redirectUrl.pathname = '/dashboard';
+        redirectUrl.searchParams.delete('redirectedFrom');
+        return NextResponse.redirect(redirectUrl);
+      }
+    }
+    // Si no hay usuario o no es admin, mostrar login
+    return response;
+  }
+
+  // Para rutas protegidas (no login)
   // Si no hay usuario autenticado, redirigir a login
   if (authError || !user) {
     const redirectUrl = req.nextUrl.clone();
@@ -71,7 +97,6 @@ export async function middleware(req: NextRequest) {
   }
 
   // Verificar que el usuario es admin activo
-  // Esta es la ÚNICA verificación de autorización
   const { data: adminUser, error } = await supabase
     .from('admin_users')
     .select('id, role, is_active')
@@ -90,10 +115,12 @@ export async function middleware(req: NextRequest) {
   return response;
 }
 
-// Configurar rutas protegidas
-// Incluir tanto la ruta base como sub-rutas explícitamente
+// Configurar rutas protegidas + login para redireccion
 export const config = {
   matcher: [
+    '/login',
+    '/dashboard',
+    '/dashboard/:path*',
     '/settings',
     '/settings/:path*',
     '/intents',

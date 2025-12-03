@@ -573,11 +573,12 @@ Puedes escribir:
   }
 
   /**
-   * Verificar si usuario tiene flujo activo
+   * Verificar si usuario tiene flujo activo de cita
+   * pending_auto_offer no cuenta como flujo activo - se maneja en message-processor
    */
   async hasActiveFlow(userId: string): Promise<boolean> {
     const state = await userRepository.getAppointmentFlowState(userId);
-    return state !== null && state !== 'completed';
+    return state !== null && state !== 'completed' && state !== 'pending_auto_offer';
   }
 }
 

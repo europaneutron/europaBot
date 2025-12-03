@@ -185,7 +185,8 @@ export function useConversations(filters?: ConversationFilters) {
 }
 
 /**
- * Hook para obtener detalle de una conversación (thread completo)
+ * Hook para obtener detalle de una conversacion (thread completo)
+ * Con paginacion inversa para eficiencia
  */
 export interface Message {
   id: string;
@@ -193,6 +194,12 @@ export interface Message {
   is_from_user: boolean;
   intent_matched: string | null;
   created_at: string;
+}
+
+export interface CheckpointConfig {
+  intent_name: string;
+  display_name: string;
+  is_completed: boolean;
 }
 
 export interface ConversationDetail {
@@ -207,11 +214,17 @@ export interface ConversationDetail {
   messages: Message[];
   appointments: any[];
   progress: any;
+  checkpoints: CheckpointConfig[];
+  totalMessages: number;
+  hasMore: boolean;
 }
+
+const MESSAGES_PER_PAGE = 50;
 
 export function useConversationDetail(userId: string) {
   const [detail, setDetail] = useState<ConversationDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -225,69 +238,124 @@ export function useConversationDetail(userId: string) {
       setLoading(true);
       setError(null);
 
-      // Obtener usuario
-      const { data: user, error: userError } = await supabase
-        .from('users')
-        .select('*')
-        .eq('id', userId)
-        .single();
+      // Obtener usuario, citas, progreso y checkpoints en paralelo
+      const [userResult, appointmentsResult, progressResult, checkpointsResult, countResult] = await Promise.all([
+        supabase.from('users').select('*').eq('id', userId).single(),
+        supabase.from('appointments').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
+        supabase.from('user_progress').select('*').eq('user_id', userId).single(),
+        supabase.from('intent_configurations').select('intent_name, display_name').eq('is_checkpoint', true).eq('is_active', true).order('priority', { ascending: false }),
+        supabase.from('conversations').select('id', { count: 'exact', head: true }).eq('user_id', userId)
+      ]);
 
-      if (userError) throw userError;
+      if (userResult.error) throw userResult.error;
 
-      // Obtener mensajes
+      const user = userResult.data;
+      const appointments = appointmentsResult.data || [];
+      const progress = progressResult.data;
+      const totalMessages = countResult.count || 0;
+
+      // Obtener ultimos N mensajes (DESC para obtener los mas recientes, luego invertir)
       const { data: messagesData, error: messagesError } = await supabase
         .from('conversations')
         .select('*')
         .eq('user_id', userId)
-        .order('created_at', { ascending: true });
+        .order('created_at', { ascending: false })
+        .limit(MESSAGES_PER_PAGE);
 
       if (messagesError) throw messagesError;
 
-      // Mapear mensajes a la interfaz esperada
-      const messages = messagesData?.map(msg => ({
+      // Invertir para mostrar en orden cronologico (antiguos arriba, recientes abajo)
+      const messages = (messagesData || []).reverse().map(msg => ({
         id: msg.id,
         message_text: msg.message_text,
         is_from_user: msg.direction === 'inbound',
         intent_matched: msg.detected_intent,
         created_at: msg.created_at
-      })) || [];
+      }));
 
-      // Obtener citas
-      const { data: appointments, error: appointmentsError } = await supabase
-        .from('appointments')
-        .select('*')
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false });
-
-      if (appointmentsError) throw appointmentsError;
-
-      // Obtener progreso
-      const { data: progress, error: progressError } = await supabase
-        .from('user_progress')
-        .select('*')
-        .eq('user_id', userId)
-        .single();
-
-      // El error es OK si no existe progreso aún
+      // Mapear checkpoints con su estado de completado
+      const checkpoints: CheckpointConfig[] = (checkpointsResult.data || []).map((intent) => {
+        const completedKey = `${intent.intent_name}_completed` as keyof typeof progress;
+        return {
+          intent_name: intent.intent_name,
+          display_name: intent.display_name,
+          is_completed: progress ? Boolean(progress[completedKey]) : false,
+        };
+      });
 
       setDetail({
         user,
-        messages: messages || [],
-        appointments: appointments || [],
+        messages,
+        appointments,
         progress: progress || null,
+        checkpoints,
+        totalMessages,
+        hasMore: totalMessages > MESSAGES_PER_PAGE,
       });
     } catch (err) {
       console.error('Error fetching conversation detail:', err);
-      setError('Error al cargar detalle de conversación');
+      setError('Error al cargar detalle de conversacion');
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function loadMoreMessages() {
+    if (!detail || loadingMore || !detail.hasMore) return;
+
+    try {
+      setLoadingMore(true);
+
+      // El mensaje mas antiguo que tenemos actualmente
+      const oldestMessage = detail.messages[0];
+      if (!oldestMessage) return;
+
+      // Obtener mensajes anteriores a ese
+      const { data: olderMessages, error } = await supabase
+        .from('conversations')
+        .select('*')
+        .eq('user_id', detail.user.id)
+        .lt('created_at', oldestMessage.created_at)
+        .order('created_at', { ascending: false })
+        .limit(MESSAGES_PER_PAGE);
+
+      if (error) throw error;
+
+      if (olderMessages && olderMessages.length > 0) {
+        // Invertir y mapear
+        const mappedMessages = olderMessages.reverse().map(msg => ({
+          id: msg.id,
+          message_text: msg.message_text,
+          is_from_user: msg.direction === 'inbound',
+          intent_matched: msg.detected_intent,
+          created_at: msg.created_at
+        }));
+
+        setDetail(prev => {
+          if (!prev) return prev;
+          const newMessages = [...mappedMessages, ...prev.messages];
+          return {
+            ...prev,
+            messages: newMessages,
+            hasMore: newMessages.length < prev.totalMessages,
+          };
+        });
+      } else {
+        setDetail(prev => prev ? { ...prev, hasMore: false } : prev);
+      }
+    } catch (err) {
+      console.error('Error loading more messages:', err);
+    } finally {
+      setLoadingMore(false);
     }
   }
 
   return {
     detail,
     loading,
+    loadingMore,
     error,
     refetch: fetchDetail,
+    loadMoreMessages,
   };
 }
