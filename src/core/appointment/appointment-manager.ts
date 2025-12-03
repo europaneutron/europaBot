@@ -391,6 +391,17 @@ Puedes escribir:
   }
 
   /**
+   * Helper para formatear fecha como YYYY-MM-DD sin problemas de timezone
+   * Usa los valores locales del Date, no UTC
+   */
+  private formatDateISO(date: Date): string {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  /**
    * Parsear fecha en español (con regex para "25 de octubre")
    * Intenta múltiples estrategias para ser tolerante con errores del usuario
    * PRIORIDAD: palabras clave (hoy/mañana) > día semana > fecha explícita
@@ -402,14 +413,14 @@ Puedes escribir:
 
     // PRIORIDAD 1: Hoy (buscar en cualquier parte del texto)
     if (normalized.includes('hoy')) {
-      return today.toISOString().split('T')[0];
+      return this.formatDateISO(today);
     }
 
     // PRIORIDAD 2: Mañana (buscar en cualquier parte del texto)
     if (normalized.includes('mañana') || normalized.includes('manana')) {
       const tomorrow = new Date(today);
       tomorrow.setDate(tomorrow.getDate() + 1);
-      return tomorrow.toISOString().split('T')[0];
+      return this.formatDateISO(tomorrow);
     }
 
     // Días de la semana
@@ -428,7 +439,7 @@ Puedes escribir:
           const currentDay = result.getDay();
           const diff = (targetDay + 7 - currentDay) % 7 || 7;
           result.setDate(result.getDate() + diff);
-          return result.toISOString().split('T')[0];
+          return this.formatDateISO(result);
         }
       }
     }
@@ -481,7 +492,7 @@ Puedes escribir:
           }
         }
         
-        return date.toISOString().split('T')[0];
+        return this.formatDateISO(date);
       }
     }
 
@@ -498,13 +509,13 @@ Puedes escribir:
         
         // Si es válido y no pasó, usarlo
         if (date.getDate() === day && date >= today) {
-          return date.toISOString().split('T')[0];
+          return this.formatDateISO(date);
         }
         
         // Intentar en el próximo mes
         date = new Date(currentYear, currentMonth + 1, day);
         if (date.getDate() === day) {
-          return date.toISOString().split('T')[0];
+          return this.formatDateISO(date);
         }
       }
     }
