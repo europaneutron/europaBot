@@ -110,18 +110,20 @@ export class MessageProcessor {
             }
           );
           
-          // Si el mensaje está vacío (ask_time), no lo enviamos aquí
-          // El webhook lo enviará con botones (patrón similar a auto-offer)
+          // Si el mensaje está vacío (confirm_date, ask_time), no lo enviamos aquí
+          // El webhook lo enviará con botones
           const responses: string[] = flowResult.message ? [flowResult.message] : [];
           
           // El mensaje se guarda en el webhook después de enviarlo
+          // flowHandled = true SOLO si hay mensaje, para que el webhook pueda enviar botones
+          const hasMessage = responses.length > 0;
 
           return {
             responses,
             shouldSend: true,
             wasDetected: true,
             isFallback: false,
-            flowHandled: true
+            flowHandled: hasMessage
           };
         }
       }
