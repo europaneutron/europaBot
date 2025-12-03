@@ -189,8 +189,9 @@ export async function POST(request: NextRequest) {
     }
       
     // DESPUÉS de enviar las respuestas normales, verificar si hay flow states pendientes
-    // IMPORTANTE: Esto se ejecuta SIEMPRE que haya usuario y wasDetected, incluso si responses está vacío
-    if (user && response.wasDetected && !response.isFallback) {
+    // IMPORTANTE: Solo ejecutar si el message-processor NO manejó ya un flow state
+    // flowHandled indica que ya se procesó un flow y no debemos verificar de nuevo
+    if (user && response.wasDetected && !response.isFallback && !response.flowHandled) {
       const { userRepository } = await import('@/data/repositories/user.repository');
       const { configRepository } = await import('@/data/repositories/config.repository');
       

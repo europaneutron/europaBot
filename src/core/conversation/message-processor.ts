@@ -21,6 +21,7 @@ export interface ProcessedResponse {
   shouldSend: boolean;
   wasDetected: boolean;
   isFallback: boolean;
+  flowHandled?: boolean; // Indica si ya se manejó un flow state (evita doble verificación en webhook)
 }
 
 export class MessageProcessor {
@@ -88,7 +89,8 @@ export class MessageProcessor {
             responses: [cancelMessage],
             shouldSend: true,
             wasDetected: true,
-            isFallback: false
+            isFallback: false,
+            flowHandled: true
           };
         } else {
           // Usuario está respondiendo al flujo, procesar su respuesta
@@ -118,7 +120,8 @@ export class MessageProcessor {
             responses,
             shouldSend: true,
             wasDetected: true,
-            isFallback: false
+            isFallback: false,
+            flowHandled: true
           };
         }
       }
@@ -194,7 +197,8 @@ export class MessageProcessor {
               responses: [message],
               shouldSend: true,
               wasDetected: true,
-              isFallback: false
+              isFallback: false,
+              flowHandled: true
             };
           } else {
             // Usuario no acepta o pregunta otra cosa
@@ -212,7 +216,8 @@ export class MessageProcessor {
               responses: [noResponse],
               shouldSend: true,
               wasDetected: true,
-              isFallback: false
+              isFallback: false,
+              flowHandled: true
             };
           }
         }
