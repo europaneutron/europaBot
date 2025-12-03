@@ -31,7 +31,8 @@ interface Props {
 }
 
 function formatDate(isoDate: string): string {
-  const date = new Date(isoDate);
+  // Usar T12:00:00 (mediodia) para evitar que ajustes de timezone cambien el dia
+  const date = new Date(isoDate + 'T12:00:00');
   return date.toLocaleDateString('es-MX', {
     weekday: 'long',
     year: 'numeric',

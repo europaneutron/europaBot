@@ -259,7 +259,7 @@ export default function ConversationsPage() {
                           <div className="flex items-center justify-center gap-1">
                             <CalendarCheck className="h-4 w-4 text-green-600" />
                             <span className="text-xs text-muted-foreground">
-                              {conv.appointment_date ? new Date(conv.appointment_date).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit' }) : ''}
+                              {conv.appointment_date ? new Date(conv.appointment_date + 'T12:00:00').toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit' }) : ''}
                             </span>
                           </div>
                         ) : (

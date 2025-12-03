@@ -237,7 +237,7 @@ export default function DashboardPage() {
                       </div>
                       <p className="text-sm text-muted-foreground flex items-center gap-1">
                         <Calendar className="h-3 w-3" />
-                        {new Date(apt.appointment_date).toLocaleDateString('es-ES', {
+                        {new Date(apt.appointment_date + 'T12:00:00').toLocaleDateString('es-ES', {
                           weekday: 'long',
                           day: 'numeric',
                           month: 'long'

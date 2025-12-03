@@ -237,7 +237,7 @@ export default function ConversationDetailPage({
                       className="p-3 rounded-lg bg-muted/50 border-l-4 border-green-500"
                     >
                       <p className="text-sm font-medium">
-                        {new Date(apt.appointment_date).toLocaleDateString('es-ES', {
+                        {new Date(apt.appointment_date + 'T12:00:00').toLocaleDateString('es-ES', {
                           weekday: 'long',
                           day: 'numeric',
                           month: 'long',
