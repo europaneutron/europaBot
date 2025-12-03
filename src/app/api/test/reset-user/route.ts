@@ -64,7 +64,7 @@ export async function POST(request: NextRequest) {
 
     // Limpiar mensajes de conversación
     const { error: messagesError } = await supabaseServer
-      .from('conversation_messages')
+      .from('conversations')
       .delete()
       .eq('user_id', user.id);
 
@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
 
     // Limpiar intent logs
     const { error: logsError } = await supabaseServer
-      .from('intent_logs')
+      .from('intents_log')
       .delete()
       .eq('user_id', user.id);
 

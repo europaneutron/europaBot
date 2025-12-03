@@ -203,10 +203,10 @@ export async function POST(request: NextRequest) {
           
           // Verificar si el último mensaje enviado YA fue el auto-offer
           const { data: lastMessage } = await supabaseServer
-            .from('conversation_messages')
+            .from('conversations')
             .select('message_text')
             .eq('user_id', user.id)
-            .eq('is_from_user', false)
+            .eq('direction', 'outbound')
             .order('created_at', { ascending: false })
             .limit(1)
             .single();
@@ -245,10 +245,10 @@ export async function POST(request: NextRequest) {
         if (flowState === 'confirm_date') {
           
           const { data: lastMessage } = await supabaseServer
-            .from('conversation_messages')
+            .from('conversations')
             .select('message_text')
             .eq('user_id', user.id)
-            .eq('is_from_user', false)
+            .eq('direction', 'outbound')
             .order('created_at', { ascending: false })
             .limit(1)
             .single();
@@ -293,10 +293,10 @@ export async function POST(request: NextRequest) {
         if (flowState === 'ask_time') {
           
           const { data: lastMessage } = await supabaseServer
-            .from('conversation_messages')
+            .from('conversations')
             .select('message_text')
             .eq('user_id', user.id)
-            .eq('is_from_user', false)
+            .eq('direction', 'outbound')
             .order('created_at', { ascending: false })
             .limit(1)
             .single();

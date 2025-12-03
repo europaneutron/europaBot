@@ -64,10 +64,10 @@ export async function POST(request: NextRequest) {
         if (flowState === 'pending_auto_offer') {
           // Verificar que no hayamos enviado el auto-offer ya
           const { data: lastMessage } = await supabaseServer
-            .from('conversation_messages')
+            .from('conversations')
             .select('message_text')
             .eq('user_id', user.id)
-            .eq('is_from_user', false)
+            .eq('direction', 'outbound')
             .order('created_at', { ascending: false })
             .limit(1)
             .single();
@@ -87,10 +87,10 @@ export async function POST(request: NextRequest) {
         // Si el estado es confirm_date, agregar confirmación
         if (flowState === 'confirm_date') {
           const { data: lastMessage } = await supabaseServer
-            .from('conversation_messages')
+            .from('conversations')
             .select('message_text')
             .eq('user_id', user.id)
-            .eq('is_from_user', false)
+            .eq('direction', 'outbound')
             .order('created_at', { ascending: false })
             .limit(1)
             .single();
@@ -118,10 +118,10 @@ export async function POST(request: NextRequest) {
         // Si el estado es ask_time, agregar pregunta con botones
         if (flowState === 'ask_time') {
           const { data: lastMessage } = await supabaseServer
-            .from('conversation_messages')
+            .from('conversations')
             .select('message_text')
             .eq('user_id', user.id)
-            .eq('is_from_user', false)
+            .eq('direction', 'outbound')
             .order('created_at', { ascending: false })
             .limit(1)
             .single();

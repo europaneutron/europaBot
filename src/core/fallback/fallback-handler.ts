@@ -45,13 +45,7 @@ export class FallbackHandler {
       fallbackDerivationEnabled
     );
 
-    // Guardar mensaje de fallback
-    await conversationRepository.saveOutgoingMessage(
-      userId,
-      fallbackMessage,
-      true, // es fallback
-      currentAttempts
-    );
+    // El mensaje se guarda en el webhook después de enviarlo exitosamente
 
     return {
       responses: [fallbackMessage],
@@ -128,7 +122,7 @@ export class FallbackHandler {
       .replace('{nombre}', userName)
       .replace('{horario}', businessHours);
     
-    await conversationRepository.saveOutgoingMessage(userId, confirmationMessage, false);
+    // El mensaje se guarda en el webhook después de enviarlo exitosamente
     
     return {
       responses: [confirmationMessage],

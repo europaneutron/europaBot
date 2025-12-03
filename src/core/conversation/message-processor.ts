@@ -81,7 +81,7 @@ export class MessageProcessor {
             'Entendido, cancelé el proceso de agendamiento.\n\nSi vuelves a estar interesado en una cita, puedes pedirme: "Agendar una cita".\n\n¿En qué más puedo ayudarte?'
           );
           
-          await conversationRepository.saveOutgoingMessage(user.id, cancelMessage, false);
+          // El mensaje se guarda en el webhook después de enviarlo
           
           // Retornar mensaje de cancelación inmediatamente
           return {
@@ -112,14 +112,7 @@ export class MessageProcessor {
           // El webhook lo enviará con botones (patrón similar a auto-offer)
           const responses: string[] = flowResult.message ? [flowResult.message] : [];
           
-          // Solo guardar mensaje si no está vacío
-          if (flowResult.message) {
-            await conversationRepository.saveOutgoingMessage(
-              user.id,
-              flowResult.message,
-              false
-            );
-          }
+          // El mensaje se guarda en el webhook después de enviarlo
 
           return {
             responses,
@@ -195,7 +188,7 @@ export class MessageProcessor {
             
             const message = `${yesResponse}\n\n${requestDate}`;
             
-            await conversationRepository.saveOutgoingMessage(user.id, message, false);
+            // El mensaje se guarda en el webhook después de enviarlo
             
             return {
               responses: [message],
@@ -213,7 +206,7 @@ export class MessageProcessor {
               'Entendido, cuando estés listo para agendar una cita puedes pedirme: "Agendar una cita".\n\n¿Hay algo más en lo que pueda ayudarte?'
             );
             
-            await conversationRepository.saveOutgoingMessage(user.id, noResponse, false);
+            // El mensaje se guarda en el webhook después de enviarlo
             
             return {
               responses: [noResponse],
