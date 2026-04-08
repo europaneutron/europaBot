@@ -64,8 +64,11 @@ export class WhatsAppMessageSender {
   /**
    * Enviar mensaje con documento (PDF, imagen, etc)
    */
-  async sendDocument(to: string, documentUrl: string, caption?: string): Promise<{ messageId: string }> {
+  async sendDocument(to: string, documentUrl: string, caption?: string, filename?: string): Promise<{ messageId: string }> {
     const url = `${WHATSAPP_API_URL}/${WHATSAPP_PHONE_ID}/messages`;
+
+    // Extraer nombre del archivo de la URL si no se proporciona
+    const resolvedFilename = filename || this.extractFilenameFromUrl(documentUrl);
 
     const response = await fetch(url, {
       method: 'POST',
@@ -80,7 +83,8 @@ export class WhatsAppMessageSender {
         type: 'document',
         document: {
           link: documentUrl,
-          caption: caption || ''
+          caption: caption || '',
+          filename: resolvedFilename
         }
       })
     });
@@ -94,6 +98,11 @@ export class WhatsAppMessageSender {
     return {
       messageId: data.messages[0].id
     };
+  }
+
+  private extractFilenameFromUrl(url: string): string {
+    const raw = url.split('/').pop() || 'documento';
+    return raw.replace(/^\d+_/, '') || raw;
   }
 
   /**
@@ -440,7 +449,7 @@ export class WhatsAppMessageSender {
           break;
 
         case 'document':
-          result = await this.sendDocument(to, fragment.url, fragment.caption);
+          result = await this.sendDocument(to, fragment.url, fragment.caption, fragment.filename);
           break;
 
         case 'location':
