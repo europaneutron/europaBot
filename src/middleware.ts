@@ -135,5 +135,7 @@ export const config = {
     '/users/:path*',
     '/analytics',
     '/analytics/:path*',
+    '/profile',
+    '/profile/:path*',
   ],
 };

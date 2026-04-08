@@ -30,14 +30,14 @@ async function getAuthenticatedAdmin(request: NextRequest) {
   const { data: { user }, error } = await supabase.auth.getUser();
   if (error || !user) return null;
 
-  // Verificar que es super_admin
   const { data: admin } = await supabaseServer
     .from('admin_users')
-    .select('role')
-    .eq('email', user.email)
+    .select('id')
+    .eq('id', user.id)
+    .eq('is_active', true)
     .single();
 
-  if (!admin || admin.role !== 'super_admin') return null;
+  if (!admin) return null;
 
   return user;
 }

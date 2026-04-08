@@ -7,7 +7,8 @@ import {
   MessageSquare, 
   ClipboardList, 
   Calendar, 
-  Settings 
+  Settings,
+  UserCog
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -23,6 +24,7 @@ const mobileNavItems: NavItem[] = [
   { href: '/advisor-requests', icon: ClipboardList, label: 'Solicitudes' },
   { href: '/appointments', icon: Calendar, label: 'Citas' },
   { href: '/settings', icon: Settings, label: 'Config' },
+  { href: '/profile', icon: UserCog, label: 'Perfil' },
 ];
 
 export function MobileNav() {

@@ -9,7 +9,8 @@ import {
   Target, 
   Calendar, 
   Settings, 
-  LogOut 
+  LogOut,
+  UserCog
 } from 'lucide-react';
 import {
   Tooltip,
@@ -34,6 +35,7 @@ const navItems: NavItem[] = [
   { href: '/intents', icon: Target, label: 'Intenciones' },
   { href: '/appointments', icon: Calendar, label: 'Citas' },
   { href: '/settings', icon: Settings, label: 'Configuración' },
+  { href: '/profile', icon: UserCog, label: 'Mi Perfil' },
 ];
 
 export function Sidebar() {
