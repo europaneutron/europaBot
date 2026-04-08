@@ -34,7 +34,7 @@ async function getAuthenticatedAdmin(request: NextRequest) {
   const { data: admin } = await supabaseServer
     .from('admin_users')
     .select('role')
-    .eq('auth_user_id', user.id)
+    .eq('email', user.email)
     .single();
 
   if (!admin || admin.role !== 'super_admin') return null;
