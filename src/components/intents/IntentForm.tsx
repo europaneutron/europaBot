@@ -13,7 +13,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
-import { ArrowLeft, Save, Loader2 } from 'lucide-react';
+import { ArrowLeft, Save, Loader2, Sparkles } from 'lucide-react';
 import Link from 'next/link';
 
 interface IntentFormProps {
@@ -24,6 +24,7 @@ interface IntentFormProps {
 interface FormData {
   intent_name: string;
   display_name: string;
+  description: string;
   keywords: string;
   synonyms: string;
   typos: string;
@@ -40,11 +41,13 @@ export default function IntentForm({ mode, intentId }: IntentFormProps) {
   const router = useRouter();
   const [loading, setLoading] = useState(mode === 'edit');
   const [saving, setSaving] = useState(false);
+  const [generating, setGenerating] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
   
   const [formData, setFormData] = useState<FormData>({
     intent_name: '',
     display_name: '',
+    description: '',
     keywords: '',
     synonyms: '',
     typos: '',
@@ -76,6 +79,7 @@ export default function IntentForm({ mode, intentId }: IntentFormProps) {
       setFormData({
         intent_name: intent.intent_name,
         display_name: intent.display_name,
+        description: '',
         keywords: intent.keywords.join(', '),
         synonyms: intent.synonyms.join(', '),
         typos: intent.typos.join(', '),
@@ -186,6 +190,49 @@ export default function IntentForm({ mode, intentId }: IntentFormProps) {
     }
   }
 
+  async function handleGenerateWithAI() {
+    if (!formData.display_name.trim()) {
+      setMessage({ type: 'error', text: 'Completa primero el nombre visible' });
+      return;
+    }
+
+    setGenerating(true);
+    setMessage(null);
+
+    try {
+      const res = await fetch('/api/intents/generate-patterns', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          display_name: formData.display_name.trim(),
+          description: formData.description.trim() || undefined
+        })
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setMessage({ type: 'error', text: data.error || 'Error al generar patrones' });
+        return;
+      }
+
+      setFormData(prev => ({
+        ...prev,
+        keywords: data.keywords?.join(', ') || prev.keywords,
+        synonyms: data.synonyms?.join(', ') || prev.synonyms,
+        typos: data.typos?.join(', ') || prev.typos,
+        phrases: data.phrases?.join(', ') || prev.phrases,
+      }));
+
+      setMessage({ type: 'success', text: 'Patrones generados con IA. Revisa y ajusta antes de guardar.' });
+    } catch (error) {
+      console.error('Error generating patterns:', error);
+      setMessage({ type: 'error', text: 'Error de conexion al generar patrones' });
+    } finally {
+      setGenerating(false);
+    }
+  }
+
   if (loading) {
     return (
       <div className="p-6">
@@ -269,6 +316,21 @@ export default function IntentForm({ mode, intentId }: IntentFormProps) {
               />
             </div>
 
+            <div className="space-y-2">
+              <Label htmlFor="description">Descripcion (para generacion con IA)</Label>
+              <Textarea
+                id="description"
+                value={formData.description}
+                onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => handleInputChange('description', e.target.value)}
+                placeholder="Ej: Cuando el usuario pregunta por el precio o costo de casas, terrenos o propiedades"
+                rows={2}
+                disabled={saving}
+              />
+              <p className="text-xs text-muted-foreground">
+                Opcional. Si lo completas, la IA generara mejores patrones.
+              </p>
+            </div>
+
             {mode === 'create' && (
               <div className="space-y-2">
                 <Label htmlFor="intent_name_create">Nombre interno (intent_name) *</Label>
@@ -292,10 +354,29 @@ export default function IntentForm({ mode, intentId }: IntentFormProps) {
         {/* Patrones de Reconocimiento */}
         <Card>
           <CardHeader>
-            <CardTitle>Patrones de Reconocimiento</CardTitle>
-            <CardDescription>
-              Define las palabras y frases que activarán esta intención
-            </CardDescription>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle>Patrones de Reconocimiento</CardTitle>
+                <CardDescription>
+                  Define las palabras y frases que activaran esta intencion
+                </CardDescription>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleGenerateWithAI}
+                disabled={generating || saving || !formData.display_name.trim()}
+                title={!formData.display_name.trim() ? 'Completa primero el nombre visible' : 'Generar patrones con IA'}
+              >
+                {generating ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Sparkles className="h-4 w-4 mr-2" />
+                )}
+                {generating ? 'Generando...' : 'Generar con IA'}
+              </Button>
+            </div>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">

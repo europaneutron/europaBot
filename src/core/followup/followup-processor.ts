@@ -40,7 +40,7 @@ export class FollowupProcessor {
     console.log('[FollowupProcessor] Iniciando procesamiento diario...');
 
     // 1. Verificar si el sistema está habilitado
-    const isEnabled = await configRepository.getBoolean('followup_enabled', true);
+    const isEnabled = await configRepository.getBoolean('followup_enabled', false);
     if (!isEnabled) {
       console.log('[FollowupProcessor] Sistema deshabilitado en configuración');
       return { processed: 0, sent: 0, skipped: 0, errors: 0, details: [] };
@@ -91,7 +91,7 @@ export class FollowupProcessor {
           .replace(/\{telefono\}/g, telefono);
 
         // 4.3. Enviar mensaje por WhatsApp
-        console.log(`[FollowupProcessor] Enviando follow-up a ${telefono}...`);
+        console.log(`[FollowupProcessor] Enviando follow-up a usuario ${conversation.user_id}...`);
         const result = await whatsappSender.sendTextMessage({
           to: telefono,
           message: finalMessage
@@ -115,7 +115,7 @@ export class FollowupProcessor {
           .from('conversations')
           .insert({
             user_id: conversation.user_id,
-            message: finalMessage,
+            message_text: finalMessage,
             direction: 'outbound',
             created_at: sent_at
           });
@@ -128,7 +128,7 @@ export class FollowupProcessor {
 
         sent++;
         details.push({ userId: conversation.user_id, status: 'sent' });
-        console.log(`[FollowupProcessor] ✅ Follow-up enviado a ${telefono}`);
+        console.log(`[FollowupProcessor] Follow-up enviado a usuario ${conversation.user_id}`);
 
       } catch (error) {
         console.error(`[FollowupProcessor] Error procesando ${conversation.user_id}:`, error);

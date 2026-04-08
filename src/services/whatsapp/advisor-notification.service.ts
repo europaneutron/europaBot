@@ -5,6 +5,7 @@
 
 import { whatsappSender } from './message-sender';
 import { configRepository } from '@/data/repositories/config.repository';
+import { supabaseServer } from '@/services/supabase/server-client';
 
 interface AdvisorNotificationData {
   requestId: string;
@@ -69,10 +70,18 @@ class AdvisorNotificationService {
   /**
    * Construir mensaje de notificación formateado
    */
-  private buildNotificationMessage(
+  private async buildNotificationMessage(
     data: AdvisorNotificationData, 
     statusEmoji: string
-  ): string {
+  ): Promise<string> {
+    // Obtener total de checkpoints activos desde BD
+    const { count } = await supabaseServer
+      .from('intent_configurations')
+      .select('id', { count: 'exact', head: true })
+      .eq('is_checkpoint', true)
+      .eq('is_active', true);
+    const totalCheckpoints = count ?? 0;
+
     const dashboardLink = data.dashboardUrl 
       ? `\n🔗 Ver detalles: ${data.dashboardUrl}` 
       : '';
@@ -82,7 +91,7 @@ class AdvisorNotificationService {
       `👤 Usuario: *${data.userName}*\n` +
       `📱 Teléfono: ${data.userPhone}\n` +
       `📊 Lead Score: *${data.leadScore}* ${statusEmoji} (${data.leadStatus})\n` +
-      `✅ Checkpoints: ${data.checkpointsCompleted}/6\n` +
+      `✅ Checkpoints: ${data.checkpointsCompleted}/${totalCheckpoints}\n` +
       `❌ Fallbacks: ${data.fallbackCount}\n` +
       `💬 Último mensaje: "${data.lastMessage}"` +
       dashboardLink +

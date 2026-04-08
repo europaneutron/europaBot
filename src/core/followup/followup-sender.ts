@@ -125,7 +125,7 @@ export class FollowupSender {
           .from('conversations')
           .insert({
             user_id: userId,
-            message: finalMessage,
+            message_text: finalMessage,
             direction: 'outbound',
             created_at: sent_at,
           });

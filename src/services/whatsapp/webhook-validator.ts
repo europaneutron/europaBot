@@ -7,15 +7,28 @@ import crypto from 'crypto';
 
 const APP_SECRET = process.env.WHATSAPP_APP_SECRET || '';
 const VERIFY_TOKEN = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN!;
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+
+if (IS_PRODUCTION && !APP_SECRET) {
+  console.error('[SECURITY] WHATSAPP_APP_SECRET no esta configurado. La validacion de firma del webhook esta desactivada.');
+}
 
 export class WebhookValidator {
   /**
    * Validar firma de Meta (X-Hub-Signature-256)
    */
   validateSignature(payload: string, signature: string | null): boolean {
-    if (!signature || !APP_SECRET) {
-      // Si no hay APP_SECRET configurado, saltamos validación (solo desarrollo)
+    if (!APP_SECRET) {
+      if (IS_PRODUCTION) {
+        console.error('[SECURITY] Rechazando request: WHATSAPP_APP_SECRET no configurado en produccion');
+        return false;
+      }
+      // Solo en desarrollo se permite omitir la validacion
       return true;
+    }
+
+    if (!signature) {
+      return false;
     }
 
     const expectedSignature = crypto

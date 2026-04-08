@@ -12,7 +12,6 @@ import { configRepository } from '@/data/repositories/config.repository';
 import { appointmentManager } from '@/core/appointment/appointment-manager';
 import { supabaseServer } from '@/services/supabase/server-client';
 import { whatsappSender } from '@/services/whatsapp/message-sender';
-import type { CheckpointKey } from '@/data/models/user.model';
 import type { BotResponse } from '@/types/message-fragments.types';
 import { isSimpleResponseWithMedia } from '@/types/message-fragments.types';
 
@@ -262,7 +261,7 @@ export class MessageProcessor {
       await userRepository.resetFallbackAttempts(user.id);
 
       // 9. Procesar intención específica
-      const responses = await this.handleIntent(user.id, detectionResult.intent.intent_name);
+      const responses = await this.handleIntent(user.id, detectionResult.intent.intent_name, detectionResult.intent.is_checkpoint ?? false);
 
       return {
         responses,
@@ -286,7 +285,7 @@ export class MessageProcessor {
    * Manejar intención detectada
    * Retorna array de BotResponse (pueden ser strings simples o fragmentados)
    */
-  private async handleIntent(userId: string, intentName: string): Promise<BotResponse[]> {
+  private async handleIntent(userId: string, intentName: string, isCheckpoint: boolean): Promise<BotResponse[]> {
     // Si es intent "cita", iniciar flujo de agendamiento
     // skipConfirmation = true porque el usuario ya dijo explícitamente que quiere agendar
     if (intentName === 'cita') {
@@ -294,16 +293,14 @@ export class MessageProcessor {
       return [flowResult.message];
     }
 
-    // Verificar si es checkpoint
-    const checkpoints: CheckpointKey[] = ['precio', 'ubicacion', 'modelo', 'creditos', 'seguridad', 'brochure'];
-    
-    if (checkpoints.includes(intentName as CheckpointKey)) {
+    // Verificar si es checkpoint (determinado por is_checkpoint de intent_configurations)
+    if (isCheckpoint) {
       // Verificar si ya completó este tema
-      const isCompleted = await userRepository.isCheckpointCompleted(userId, intentName as CheckpointKey);
+      const isCompleted = await userRepository.isCheckpointCompleted(userId, intentName);
       
       // Marcar como completado (solo si no lo estaba antes)
       if (!isCompleted) {
-        await userRepository.markCheckpointCompleted(userId, intentName as CheckpointKey);
+        await userRepository.markCheckpointCompleted(userId, intentName);
         
         // Recalcular lead score automáticamente
         await leadScorer.afterCheckpointCompleted(userId);

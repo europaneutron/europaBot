@@ -3,7 +3,7 @@
  */
 
 import { supabaseServer } from '@/services/supabase/server-client';
-import type { User, UserSession, UserProgress, CheckpointKey } from '@/data/models/user.model';
+import type { User, UserSession, UserProgress } from '@/data/models/user.model';
 
 export class UserRepository {
   /**
@@ -18,6 +18,15 @@ export class UserRepository {
       .single();
 
     if (existing) {
+      // Sincronizar siempre el nombre de perfil de WhatsApp si viene uno nuevo
+      // WhatsApp profile name es la fuente de verdad para este campo
+      if (name && name !== existing.name) {
+        await supabaseServer
+          .from('users')
+          .update({ name })
+          .eq('id', existing.id);
+        existing.name = name;
+      }
       return existing;
     }
 
@@ -178,46 +187,54 @@ export class UserRepository {
   }
 
   /**
-   * Marcar checkpoint como completado
+   * Marcar checkpoint como completado (tabla dinamica user_checkpoints)
    */
-  async markCheckpointCompleted(userId: string, checkpoint: CheckpointKey): Promise<void> {
-    const updates: any = {};
-    updates[`${checkpoint}_completed`] = true;
-    updates[`${checkpoint}_completed_at`] = new Date().toISOString();
-
+  async markCheckpointCompleted(userId: string, intentName: string): Promise<void> {
     await supabaseServer
-      .from('user_progress')
-      .update(updates)
-      .eq('user_id', userId);
+      .from('user_checkpoints')
+      .upsert({
+        user_id: userId,
+        intent_name: intentName,
+        completed_at: new Date().toISOString()
+      }, { onConflict: 'user_id,intent_name' });
   }
 
   /**
    * Verificar si checkpoint ya fue completado
    */
-  async isCheckpointCompleted(userId: string, checkpoint: CheckpointKey): Promise<boolean> {
-    const progress = await this.getProgress(userId);
-    if (!progress) return false;
-    
-    return progress[`${checkpoint}_completed` as keyof UserProgress] as boolean;
+  async isCheckpointCompleted(userId: string, intentName: string): Promise<boolean> {
+    const { data } = await supabaseServer
+      .from('user_checkpoints')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('intent_name', intentName)
+      .single();
+
+    return !!data;
   }
 
   /**
-   * Contar checkpoints completados
+   * Contar checkpoints completados (solo intenciones activas con is_checkpoint=true)
    */
   async countCompletedCheckpoints(userId: string): Promise<number> {
-    const progress = await this.getProgress(userId);
-    if (!progress) return 0;
+    // Obtener nombres de intenciones que son checkpoint activo
+    const { data: checkpointIntents } = await supabaseServer
+      .from('intent_configurations')
+      .select('intent_name')
+      .eq('is_checkpoint', true)
+      .eq('is_active', true);
 
-    let count = 0;
-    const checkpoints: CheckpointKey[] = ['precio', 'ubicacion', 'modelo', 'creditos', 'seguridad', 'brochure'];
-    
-    for (const checkpoint of checkpoints) {
-      if (progress[`${checkpoint}_completed` as keyof UserProgress]) {
-        count++;
-      }
-    }
+    if (!checkpointIntents || checkpointIntents.length === 0) return 0;
 
-    return count;
+    const intentNames = checkpointIntents.map(i => i.intent_name);
+
+    const { count } = await supabaseServer
+      .from('user_checkpoints')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', userId)
+      .in('intent_name', intentNames);
+
+    return count ?? 0;
   }
 
   /**

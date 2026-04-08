@@ -105,7 +105,8 @@ export class FuzzyMatcher {
         confidence: this.EXACT_MATCH_THRESHOLD,
         matched_keywords: matchedKeywords,
         fuzzy_matches: [],
-        detection_method: 'exact'
+        detection_method: 'exact',
+        is_checkpoint: intent.is_checkpoint
       };
     }
 
@@ -133,7 +134,8 @@ export class FuzzyMatcher {
         confidence: 0.95, // Sinónimo es casi tan bueno como exacto
         matched_keywords: matchedKeywords,
         fuzzy_matches: [],
-        detection_method: 'synonym'
+        detection_method: 'synonym',
+        is_checkpoint: intent.is_checkpoint
       };
     }
 
@@ -161,7 +163,8 @@ export class FuzzyMatcher {
         confidence: 0.90, // Typo conocido
         matched_keywords: matchedKeywords,
         fuzzy_matches: [],
-        detection_method: 'typo'
+        detection_method: 'typo',
+        is_checkpoint: intent.is_checkpoint
       };
     }
 
@@ -205,7 +208,8 @@ export class FuzzyMatcher {
         confidence: bestMatch.similarity,
         matched_keywords: [bestMatch.keyword],
         fuzzy_matches: fuzzyMatches,
-        detection_method: 'phrase'
+        detection_method: 'phrase',
+        is_checkpoint: intent.is_checkpoint
       };
     }
 
@@ -250,7 +254,8 @@ export class FuzzyMatcher {
         confidence: avgConfidence,
         matched_keywords: fuzzyMatches.map(m => m.matched_word),
         fuzzy_matches: fuzzyMatches,
-        detection_method: 'fuzzy'
+        detection_method: 'fuzzy',
+        is_checkpoint: intent.is_checkpoint
       };
     }
 
@@ -267,10 +272,6 @@ export class FuzzyMatcher {
     const reconstructedMessage = this.reconstructBrokenWords(normalizedMessage);
     
     const words = reconstructedMessage.split(' ').filter(w => w.length > 0);
-    
-    // LOG TEMPORAL: Ver qué está procesando
-    console.log('🔍 Mensaje normalizado:', reconstructedMessage);
-    console.log('🔍 Palabras extraídas:', words);
     
     const allMatches: IntentMatch[] = [];
 

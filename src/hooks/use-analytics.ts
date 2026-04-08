@@ -1,12 +1,21 @@
 /**
- * Hook para obtener métricas y analytics del bot
+ * Hooks para obtener métricas y analytics del bot
+ * Implementados con SWR para cache y revalidación automática
  */
 
 'use client';
 
-import { useState, useEffect } from 'react';
+import useSWR from 'swr';
 import { supabase } from '@/services/supabase/client';
 
+// Configuración por defecto para SWR
+const swrConfig = {
+  revalidateOnFocus: true,
+  revalidateOnReconnect: true,
+  dedupingInterval: 5000, // No refetch si ya se hizo en últimos 5s
+};
+
+// Interfaces
 interface AnalyticsMetrics {
   totalUsers: number;
   conversationsToday: number;
@@ -44,287 +53,254 @@ interface UpcomingAppointment {
   status: string;
 }
 
-export function useAnalytics() {
-  const [metrics, setMetrics] = useState<AnalyticsMetrics>({
-    totalUsers: 0,
-    conversationsToday: 0,
-    pendingAppointments: 0,
-    hotLeads: 0,
+// Fetchers
+async function fetchMetrics(): Promise<AnalyticsMetrics> {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const [usersResult, conversationsResult, appointmentsResult, hotLeadsResult] = await Promise.all([
+    supabase.from('users').select('*', { count: 'exact', head: true }),
+    supabase.from('conversations').select('*', { count: 'exact', head: true }).gte('created_at', today.toISOString()),
+    supabase.from('appointments').select('*', { count: 'exact', head: true }).in('status', ['pending', 'confirmed']),
+    supabase.from('users').select('*', { count: 'exact', head: true }).eq('lead_status', 'hot'),
+  ]);
+
+  return {
+    totalUsers: usersResult.count || 0,
+    conversationsToday: conversationsResult.count || 0,
+    pendingAppointments: appointmentsResult.count || 0,
+    hotLeads: hotLeadsResult.count || 0,
+  };
+}
+
+async function fetchConversationsByDay(days: number): Promise<ConversationByDay[]> {
+  const startDate = new Date();
+  startDate.setDate(startDate.getDate() - days);
+  startDate.setHours(0, 0, 0, 0);
+
+  const { data: messages, error } = await supabase
+    .from('conversations')
+    .select('created_at')
+    .gte('created_at', startDate.toISOString())
+    .order('created_at', { ascending: true });
+
+  if (error) throw error;
+
+  const grouped: Record<string, number> = {};
+  messages?.forEach((msg) => {
+    const date = new Date(msg.created_at).toLocaleDateString('es-ES');
+    grouped[date] = (grouped[date] || 0) + 1;
   });
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetchMetrics();
-  }, []);
+  return Object.entries(grouped).map(([date, count]) => ({ date, count }));
+}
 
-  async function fetchMetrics() {
-    try {
-      setLoading(true);
-      setError(null);
+async function fetchIntentDistribution(): Promise<IntentDistribution[]> {
+  const { data: messages, error } = await supabase
+    .from('conversations')
+    .select('detected_intent')
+    .eq('direction', 'inbound')
+    .not('detected_intent', 'is', null);
 
-      // Total de usuarios
-      const { count: totalUsers } = await supabase
-        .from('users')
-        .select('*', { count: 'exact', head: true });
+  if (error) throw error;
 
-      // Conversaciones de hoy
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const { count: conversationsToday } = await supabase
-        .from('conversations')
-        .select('*', { count: 'exact', head: true })
-        .gte('created_at', today.toISOString());
+  const counts: Record<string, number> = {};
+  messages?.forEach((msg) => {
+    const intent = msg.detected_intent || 'unknown';
+    counts[intent] = (counts[intent] || 0) + 1;
+  });
 
-      // Citas pendientes (status = 'pending' o 'confirmed')
-      const { count: pendingAppointments } = await supabase
-        .from('appointments')
-        .select('*', { count: 'exact', head: true })
-        .in('status', ['pending', 'confirmed']);
+  const total = Object.values(counts).reduce((sum, count) => sum + count, 0);
 
-      // Leads HOT (score > 70)
-      const { count: hotLeads } = await supabase
-        .from('users')
-        .select('*', { count: 'exact', head: true })
-        .eq('lead_status', 'hot');
+  return Object.entries(counts)
+    .map(([intent_name, count]) => ({
+      intent_name,
+      count,
+      percentage: Math.round((count / total) * 100),
+    }))
+    .sort((a, b) => b.count - a.count);
+}
 
-      setMetrics({
-        totalUsers: totalUsers || 0,
-        conversationsToday: conversationsToday || 0,
-        pendingAppointments: pendingAppointments || 0,
-        hotLeads: hotLeads || 0,
-      });
-    } catch (err) {
-      console.error('Error fetching metrics:', err);
-      setError('Error al cargar métricas');
-    } finally {
-      setLoading(false);
+async function fetchRecentConversations(limit: number): Promise<RecentConversation[]> {
+  const { data: messages, error } = await supabase
+    .from('conversations')
+    .select(`
+      user_id,
+      message_text,
+      created_at,
+      users (
+        id,
+        phone_number,
+        name,
+        lead_status,
+        lead_score
+      )
+    `)
+    .order('created_at', { ascending: false })
+    .limit(limit * 2);
+
+  if (error) throw error;
+
+  const userLastMessages = new Map<string, any>();
+  messages?.forEach((msg: any) => {
+    if (!userLastMessages.has(msg.user_id)) {
+      userLastMessages.set(msg.user_id, msg);
     }
-  }
+  });
 
-  return { metrics, loading, error, refetch: fetchMetrics };
+  return Array.from(userLastMessages.values())
+    .slice(0, limit)
+    .map((msg: any) => ({
+      id: msg.user_id,
+      user_phone: msg.users?.phone_number || 'N/A',
+      user_name: msg.users?.name || null,
+      last_message: msg.message_text.substring(0, 100),
+      last_message_time: msg.created_at,
+      lead_status: msg.users?.lead_status || 'cold',
+      lead_score: msg.users?.lead_score || 0,
+    }));
+}
+
+async function fetchUpcomingAppointments(limit: number): Promise<UpcomingAppointment[]> {
+  const today = new Date().toISOString().split('T')[0];
+
+  const { data: appointments, error } = await supabase
+    .from('appointments')
+    .select(`
+      id,
+      appointment_date,
+      time_slot,
+      status,
+      user_id,
+      users!appointments_user_id_fkey (
+        phone_number,
+        name
+      )
+    `)
+    .in('status', ['pending', 'confirmed'])
+    .gte('appointment_date', today)
+    .order('appointment_date', { ascending: true })
+    .order('time_slot', { ascending: true })
+    .limit(limit);
+
+  if (error) throw error;
+
+  return (
+    appointments?.map((apt: any) => ({
+      id: apt.id,
+      user_phone: apt.users?.phone_number || 'N/A',
+      user_name: apt.users?.name || null,
+      appointment_date: apt.appointment_date,
+      appointment_time: apt.time_slot,
+      status: apt.status,
+    })) || []
+  );
+}
+
+// Hooks con SWR
+
+/**
+ * Hook para métricas principales del dashboard
+ */
+export function useAnalytics() {
+  const { data, error, isLoading, mutate } = useSWR<AnalyticsMetrics>(
+    'analytics-metrics',
+    fetchMetrics,
+    {
+      ...swrConfig,
+      fallbackData: {
+        totalUsers: 0,
+        conversationsToday: 0,
+        pendingAppointments: 0,
+        hotLeads: 0,
+      },
+    }
+  );
+
+  return {
+    metrics: data!,
+    loading: isLoading,
+    error: error?.message || null,
+    refetch: mutate,
+  };
 }
 
 /**
- * Hook para obtener conversaciones por día (últimos N días)
+ * Hook para conversaciones por día
  */
 export function useConversationsByDay(days: number = 7) {
-  const [data, setData] = useState<ConversationByDay[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    fetchConversationsByDay();
-  }, [days]);
-
-  async function fetchConversationsByDay() {
-    try {
-      setLoading(true);
-      const startDate = new Date();
-      startDate.setDate(startDate.getDate() - days);
-      startDate.setHours(0, 0, 0, 0);
-
-      const { data: messages, error } = await supabase
-        .from('conversations')
-        .select('created_at')
-        .gte('created_at', startDate.toISOString())
-        .order('created_at', { ascending: true });
-
-      if (error) throw error;
-
-      // Agrupar por día
-      const grouped: Record<string, number> = {};
-      messages?.forEach((msg) => {
-        const date = new Date(msg.created_at).toLocaleDateString('es-ES');
-        grouped[date] = (grouped[date] || 0) + 1;
-      });
-
-      const result: ConversationByDay[] = Object.entries(grouped).map(
-        ([date, count]) => ({ date, count })
-      );
-
-      setData(result);
-    } catch (err) {
-      console.error('Error fetching conversations by day:', err);
-    } finally {
-      setLoading(false);
+  const { data, isLoading, mutate } = useSWR<ConversationByDay[]>(
+    ['conversations-by-day', days],
+    () => fetchConversationsByDay(days),
+    {
+      ...swrConfig,
+      fallbackData: [],
     }
-  }
+  );
 
-  return { data, loading };
+  return {
+    data: data!,
+    loading: isLoading,
+    refetch: mutate,
+  };
 }
 
 /**
- * Hook para obtener distribución de intenciones
+ * Hook para distribución de intenciones
  */
 export function useIntentDistribution() {
-  const [data, setData] = useState<IntentDistribution[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    fetchIntentDistribution();
-  }, []);
-
-  async function fetchIntentDistribution() {
-    try {
-      setLoading(true);
-
-      const { data: messages, error } = await supabase
-        .from('conversations')
-        .select('detected_intent')
-        .eq('direction', 'inbound')
-        .not('detected_intent', 'is', null);
-
-      if (error) throw error;
-
-      // Contar por intención
-      const counts: Record<string, number> = {};
-      messages?.forEach((msg) => {
-        const intent = msg.detected_intent || 'unknown';
-        counts[intent] = (counts[intent] || 0) + 1;
-      });
-
-      const total = Object.values(counts).reduce((sum, count) => sum + count, 0);
-
-      const result: IntentDistribution[] = Object.entries(counts)
-        .map(([intent_name, count]) => ({
-          intent_name,
-          count,
-          percentage: Math.round((count / total) * 100),
-        }))
-        .sort((a, b) => b.count - a.count);
-
-      setData(result);
-    } catch (err) {
-      console.error('Error fetching intent distribution:', err);
-    } finally {
-      setLoading(false);
+  const { data, isLoading, mutate } = useSWR<IntentDistribution[]>(
+    'intent-distribution',
+    fetchIntentDistribution,
+    {
+      ...swrConfig,
+      fallbackData: [],
     }
-  }
+  );
 
-  return { data, loading };
+  return {
+    data: data!,
+    loading: isLoading,
+    refetch: mutate,
+  };
 }
 
 /**
- * Hook para obtener últimas conversaciones
+ * Hook para conversaciones recientes
  */
 export function useRecentConversations(limit: number = 10) {
-  const [data, setData] = useState<RecentConversation[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    fetchRecentConversations();
-  }, [limit]);
-
-  async function fetchRecentConversations() {
-    try {
-      setLoading(true);
-
-      // Obtener últimos mensajes por usuario
-      const { data: messages, error } = await supabase
-        .from('conversations')
-        .select(`
-          user_id,
-          message_text,
-          created_at,
-          users (
-            id,
-            phone_number,
-            name,
-            lead_status,
-            lead_score
-          )
-        `)
-        .order('created_at', { ascending: false })
-        .limit(limit * 2); // Traer más para filtrar duplicados
-
-      if (error) throw error;
-
-      // Filtrar para tener solo el último mensaje por usuario
-      const userLastMessages = new Map<string, any>();
-      messages?.forEach((msg: any) => {
-        if (!userLastMessages.has(msg.user_id)) {
-          userLastMessages.set(msg.user_id, msg);
-        }
-      });
-
-      const result: RecentConversation[] = Array.from(userLastMessages.values())
-        .slice(0, limit)
-        .map((msg: any) => ({
-          id: msg.user_id,
-          user_phone: msg.users?.phone_number || 'N/A',
-          user_name: msg.users?.name || null,
-          last_message: msg.message_text.substring(0, 100),
-          last_message_time: msg.created_at,
-          lead_status: msg.users?.lead_status || 'cold',
-          lead_score: msg.users?.lead_score || 0,
-        }));
-
-      setData(result);
-    } catch (err) {
-      console.error('Error fetching recent conversations:', err);
-    } finally {
-      setLoading(false);
+  const { data, isLoading, mutate } = useSWR<RecentConversation[]>(
+    ['recent-conversations', limit],
+    () => fetchRecentConversations(limit),
+    {
+      ...swrConfig,
+      fallbackData: [],
     }
-  }
+  );
 
-  return { data, loading };
+  return {
+    data: data!,
+    loading: isLoading,
+    refetch: mutate,
+  };
 }
 
 /**
- * Hook para obtener próximas citas
+ * Hook para próximas citas
  */
 export function useUpcomingAppointments(limit: number = 5) {
-  const [data, setData] = useState<UpcomingAppointment[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    fetchUpcomingAppointments();
-  }, [limit]);
-
-  async function fetchUpcomingAppointments() {
-    try {
-      setLoading(true);
-
-      const today = new Date().toISOString().split('T')[0];
-
-      const { data: appointments, error } = await supabase
-        .from('appointments')
-        .select(`
-          id,
-          appointment_date,
-          time_slot,
-          status,
-          user_id,
-          users!appointments_user_id_fkey (
-            phone_number,
-            name
-          )
-        `)
-        .in('status', ['pending', 'confirmed'])
-        .gte('appointment_date', today)
-        .order('appointment_date', { ascending: true })
-        .order('time_slot', { ascending: true })
-        .limit(limit);
-
-      if (error) throw error;
-
-      const result: UpcomingAppointment[] =
-        appointments?.map((apt: any) => ({
-          id: apt.id,
-          user_phone: apt.users?.phone_number || 'N/A',
-          user_name: apt.users?.name || null,
-          appointment_date: apt.appointment_date,
-          appointment_time: apt.time_slot,
-          status: apt.status,
-        })) || [];
-
-      setData(result);
-    } catch (err) {
-      console.error('Error fetching upcoming appointments:', err);
-    } finally {
-      setLoading(false);
+  const { data, isLoading, mutate } = useSWR<UpcomingAppointment[]>(
+    ['upcoming-appointments', limit],
+    () => fetchUpcomingAppointments(limit),
+    {
+      ...swrConfig,
+      fallbackData: [],
     }
-  }
+  );
 
-  return { data, loading };
+  return {
+    data: data!,
+    loading: isLoading,
+    refetch: mutate,
+  };
 }

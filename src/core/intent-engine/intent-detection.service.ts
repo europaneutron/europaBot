@@ -35,14 +35,6 @@ export class IntentDetectionService {
     this.intentsCache = data || [];
     this.matcher = new FuzzyMatcher(this.intentsCache);
     this.lastCacheUpdate = new Date();
-
-    // LOG TEMPORAL: Ver qué intents se cargaron
-    console.log('🔄 Intents cargados desde DB:', this.intentsCache.length);
-    const brochureIntent = this.intentsCache.find(i => i.intent_name === 'brochure');
-    if (brochureIntent) {
-      console.log('📋 Intent BROCHURE keywords:', brochureIntent.keywords);
-      console.log('📋 Intent BROCHURE synonyms:', brochureIntent.synonyms);
-    }
   }
 
   /**

@@ -1,11 +1,15 @@
 /**
  * Test Endpoint - Reset User
  * Resetea completamente el estado de un usuario para testing
+ * Bloqueado en produccion por seguridad
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 
 export async function POST(request: NextRequest) {
+  if (process.env.NODE_ENV === 'production') {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  }
   try {
     const { phoneNumber } = await request.json();
 

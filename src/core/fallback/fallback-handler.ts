@@ -70,9 +70,32 @@ export class FallbackHandler {
     messageText: string,
     session: UserSession
   ): Promise<ProcessedResponse> {
-    // Capturar y guardar nombre
+    // Usar el nombre capturado solo si el usuario no tiene nombre de WhatsApp
     const userName = messageText.trim();
-    await userRepository.updateName(userId, userName);
+    if (!user.name) {
+      await userRepository.updateName(userId, userName);
+    }
+
+    // Verificar si ya tiene solicitud pendiente para no duplicar
+    const hasPending = await advisorRepository.hasPendingRequest(userId);
+    if (hasPending) {
+      await userRepository.updateAwaitingAdvisorName(userId, false);
+      await userRepository.resetFallbackAttempts(userId);
+      const businessHours = await configRepository.get(
+        'business_hours',
+        'lunes a viernes 9:00 AM - 6:00 PM'
+      );
+      let alreadyMsg = await configRepository.get(
+        'derivation_already_pending',
+        'Ya hemos registrado tu solicitud. Un asesor se pondrá en contacto contigo pronto. Por favor espera a ser atendido.'
+      );
+      return {
+        responses: [alreadyMsg],
+        shouldSend: true,
+        wasDetected: true,
+        isFallback: false
+      };
+    }
     
     // Obtener configuración del agente
     const agentConfig = await appointmentRepository.getDefaultAgent();
@@ -175,6 +198,17 @@ export class FallbackHandler {
       
       case FallbackLevel.LEVEL_3:
         if (derivationEnabled) {
+          // Verificar si ya tiene una solicitud pendiente sin atender
+          const hasPending = await advisorRepository.hasPendingRequest(userId);
+          if (hasPending) {
+            // Ya tiene solicitud pendiente, no crear otra ni pedir nombre de nuevo
+            await userRepository.resetFallbackAttempts(userId);
+            return await configRepository.get(
+              'derivation_already_pending',
+              'Ya hemos registrado tu solicitud. Un asesor se pondrá en contacto contigo pronto. Por favor espera a ser atendido.'
+            );
+          }
+
           // Activar estado de espera de nombre
           await userRepository.updateAwaitingAdvisorName(userId, true);
           

@@ -1,11 +1,15 @@
 /**
  * API de Testing - Procesa mensajes sin WhatsApp real
+ * Bloqueado en produccion por seguridad
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { messageProcessor } from '@/core/conversation/message-processor';
 
 export async function POST(request: NextRequest) {
+  if (process.env.NODE_ENV === 'production') {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  }
   try {
     const { phoneNumber, message, messageId } = await request.json();
 

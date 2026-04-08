@@ -8,6 +8,25 @@ import type { AdvisorRequest, AdvisorRequestData } from '@/types/advisor.types';
 
 export class AdvisorRepository {
   /**
+   * Verificar si el usuario ya tiene una solicitud pendiente (no contactada)
+   */
+  async hasPendingRequest(userId: string): Promise<boolean> {
+    const { data, error } = await supabaseServer
+      .from('advisor_requests')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('contacted', false)
+      .limit(1);
+
+    if (error) {
+      console.error('Error checking pending advisor request:', error);
+      return false;
+    }
+
+    return (data?.length ?? 0) > 0;
+  }
+
+  /**
    * Crear nueva solicitud de asesor
    */
   async create(data: AdvisorRequestData): Promise<AdvisorRequest> {

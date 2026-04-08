@@ -15,6 +15,7 @@ export interface ConfigsByCategory {
   appointment_messages: BotConfig[];
   derivation_messages: BotConfig[];
   followup: BotConfig[];
+  ai: BotConfig[];
 }
 
 export interface MessageState {

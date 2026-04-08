@@ -30,8 +30,8 @@ export async function GET(request: NextRequest) {
     if (!cronSecret) {
       console.error('[CRON] CRON_SECRET no configurado en variables de entorno');
       return NextResponse.json(
-        { error: 'Server configuration error' },
-        { status: 500 }
+        { error: 'Unauthorized' },
+        { status: 401 }
       );
     }
 

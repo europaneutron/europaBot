@@ -238,12 +238,13 @@ export function useConversationDetail(userId: string) {
       setLoading(true);
       setError(null);
 
-      // Obtener usuario, citas, progreso y checkpoints en paralelo
-      const [userResult, appointmentsResult, progressResult, checkpointsResult, countResult] = await Promise.all([
+      // Obtener usuario, citas, progreso, checkpoints y completados en paralelo
+      const [userResult, appointmentsResult, progressResult, checkpointsResult, completedResult, countResult] = await Promise.all([
         supabase.from('users').select('*').eq('id', userId).single(),
         supabase.from('appointments').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
         supabase.from('user_progress').select('*').eq('user_id', userId).single(),
         supabase.from('intent_configurations').select('intent_name, display_name').eq('is_checkpoint', true).eq('is_active', true).order('priority', { ascending: false }),
+        supabase.from('user_checkpoints').select('intent_name').eq('user_id', userId),
         supabase.from('conversations').select('id', { count: 'exact', head: true }).eq('user_id', userId)
       ]);
 
@@ -252,6 +253,7 @@ export function useConversationDetail(userId: string) {
       const user = userResult.data;
       const appointments = appointmentsResult.data || [];
       const progress = progressResult.data;
+      const completedIntents = new Set((completedResult.data || []).map((r: { intent_name: string }) => r.intent_name));
       const totalMessages = countResult.count || 0;
 
       // Obtener ultimos N mensajes (DESC para obtener los mas recientes, luego invertir)
@@ -273,13 +275,12 @@ export function useConversationDetail(userId: string) {
         created_at: msg.created_at
       }));
 
-      // Mapear checkpoints con su estado de completado
+      // Mapear checkpoints con su estado de completado (desde user_checkpoints)
       const checkpoints: CheckpointConfig[] = (checkpointsResult.data || []).map((intent) => {
-        const completedKey = `${intent.intent_name}_completed` as keyof typeof progress;
         return {
           intent_name: intent.intent_name,
           display_name: intent.display_name,
-          is_completed: progress ? Boolean(progress[completedKey]) : false,
+          is_completed: completedIntents.has(intent.intent_name),
         };
       });
 

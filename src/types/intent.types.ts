@@ -23,6 +23,7 @@ export interface IntentMatch {
   matched_keywords: string[];
   fuzzy_matches: FuzzyMatch[];
   detection_method: 'exact' | 'synonym' | 'typo' | 'phrase' | 'fuzzy';
+  is_checkpoint?: boolean;
 }
 
 export interface FuzzyMatch {

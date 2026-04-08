@@ -6,6 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { createServerClient } from '@supabase/ssr';
 import { checkLoginAttempts, recordFailedAttempt, resetLoginAttempts } from '@/utils/rate-limit';
 
 export async function POST(request: NextRequest) {
@@ -20,11 +21,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validar formato básico de email
+    // Validar formato basico de email
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
       return NextResponse.json(
-        { error: 'Email inválido' },
+        { error: 'Email invalido' },
         { status: 400 }
       );
     }
@@ -41,6 +42,26 @@ export async function POST(request: NextRequest) {
       }
 
       case 'reset': {
+        // Reset requiere sesion autenticada para evitar bypass de fuerza bruta
+        const supabase = createServerClient(
+          process.env.NEXT_PUBLIC_SUPABASE_URL!,
+          process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+          {
+            cookies: {
+              getAll() {
+                return request.cookies.getAll();
+              },
+              setAll() {},
+            },
+          }
+        );
+        const { data: { user }, error: authError } = await supabase.auth.getUser();
+        if (authError || !user) {
+          return NextResponse.json(
+            { error: 'No autorizado' },
+            { status: 403 }
+          );
+        }
         await resetLoginAttempts(email);
         return NextResponse.json({ success: true });
       }

@@ -13,6 +13,7 @@ import { ContactSection } from './components/sections/ContactSection';
 import { MessagesSection } from './components/sections/MessagesSection';
 import { MessagesTabsSection } from './components/MessagesTabsSection';
 import { FollowupSection } from './components/sections/FollowupSection';
+import { AISection } from './components/sections/AISection';
 
 export default function SettingsPage() {
   const { configs, loading, message, loadConfigs } = useSettingsConfig();
@@ -62,6 +63,9 @@ export default function SettingsPage() {
 
       {/* Sección de Follow-up automático */}
       <FollowupSection configs={configs} onReload={loadConfigs} />
+
+      {/* Sección de Inteligencia Artificial */}
+      <AISection configs={configs.ai} onReload={loadConfigs} />
 
       {/* Sección de mensajes personalizables */}
       <MessagesTabsSection configs={configs} onReload={loadConfigs} />
