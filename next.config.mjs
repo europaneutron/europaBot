@@ -1,10 +1,10 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Security Headers
+  // Security & Cache Headers
   async headers() {
     return [
       {
-        // Aplicar a todas las rutas
+        // Seguridad global
         source: '/:path*',
         headers: [
           {
@@ -34,6 +34,16 @@ const nextConfig = {
           {
             key: 'Permissions-Policy',
             value: 'camera=(), microphone=(), geolocation=()'
+          }
+        ]
+      },
+      {
+        // API routes: no cachear (mutaciones, datos sensibles, webhooks)
+        source: '/api/:path*',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: 'no-store, must-revalidate'
           }
         ]
       }

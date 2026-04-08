@@ -27,6 +27,9 @@ function applySecurityHeaders(response: NextResponse): NextResponse {
   Object.entries(securityHeaders).forEach(([key, value]) => {
     response.headers.set(key, value);
   });
+  // Cache: respuestas de dashboard son privadas (detras de auth)
+  response.headers.set('Cache-Control', 'private, no-cache');
+  response.headers.set('Vary', 'Cookie');
   return response;
 }
 

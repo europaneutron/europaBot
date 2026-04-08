@@ -5,7 +5,7 @@
 
 'use client';
 
-import { useState, useEffect } from 'react';
+import useSWR from 'swr';
 import { supabase } from '@/services/supabase/client';
 
 export interface AdvisorRequest {
@@ -31,18 +31,8 @@ export interface AdvisorRequestFilters {
 }
 
 export function useAdvisorRequests(filters: AdvisorRequestFilters = {}) {
-  const [requests, setRequests] = useState<AdvisorRequest[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    fetchRequests();
-  }, [JSON.stringify(filters)]);
-
-  async function fetchRequests() {
+  async function fetchRequestsList(): Promise<AdvisorRequest[]> {
     try {
-      setLoading(true);
-      setError(null);
 
       let query = supabase
         .from('advisor_requests')
@@ -95,41 +85,44 @@ export function useAdvisorRequests(filters: AdvisorRequestFilters = {}) {
         user: Array.isArray(req.user) ? req.user[0] : req.user,
       }));
 
-      setRequests(normalized);
+      return normalized;
     } catch (err) {
-      console.error('Error fetching advisor requests:', err);
-      setError(err instanceof Error ? err.message : 'Error desconocido');
-    } finally {
-      setLoading(false);
+      throw err instanceof Error ? err : new Error('Error desconocido');
     }
   }
 
-  async function toggleContacted(requestId: string, contacted: boolean) {
-    try {
-      const { error: updateError } = await supabase
-        .from('advisor_requests')
-        .update({ contacted })
-        .eq('id', requestId);
+  const filterKey = JSON.stringify(filters);
 
-      if (updateError) throw updateError;
-
-      // Actualizar estado local
-      setRequests((prev) =>
-        prev.map((req) =>
-          req.id === requestId ? { ...req, contacted } : req
-        )
-      );
-    } catch (err) {
-      console.error('Error updating contacted status:', err);
-      throw err;
+  const { data, error, isLoading, mutate } = useSWR<AdvisorRequest[]>(
+    ['advisor-requests', filterKey],
+    fetchRequestsList,
+    {
+      revalidateOnFocus: false,
+      dedupingInterval: 10000,
     }
+  );
+
+  async function toggleContacted(requestId: string, contacted: boolean) {
+    const { error: updateError } = await supabase
+      .from('advisor_requests')
+      .update({ contacted })
+      .eq('id', requestId);
+
+    if (updateError) throw updateError;
+
+    mutate(
+      (current) => (current || []).map((req) =>
+        req.id === requestId ? { ...req, contacted } : req
+      ),
+      { revalidate: false }
+    );
   }
 
   return {
-    requests,
-    loading,
-    error,
+    requests: data || [],
+    loading: isLoading,
+    error: error ? (error instanceof Error ? error.message : 'Error desconocido') : null,
     toggleContacted,
-    refetch: fetchRequests,
+    refetch: () => mutate(),
   };
 }

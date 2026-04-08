@@ -5,6 +5,27 @@
 
 import { supabase } from '@/services/supabase/client';
 
+// Cache en memoria con TTL para evitar queries repetidas desde el cliente
+const cache = new Map<string, { data: unknown; ts: number }>();
+const CACHE_TTL = 30_000; // 30 segundos
+
+function getCached<T>(key: string): T | null {
+  const entry = cache.get(key);
+  if (!entry || Date.now() - entry.ts > CACHE_TTL) {
+    if (entry) cache.delete(key);
+    return null;
+  }
+  return entry.data as T;
+}
+
+function setCache(key: string, data: unknown): void {
+  cache.set(key, { data, ts: Date.now() });
+}
+
+function invalidateCache(): void {
+  cache.clear();
+}
+
 export interface BotConfig {
   id: string;
   config_key: string;
@@ -22,6 +43,9 @@ export class ConfigRepositoryClient {
    * Obtener todas las configuraciones
    */
   async getAll(): Promise<BotConfig[]> {
+    const cached = getCached<BotConfig[]>('config:__all__');
+    if (cached) return cached;
+
     const { data, error } = await supabase
       .from('bot_config')
       .select('*')
@@ -33,7 +57,9 @@ export class ConfigRepositoryClient {
       throw error;
     }
 
-    return data || [];
+    const result = data || [];
+    setCache('config:__all__', result);
+    return result;
   }
 
   /**
@@ -54,6 +80,8 @@ export class ConfigRepositoryClient {
         throw error;
       }
     }
+
+    invalidateCache();
   }
 }
 

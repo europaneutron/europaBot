@@ -5,6 +5,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import useSWR from 'swr';
 import { supabase } from '@/services/supabase/client';
 
 export interface Conversation {
@@ -31,18 +32,8 @@ export interface ConversationFilters {
 }
 
 export function useConversations(filters?: ConversationFilters) {
-  const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    fetchConversations();
-  }, [filters]);
-
-  async function fetchConversations() {
+  async function fetchConversationsList(): Promise<Conversation[]> {
     try {
-      setLoading(true);
-      setError(null);
 
       // Query base: obtener usuarios
       let query = supabase
@@ -66,8 +57,7 @@ export function useConversations(filters?: ConversationFilters) {
       if (queryError) throw queryError;
 
       if (!users || users.length === 0) {
-        setConversations([]);
-        return;
+        return [];
       }
 
       // OPTIMIZACIÓN: Obtener todos los datos necesarios en 3 queries en paralelo
@@ -167,20 +157,28 @@ export function useConversations(filters?: ConversationFilters) {
         );
       }
 
-      setConversations(filtered);
+      return filtered;
     } catch (err) {
-      console.error('Error fetching conversations:', err);
-      setError('Error al cargar conversaciones');
-    } finally {
-      setLoading(false);
+      throw err instanceof Error ? err : new Error('Error al cargar conversaciones');
     }
   }
 
+  const filterKey = JSON.stringify(filters || {});
+
+  const { data, error, isLoading, mutate } = useSWR<Conversation[]>(
+    ['conversations', filterKey],
+    fetchConversationsList,
+    {
+      revalidateOnFocus: false,
+      dedupingInterval: 10000,
+    }
+  );
+
   return {
-    conversations,
-    loading,
-    error,
-    refetch: fetchConversations,
+    conversations: data || [],
+    loading: isLoading,
+    error: error ? (error instanceof Error ? error.message : 'Error al cargar conversaciones') : null,
+    refetch: () => mutate(),
   };
 }
 

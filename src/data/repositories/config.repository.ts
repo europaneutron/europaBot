@@ -5,6 +5,32 @@
 
 import { supabaseServer } from '@/services/supabase/server-client';
 
+// Cache en memoria con TTL para evitar queries repetidas de config estable
+const cache = new Map<string, { data: unknown; ts: number }>();
+const CACHE_TTL = 60_000; // 60 segundos
+
+function getCached<T>(key: string): T | null {
+  const entry = cache.get(key);
+  if (!entry || Date.now() - entry.ts > CACHE_TTL) {
+    if (entry) cache.delete(key);
+    return null;
+  }
+  return entry.data as T;
+}
+
+function setCache(key: string, data: unknown): void {
+  cache.set(key, { data, ts: Date.now() });
+}
+
+function invalidateCache(key?: string): void {
+  if (key) {
+    cache.delete(`config:${key}`);
+    cache.delete('config:__all__');
+  } else {
+    cache.clear();
+  }
+}
+
 export interface BotConfig {
   id: string;
   config_key: string;
@@ -22,6 +48,9 @@ export class ConfigRepository {
    * Obtener valor de configuración como string
    */
   async get(key: string, defaultValue: string = ''): Promise<string> {
+    const cached = getCached<string>(`config:${key}`);
+    if (cached !== null) return cached;
+
     const { data, error } = await supabaseServer
       .from('bot_config')
       .select('config_value')
@@ -33,6 +62,7 @@ export class ConfigRepository {
       return defaultValue;
     }
 
+    setCache(`config:${key}`, data.config_value);
     return data.config_value;
   }
 
@@ -82,12 +112,17 @@ export class ConfigRepository {
       console.error(`Error updating config key "${key}":`, error);
       throw error;
     }
+
+    invalidateCache(key);
   }
 
   /**
    * Obtener todas las configuraciones (para dashboard)
    */
   async getAll(): Promise<BotConfig[]> {
+    const cached = getCached<BotConfig[]>('config:__all__');
+    if (cached) return cached;
+
     const { data, error } = await supabaseServer
       .from('bot_config')
       .select('*')
@@ -98,6 +133,10 @@ export class ConfigRepository {
       console.error('Error fetching all configs:', error);
       return [];
     }
+
+    const result = data || [];
+    setCache('config:__all__', result);
+    return result;
 
     return data || [];
   }
@@ -127,6 +166,7 @@ export class ConfigRepository {
     for (const { key, value } of updates) {
       await this.set(key, value);
     }
+    invalidateCache();
   }
 }
 
