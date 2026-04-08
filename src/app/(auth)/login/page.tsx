@@ -34,11 +34,7 @@ export default function LoginPage() {
     if (success) {
       const params = new URLSearchParams(window.location.search);
       const redirectTo = params.get('redirectedFrom') || '/dashboard';
-      
-      await new Promise(resolve => setTimeout(resolve, 100));
-      
-      router.refresh();
-      router.push(redirectTo);
+      router.replace(redirectTo);
     } else {
       setError(signInError || 'Error al iniciar sesion');
       setIsLocked(locked || false);
