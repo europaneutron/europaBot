@@ -5,7 +5,7 @@
 
 import crypto from 'crypto';
 
-const APP_SECRET = process.env.WHATSAPP_APP_SECRET || '';
+const APP_SECRET = (process.env.WHATSAPP_APP_SECRET || '').trim();
 const VERIFY_TOKEN = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN!;
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 
@@ -38,6 +38,11 @@ export class WebhookValidator {
       .createHmac('sha256', APP_SECRET)
       .update(payload, 'utf-8')
       .digest('hex');
+
+    // Log de diagnostico temporal — remover una vez resuelto
+    console.log('[HMAC] receivedHex (primeros 16):', receivedHex.slice(0, 16));
+    console.log('[HMAC] expectedHex (primeros 16):', expectedHex.slice(0, 16));
+    console.log('[HMAC] APP_SECRET length:', APP_SECRET.length);
 
     // Comparacion de tiempo constante para evitar timing attacks
     try {
