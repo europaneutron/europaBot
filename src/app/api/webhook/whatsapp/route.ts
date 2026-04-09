@@ -44,6 +44,8 @@ export async function POST(request: NextRequest) {
 
     console.log('[Webhook] signature header:', signature ? signature.slice(0, 20) + '...' : 'AUSENTE');
     console.log('[Webhook] APP_SECRET configurado:', !!process.env.WHATSAPP_APP_SECRET);
+    console.log('[Webhook] rawBody length:', rawBody.length);
+    console.log('[Webhook] rawBody preview:', rawBody.slice(0, 50));
 
     if (!webhookValidator.validateSignature(rawBody, signature)) {
       console.error('[Webhook] Firma invalida - request rechazado');
