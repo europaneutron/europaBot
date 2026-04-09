@@ -5,7 +5,7 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -16,13 +16,23 @@ import { Loader2, AlertCircle, Lock } from 'lucide-react';
 
 export default function LoginPage() {
   const router = useRouter();
-  const { signIn } = useAuth();
+  const { signIn, user, loading: authLoading } = useAuth();
   
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isLocked, setIsLocked] = useState(false);
+
+  // Navegar cuando la sesion se confirme en el contexto de auth
+  // (onAuthStateChange dispara despues de que las cookies estan escritas)
+  useEffect(() => {
+    if (!authLoading && user) {
+      const params = new URLSearchParams(window.location.search);
+      const redirectTo = params.get('redirectedFrom') || '/dashboard';
+      router.replace(redirectTo);
+    }
+  }, [user, authLoading, router]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -31,15 +41,13 @@ export default function LoginPage() {
 
     const { success, error: signInError, isLocked: locked } = await signIn(email, password);
 
-    if (success) {
-      const params = new URLSearchParams(window.location.search);
-      const redirectTo = params.get('redirectedFrom') || '/dashboard';
-      router.replace(redirectTo);
-    } else {
+    if (!success) {
       setError(signInError || 'Error al iniciar sesion');
       setIsLocked(locked || false);
       setLoading(false);
     }
+    // Si success=true el useEffect maneja la navegacion cuando
+    // onAuthStateChange confirme que la sesion esta establecida
   }
 
   return (

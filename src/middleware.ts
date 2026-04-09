@@ -140,5 +140,7 @@ export const config = {
     '/analytics/:path*',
     '/profile',
     '/profile/:path*',
+    '/test-upload',
+    '/test-upload/:path*',
   ],
 };

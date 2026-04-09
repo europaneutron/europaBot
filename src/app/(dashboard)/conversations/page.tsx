@@ -5,9 +5,9 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { useConversations, ConversationFilters } from '@/hooks/use-conversations';
+import { useConversations, ConversationFilters, CONVERSATIONS_PAGE_SIZE } from '@/hooks/use-conversations';
 import { exportToCSV, generateCSVFilename } from '@/lib/utils/export-csv';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -28,11 +28,19 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Download, Search, X, Eye, CalendarCheck } from 'lucide-react';
+import { Download, Search, X, Eye, CalendarCheck, ChevronLeft, ChevronRight } from 'lucide-react';
 
 export default function ConversationsPage() {
   const [filters, setFilters] = useState<ConversationFilters>({});
-  const { conversations, loading, error } = useConversations(filters);
+  const [page, setPage] = useState(1);
+  const { conversations, loading, error, total } = useConversations(filters, page, CONVERSATIONS_PAGE_SIZE);
+
+  const totalPages = Math.max(1, Math.ceil(total / CONVERSATIONS_PAGE_SIZE));
+
+  // Resetear a pagina 1 cuando cambian los filtros
+  useEffect(() => {
+    setPage(1);
+  }, [filters]);
 
   const handleFilterChange = (key: keyof ConversationFilters, value: any) => {
     setFilters((prev: ConversationFilters) => ({ ...prev, [key]: value }));
@@ -177,8 +185,12 @@ export default function ConversationsPage() {
         <CardHeader>
           <div className="flex items-center justify-between">
             <div>
-              <CardTitle>{conversations.length} conversaciones</CardTitle>
-              <CardDescription>Historial de interacciones con usuarios</CardDescription>
+              <CardTitle>{total} conversaciones</CardTitle>
+              <CardDescription>
+                {totalPages > 1
+                  ? `Pagina ${page} de ${totalPages}`
+                  : 'Historial de interacciones con usuarios'}
+              </CardDescription>
             </div>
             <Button
               onClick={handleExportCSV}
@@ -278,6 +290,38 @@ export default function ConversationsPage() {
                   ))}
                 </TableBody>
               </Table>
+            </div>
+          )}
+
+          {/* Controles de paginacion */}
+          {!loading && !error && totalPages > 1 && (
+            <div className="flex items-center justify-between mt-4">
+              <p className="text-sm text-muted-foreground">
+                {`${(page - 1) * CONVERSATIONS_PAGE_SIZE + 1}–${Math.min(page * CONVERSATIONS_PAGE_SIZE, total)} de ${total}`}
+              </p>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={page <= 1}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                  Anterior
+                </Button>
+                <span className="text-sm font-medium px-2">
+                  {page} / {totalPages}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={page >= totalPages}
+                >
+                  Siguiente
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
           )}
         </CardContent>

@@ -38,7 +38,16 @@ export async function GET(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
+    // Leer raw body para validar firma HMAC antes de parsear
+    const rawBody = await request.text();
+    const signature = request.headers.get('x-hub-signature-256');
+
+    if (!webhookValidator.validateSignature(rawBody, signature)) {
+      console.error('[Webhook] Firma invalida - request rechazado');
+      return NextResponse.json({ error: 'Invalid signature' }, { status: 403 });
+    }
+
+    const body = JSON.parse(rawBody);
 
     // Validar que sea un mensaje de WhatsApp válido
     if (!webhookValidator.isValidWhatsAppMessage(body)) {

@@ -31,17 +31,25 @@ export interface ConversationFilters {
   searchQuery?: string;
 }
 
-export function useConversations(filters?: ConversationFilters) {
-  async function fetchConversationsList(): Promise<Conversation[]> {
-    try {
+export const CONVERSATIONS_PAGE_SIZE = 25;
 
-      // Query base: obtener usuarios
+export function useConversations(
+  filters?: ConversationFilters,
+  page: number = 1,
+  pageSize: number = CONVERSATIONS_PAGE_SIZE
+) {
+  async function fetchConversationsList(): Promise<{ data: Conversation[]; total: number }> {
+    try {
+      const offset = (page - 1) * pageSize;
+
+      // Query base con paginacion server-side para evitar URL too long en el in()
       let query = supabase
         .from('users')
-        .select('*')
-        .order('updated_at', { ascending: false });
+        .select('*', { count: 'exact' })
+        .order('updated_at', { ascending: false })
+        .range(offset, offset + pageSize - 1);
 
-      // Aplicar filtros
+      // Aplicar filtros server-side
       if (filters?.leadStatus) {
         query = query.eq('lead_status', filters.leadStatus);
       }
@@ -52,17 +60,17 @@ export function useConversations(filters?: ConversationFilters) {
         );
       }
 
-      const { data: users, error: queryError } = await query;
+      const { data: users, error: queryError, count } = await query;
 
       if (queryError) throw queryError;
 
       if (!users || users.length === 0) {
-        return [];
+        return { data: [], total: count ?? 0 };
       }
 
       // OPTIMIZACIÓN: Obtener todos los datos necesarios en 3 queries en paralelo
+      // userIds es <= pageSize elementos, nunca generara URLs demasiado largas
       const userIds = users.map((u: any) => u.id);
-      const today = new Date().toISOString().split('T')[0];
 
       const [conversationsData, appointmentsData] = await Promise.all([
         // 1 query: Obtener últimos mensajes de TODOS los usuarios
@@ -72,14 +80,13 @@ export function useConversations(filters?: ConversationFilters) {
           .in('user_id', userIds)
           .order('created_at', { ascending: false }),
         
-        // 1 query: Obtener próximas citas de TODOS los usuarios
+        // 1 query: Obtener citas activas (pending = agendada por bot, confirmed = confirmada por admin)
         supabase
           .from('appointments')
-          .select('user_id, appointment_date')
+          .select('user_id, appointment_date, status')
           .in('user_id', userIds)
-          .eq('status', 'confirmed')
-          .gte('appointment_date', today)
-          .order('appointment_date', { ascending: true })
+          .in('status', ['pending', 'confirmed'])
+          .order('appointment_date', { ascending: false })
       ]);
 
       // Agrupar mensajes por user_id
@@ -136,7 +143,7 @@ export function useConversations(filters?: ConversationFilters) {
         };
       });
 
-      // Filtrar por fecha si aplica
+      // Filtrar por fecha si aplica (client-side sobre la pagina actual)
       let filtered = processedConversations;
 
       if (filters?.startDate) {
@@ -157,15 +164,15 @@ export function useConversations(filters?: ConversationFilters) {
         );
       }
 
-      return filtered;
+      return { data: filtered, total: count ?? 0 };
     } catch (err) {
       throw err instanceof Error ? err : new Error('Error al cargar conversaciones');
     }
   }
 
-  const filterKey = JSON.stringify(filters || {});
+  const filterKey = JSON.stringify({ filters: filters || {}, page, pageSize });
 
-  const { data, error, isLoading, mutate } = useSWR<Conversation[]>(
+  const { data, error, isLoading, mutate } = useSWR<{ data: Conversation[]; total: number }>(
     ['conversations', filterKey],
     fetchConversationsList,
     {
@@ -175,7 +182,8 @@ export function useConversations(filters?: ConversationFilters) {
   );
 
   return {
-    conversations: data || [],
+    conversations: data?.data || [],
+    total: data?.total ?? 0,
     loading: isLoading,
     error: error ? (error instanceof Error ? error.message : 'Error al cargar conversaciones') : null,
     refetch: () => mutate(),
