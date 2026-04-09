@@ -17,7 +17,7 @@ export class WebhookValidator {
   /**
    * Validar firma de Meta (X-Hub-Signature-256)
    */
-  validateSignature(payload: string, signature: string | null): boolean {
+  validateSignature(payload: string | Buffer, signature: string | null): boolean {
     if (!APP_SECRET) {
       if (IS_PRODUCTION) {
         console.error('[SECURITY] Rechazando request: WHATSAPP_APP_SECRET no configurado en produccion');
@@ -36,7 +36,7 @@ export class WebhookValidator {
 
     const expectedHex = crypto
       .createHmac('sha256', APP_SECRET)
-      .update(payload, 'utf-8')
+      .update(payload)
       .digest('hex');
 
     // Log de diagnostico temporal — remover una vez resuelto

@@ -38,16 +38,18 @@ export async function GET(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   try {
-    // Leer raw body para validar firma HMAC antes de parsear
-    const rawBody = await request.text();
+    // Leer raw body como Buffer para validar firma HMAC
+    // Buffer evita re-codificacion UTF-8 que puede alterar los bytes firmados por Meta
+    const rawBuffer = Buffer.from(await request.arrayBuffer());
+    const rawBody = rawBuffer.toString('utf-8');
     const signature = request.headers.get('x-hub-signature-256');
 
     console.log('[Webhook] signature header:', signature ? signature.slice(0, 20) + '...' : 'AUSENTE');
     console.log('[Webhook] APP_SECRET configurado:', !!process.env.WHATSAPP_APP_SECRET);
-    console.log('[Webhook] rawBody length:', rawBody.length);
+    console.log('[Webhook] rawBody length:', rawBuffer.length);
     console.log('[Webhook] rawBody preview:', rawBody.slice(0, 50));
 
-    if (!webhookValidator.validateSignature(rawBody, signature)) {
+    if (!webhookValidator.validateSignature(rawBuffer, signature)) {
       console.error('[Webhook] Firma invalida - request rechazado');
       return NextResponse.json({ error: 'Invalid signature' }, { status: 403 });
     }
