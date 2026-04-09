@@ -174,9 +174,8 @@ export class ConversationRepository {
       
       // Si tiene media_url, crear SimpleResponseWithMedia
       if (row.media_url && typeof row.media_url === 'string' && row.media_url.trim()) {
-        const text = typeof row.message_text === 'string' ? row.message_text : String(row.message_text);
         return {
-          text,
+          text: typeof row.message_text === 'string' ? row.message_text : null,
           media_url: row.media_url,
           media_type: this.detectMediaType(row.media_url)
         } as import('@/types/message-fragments.types').SimpleResponseWithMedia;
