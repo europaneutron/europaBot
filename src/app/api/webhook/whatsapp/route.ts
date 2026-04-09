@@ -42,6 +42,9 @@ export async function POST(request: NextRequest) {
     const rawBody = await request.text();
     const signature = request.headers.get('x-hub-signature-256');
 
+    console.log('[Webhook] signature header:', signature ? signature.slice(0, 20) + '...' : 'AUSENTE');
+    console.log('[Webhook] APP_SECRET configurado:', !!process.env.WHATSAPP_APP_SECRET);
+
     if (!webhookValidator.validateSignature(rawBody, signature)) {
       console.error('[Webhook] Firma invalida - request rechazado');
       return NextResponse.json({ error: 'Invalid signature' }, { status: 403 });

@@ -31,12 +31,23 @@ export class WebhookValidator {
       return false;
     }
 
-    const expectedSignature = crypto
+    // Meta envia: "sha256=<hex>" — extraer solo el hex
+    const receivedHex = signature.startsWith('sha256=') ? signature.slice(7) : signature;
+
+    const expectedHex = crypto
       .createHmac('sha256', APP_SECRET)
-      .update(payload)
+      .update(payload, 'utf-8')
       .digest('hex');
 
-    return signature === `sha256=${expectedSignature}`;
+    // Comparacion de tiempo constante para evitar timing attacks
+    try {
+      return crypto.timingSafeEqual(
+        Buffer.from(receivedHex, 'hex'),
+        Buffer.from(expectedHex, 'hex'),
+      );
+    } catch {
+      return false;
+    }
   }
 
   /**
