@@ -3,6 +3,8 @@
  */
 
 import { supabaseServer } from '@/services/supabase/server-client';
+import type { FragmentedResponse } from '@/types/message-fragments.types';
+import { normalizeResponseWrite } from '@/lib/utils/response-blocks';
 
 export interface IntentConfiguration {
   id: string;
@@ -26,8 +28,9 @@ export interface BotResponse {
   id: string;
   intent_name: string;
   response_key: string;
-  message_text: string | null;
+  message_text: string | FragmentedResponse | null;
   media_url: string | null;
+  response_type: string;
   variables: any;
   is_active: boolean;
   order_priority: number;
@@ -155,7 +158,7 @@ export class IntentConfigRepository {
   async createResponse(data: Omit<BotResponse, 'id' | 'created_at' | 'updated_at'>): Promise<BotResponse> {
     const { data: response, error } = await supabaseServer
       .from('bot_responses')
-      .insert(data)
+      .insert(normalizeResponseWrite(data))
       .select()
       .single();
 
@@ -173,7 +176,7 @@ export class IntentConfigRepository {
   async updateResponse(id: string, data: Partial<BotResponse>): Promise<void> {
     const { error } = await supabaseServer
       .from('bot_responses')
-      .update({ ...data, updated_at: new Date().toISOString() })
+      .update({ ...normalizeResponseWrite(data), updated_at: new Date().toISOString() })
       .eq('id', id);
 
     if (error) {

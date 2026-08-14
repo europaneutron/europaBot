@@ -1,20 +1,31 @@
 /**
  * Página para Gestionar Respuestas de una Intención
+ *
+ * Orquesta estado, carga y guardado. La composición de cada respuesta vive en
+ * ResponseBlockList / ResponsePreview (src/components/intents/), que trabajan
+ * sobre la lista de bloques derivada de la fila de bot_responses.
  */
 
 'use client';
 
 import { useState, useEffect } from 'react';
 import { intentConfigRepositoryClient, IntentConfiguration, BotResponse } from '@/data/repositories/intent-config.repository.client';
-import MediaLibrary from '@/components/admin/MediaLibrary';
+import {
+  EditorBlock,
+  responseRowToBlocks,
+  blocksToFragmentedResponse,
+} from '@/lib/utils/response-blocks';
+import { validateFragmentedResponse } from '@/types/message-fragments.types';
+import { MAX_RESPONSE_BLOCKS } from '@/lib/constants/response-composer';
+import ResponseBlockList, { validateBlocks } from '@/components/intents/ResponseBlockList';
+import ResponsePreview from '@/components/intents/ResponsePreview';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
-import { ArrowLeft, Plus, Edit, Trash2, Loader2, Save, Folder, X } from 'lucide-react';
+import { ArrowLeft, Plus, Edit, Trash2, Loader2, Save } from 'lucide-react';
 import Link from 'next/link';
 
 export default function IntentResponsesPage({ params }: { params: { intentId: string } }) {
@@ -24,16 +35,15 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
-  
+
   const [showForm, setShowForm] = useState(false);
   const [editingResponse, setEditingResponse] = useState<BotResponse | null>(null);
-  const [showMediaLibrary, setShowMediaLibrary] = useState(false);
-  const [mediaOnlyMode, setMediaOnlyMode] = useState(false);
-  
+  const [blocks, setBlocks] = useState<EditorBlock[]>([]);
+  const [blockErrors, setBlockErrors] = useState<Record<string, string>>({});
+  const [formError, setFormError] = useState<string | null>(null);
+
   const [formData, setFormData] = useState({
     response_key: '',
-    message_text: '',
-    media_url: '',
     order_priority: 1,
     is_active: true,
     variables: {}
@@ -46,18 +56,18 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
   async function loadData() {
     try {
       setLoading(true);
-      
+
       const intentData = await intentConfigRepositoryClient.getById(params.intentId);
       if (!intentData) {
         setMessage({ type: 'error', text: 'Intención no encontrada' });
         return;
       }
-      
+
       setIntent(intentData);
-      
+
       const responsesData = await intentConfigRepositoryClient.getResponsesByIntent(intentData.intent_name);
       setResponses(responsesData);
-      
+
     } catch (error) {
       console.error('Error loading data:', error);
       setMessage({ type: 'error', text: 'Error al cargar datos' });
@@ -68,11 +78,11 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
 
   function handleNewResponse() {
     setEditingResponse(null);
-    setMediaOnlyMode(false);
+    setBlocks([]);
+    setBlockErrors({});
+    setFormError(null);
     setFormData({
       response_key: '',
-      message_text: '',
-      media_url: '',
       order_priority: responses.length + 1,
       is_active: true,
       variables: {}
@@ -82,13 +92,17 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
 
   function handleEditResponse(response: BotResponse) {
     setEditingResponse(response);
-    // Detectar si es modo solo-media
-    const isMediaOnly = !response.message_text && !!response.media_url;
-    setMediaOnlyMode(isMediaOnly);
+    setBlocks(
+      responseRowToBlocks({
+        message_text: response.message_text,
+        media_url: response.media_url,
+        response_type: response.response_type,
+      })
+    );
+    setBlockErrors({});
+    setFormError(null);
     setFormData({
       response_key: response.response_key,
-      message_text: response.message_text || '',
-      media_url: response.media_url || '',
       order_priority: response.order_priority,
       is_active: response.is_active,
       variables: response.variables || {}
@@ -96,29 +110,48 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
     setShowForm(true);
   }
 
-  async function handleSubmitResponse(e: React.FormEvent) {
-    e.preventDefault();
-    
+  async function handleSubmitResponse() {
     if (!intent) return;
-    
-    // Validar que tenga response_key y al menos texto o media
+
     if (!formData.response_key.trim()) {
-      setMessage({ type: 'error', text: 'Response key es requerido' });
+      setFormError('Response key es requerido');
       return;
     }
-    
-    if (!formData.message_text.trim() && !formData.media_url.trim()) {
-      setMessage({ type: 'error', text: 'Debes proporcionar al menos un mensaje de texto o una imagen/video' });
+
+    if (blocks.length === 0) {
+      setFormError('La respuesta debe tener al menos un bloque');
+      return;
+    }
+
+    if (blocks.length > MAX_RESPONSE_BLOCKS) {
+      setFormError(`La respuesta no puede tener más de ${MAX_RESPONSE_BLOCKS} bloques`);
+      return;
+    }
+
+    const errors = validateBlocks(blocks);
+    if (Object.keys(errors).length > 0) {
+      setBlockErrors(errors);
+      setFormError('Corrige los bloques señalados antes de guardar');
+      return;
+    }
+
+    const fragmentedResponse = blocksToFragmentedResponse(blocks);
+    if (!validateFragmentedResponse(fragmentedResponse)) {
+      setFormError('La secuencia de bloques no es válida');
       return;
     }
 
     try {
       setSaving(true);
+      setBlockErrors({});
+      setFormError(null);
+
       const responseData = {
         intent_name: intent.intent_name,
         response_key: formData.response_key.trim(),
-        message_text: formData.message_text.trim() || null,
-        media_url: formData.media_url.trim() || null,
+        message_text: fragmentedResponse,
+        media_url: null,
+        response_type: 'fragmented',
         order_priority: formData.order_priority,
         is_active: formData.is_active,
         variables: formData.variables
@@ -134,7 +167,7 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
 
       setShowForm(false);
       await loadData();
-      
+
       setTimeout(() => setMessage(null), 3000);
 
     } catch (error) {
@@ -160,6 +193,22 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
     } finally {
       setDeleting(null);
     }
+  }
+
+  function describeResponse(response: BotResponse): string {
+    const rowBlocks = responseRowToBlocks({
+      message_text: response.message_text,
+      media_url: response.media_url,
+      response_type: response.response_type,
+    });
+
+    return rowBlocks
+      .map((block) => {
+        if (block.type === 'text') return block.content;
+        if (block.type === 'document') return `[documento: ${block.filename}]`;
+        return `[${block.type}]`;
+      })
+      .join(' · ');
   }
 
   if (loading) {
@@ -207,8 +256,8 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
       {/* Mensaje de estado */}
       {message && (
         <div className={`rounded-lg border p-4 ${
-          message.type === 'success' 
-            ? 'border-green-200 bg-green-50 text-green-800' 
+          message.type === 'success'
+            ? 'border-green-200 bg-green-50 text-green-800'
             : 'border-red-200 bg-red-50 text-red-800'
         }`}>
           {message.text}
@@ -249,20 +298,9 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
                           <Badge variant="outline">Inactiva</Badge>
                         )}
                       </div>
-                      {response.message_text ? (
-                        <p className="whitespace-pre-wrap">
-                          {response.message_text}
-                        </p>
-                      ) : (
-                        <p className="text-sm text-muted-foreground italic">
-                          (Solo imagen/video)
-                        </p>
-                      )}
-                      {response.media_url && (
-                        <p className="text-sm text-blue-600">
-                          Media: {response.media_url}
-                        </p>
-                      )}
+                      <p className="whitespace-pre-wrap text-sm">
+                        {describeResponse(response)}
+                      </p>
                     </div>
                     <div className="flex gap-2">
                       <Button
@@ -300,11 +338,11 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
           <CardHeader>
             <CardTitle>{editingResponse ? 'Editar Respuesta' : 'Nueva Respuesta'}</CardTitle>
             <CardDescription>
-              Configura el mensaje que el bot enviará
+              Compón la secuencia de mensajes que el bot enviará
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleSubmitResponse} className="space-y-4">
+            <div className="space-y-6">
               <div className="space-y-2">
                 <Label htmlFor="response_key">Response Key *</Label>
                 <Input
@@ -320,100 +358,51 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
                 </p>
               </div>
 
-              {/* Toggle para modo solo imagen/video */}
-              <div className="flex items-center space-x-2 p-4 bg-muted/50 rounded-lg">
-                <Checkbox
-                  id="media_only_mode"
-                  checked={mediaOnlyMode}
-                  onCheckedChange={(checked: boolean) => {
-                    setMediaOnlyMode(checked);
-                    if (checked) {
-                      // Limpiar mensaje cuando se activa modo solo-media
-                      setFormData({ ...formData, message_text: '' });
-                    }
+              <div className="space-y-2">
+                <Label htmlFor="order_priority">Orden de prioridad</Label>
+                <Input
+                  id="order_priority"
+                  type="number"
+                  min="1"
+                  className="max-w-xs"
+                  value={formData.order_priority}
+                  onChange={(e) => {
+                    const parsed = parseInt(e.target.value, 10);
+                    // Un campo vacío o no numérico no debe escribir NaN en el estado:
+                    // NaN se serializa como NULL y descoloca el ORDER BY de getBotResponses.
+                    setFormData((prev) => ({
+                      ...prev,
+                      order_priority: Number.isNaN(parsed) ? prev.order_priority : parsed,
+                    }));
                   }}
                   disabled={saving}
                 />
-                <Label htmlFor="media_only_mode" className="text-sm font-normal cursor-pointer">
-                  Solo enviar imagen/video (sin texto)
-                </Label>
               </div>
 
-              {/* Mensaje de texto - oculto en modo solo-media */}
-              {!mediaOnlyMode && (
+              <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
                 <div className="space-y-2">
-                  <Label htmlFor="message_text">Mensaje de texto</Label>
-                  <Textarea
-                    id="message_text"
-                    value={formData.message_text}
-                    onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setFormData({ ...formData, message_text: e.target.value })}
-                    placeholder="Escribe el mensaje que el bot enviará..."
-                    rows={6}
+                  <Label>Bloques del mensaje</Label>
+                  <ResponseBlockList
+                    blocks={blocks}
+                    onChange={(next) => {
+                      setBlocks(next);
+                      setBlockErrors({});
+                    }}
                     disabled={saving}
+                    blockErrors={blockErrors}
                   />
-                  <p className="text-xs text-muted-foreground">
-                    Usa \n para saltos de línea.
-                  </p>
                 </div>
+                {/* La vista previa acompaña el desplazamiento porque la lista de
+                    bloques puede ser mas alta que la ventana. */}
+                <div className="space-y-2 lg:sticky lg:top-6 lg:self-start">
+                  <Label>Vista previa</Label>
+                  <ResponsePreview blocks={blocks} />
+                </div>
+              </div>
+
+              {formError && (
+                <p className="text-sm text-destructive">{formError}</p>
               )}
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="media_url">Media URL (opcional)</Label>
-                  <div className="space-y-2">
-                    <div className="flex gap-2">
-                      <Input
-                        id="media_url"
-                        type="url"
-                        value={formData.media_url}
-                        onChange={(e) => setFormData({ ...formData, media_url: e.target.value })}
-                        placeholder="https://... o selecciona"
-                        disabled={saving}
-                        className="flex-1"
-                      />
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        onClick={() => setShowMediaLibrary(true)}
-                        disabled={saving}
-                      >
-                        <Folder className="h-4 w-4" />
-                      </Button>
-                      {formData.media_url && (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => setFormData({ ...formData, media_url: '' })}
-                          disabled={saving}
-                          title="Limpiar"
-                        >
-                          <X className="h-4 w-4" />
-                        </Button>
-                      )}
-                    </div>
-                    {formData.media_url && (
-                      <div className="p-2 bg-muted border rounded text-xs">
-                        <p className="truncate" title={formData.media_url}>
-                          {formData.media_url}
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="order_priority">Orden de prioridad</Label>
-                  <Input
-                    id="order_priority"
-                    type="number"
-                    min="1"
-                    value={formData.order_priority}
-                    onChange={(e) => setFormData({ ...formData, order_priority: parseInt(e.target.value) })}
-                    disabled={saving}
-                  />
-                </div>
-              </div>
 
               <div className="flex items-center space-x-2">
                 <Checkbox
@@ -437,7 +426,8 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
                   Cancelar
                 </Button>
                 <Button
-                  type="submit"
+                  type="button"
+                  onClick={handleSubmitResponse}
                   disabled={saving}
                 >
                   {saving ? (
@@ -445,26 +435,15 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
                   ) : (
                     <Save className="h-4 w-4 mr-2" />
                   )}
-                  {saving 
-                    ? (editingResponse ? 'Actualizando...' : 'Creando...') 
+                  {saving
+                    ? (editingResponse ? 'Actualizando...' : 'Creando...')
                     : (editingResponse ? 'Actualizar' : 'Crear')
                   }
                 </Button>
               </div>
-            </form>
+            </div>
           </CardContent>
         </Card>
-      )}
-
-      {/* Media Library Modal */}
-      {showMediaLibrary && (
-        <MediaLibrary
-          onSelect={(url) => {
-            setFormData({ ...formData, media_url: url });
-            setShowMediaLibrary(false);
-          }}
-          onClose={() => setShowMediaLibrary(false)}
-        />
       )}
     </div>
   );
