@@ -6,8 +6,8 @@
 // IMPORTANTE: Cargar dotenv ANTES de cualquier otro import
 import { config } from 'dotenv';
 import { resolve } from 'path';
+config({ path: resolve(__dirname, '../.env.development.local') });
 config({ path: resolve(__dirname, '../.env.local') });
-
 // Ahora sí, importar los demás módulos
 import type { BotResponse, FragmentedResponse, MessageFragment } from '@/types/message-fragments.types';
 import { isFragmentedResponse, isSimpleResponseWithMedia } from '@/types/message-fragments.types';

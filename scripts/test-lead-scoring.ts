@@ -13,8 +13,8 @@ import { config } from 'dotenv';
 import { resolve } from 'path';
 
 // Cargar variables de entorno
+config({ path: resolve(__dirname, '../.env.development.local') });
 config({ path: resolve(__dirname, '../.env.local') });
-
 import { leadScorer } from '../src/core/scoring';
 import { userRepository } from '../src/data/repositories/user.repository';
 import { appointmentRepository } from '../src/data/repositories/appointment.repository';

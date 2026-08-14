@@ -12,8 +12,8 @@ import { config } from 'dotenv';
 import { resolve } from 'path';
 
 // Cargar variables de entorno
+config({ path: resolve(__dirname, '../.env.development.local') });
 config({ path: resolve(__dirname, '../.env.local') });
-
 import { fallbackHandler } from '../src/core/fallback';
 import { userRepository } from '../src/data/repositories/user.repository';
 import { configRepository } from '../src/data/repositories/config.repository';

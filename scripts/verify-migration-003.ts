@@ -8,8 +8,8 @@ import { resolve } from 'path';
 import { createClient } from '@supabase/supabase-js';
 
 // Cargar variables de entorno
+config({ path: resolve(__dirname, '../.env.development.local') });
 config({ path: resolve(__dirname, '../.env.local') });
-
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 

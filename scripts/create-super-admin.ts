@@ -5,10 +5,10 @@
 
 import { config } from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
-
-// Cargar variables de entorno desde .env.local
+// Prioriza el entorno local; .env.local queda como respaldo. dotenv no
+// sobreescribe variables ya definidas, asi que el primero cargado gana.
+config({ path: '.env.development.local' });
 config({ path: '.env.local' });
-
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
