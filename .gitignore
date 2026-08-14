@@ -59,3 +59,10 @@ logs
 
 # OS
 Thumbs.db
+
+# Cache local del CLI de Supabase (versiones remotas, project-ref)
+supabase/.temp/
+supabase/.branches/
+
+# Configuracion de Claude Code por maquina
+.claude/settings.local.json
