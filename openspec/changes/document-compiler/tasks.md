@@ -3,7 +3,8 @@
 - [ ] 1.1 Mapear y documentar en `design.md`, **antes de escribir código**, el camino que ya existe para llamar al modelo: cómo `generate-patterns/route.ts` resuelve la llave desde Vault, de dónde sale `ai_model`, y cómo valida al administrador. El compilador reutiliza ese camino; abrir otro duplicaría la gestión del secreto
 - [ ] 1.2 Leer las decisiones cerradas en `design.md`. La procedencia llega a documento y página, y el material original se conserva
 - [ ] 1.3 Registrar la línea base antes de tocar código: con cero material compilado, el bot responde exactamente lo mismo que hoy. Verificar que la línea base recoge el comportamiento **correcto** y no un defecto existente
-- [ ] 1.4 Decidir y dejar escrito qué modelo se usa para extraer hechos, y por qué puede diferir del que genera patrones. Configurable, como el actual
+- [ ] 1.4 Confirmar contra la API que el proveedor acepta el documento como entrada nativa —no solo texto— y que el modelo elegido lo soporta. De eso depende toda la estrategia de ingesta, así que se comprueba antes de diseñarla
+- [ ] 1.5 Decidir y dejar escrito qué modelo lee el documento, y por qué puede diferir del que genera patrones. Configurable por separado
 
 ## 2. Esquema
 
@@ -19,18 +20,20 @@
 ## 3. Ingesta
 
 - [ ] 3.1 Aceptar texto, documento y PDF, conservar el archivo y asociarlo a un alcance
-- [ ] 3.2 Extraer el texto conservando a qué página pertenece cada parte, que es lo que sostiene la procedencia
-- [ ] 3.3 Distinguir "no se pudo leer" de "se leyó y no dice nada de eso": son problemas distintos con soluciones distintas y el cliente necesita saber cuál tiene
-- [ ] 3.4 Rechazar lo que no se puede procesar, sin dejar una compilación a medias
-- [ ] 3.5 Verificar con material representativo: un PDF de texto, un PDF escaneado sin texto, un documento y un texto plano
+- [ ] 3.2 Entregar el PDF al modelo como documento, no como texto aplanado. Es lo que mantiene las tablas enteras, hace legible un precio dentro de una imagen y convierte la página en un dato real en vez de algo a reconstruir
+- [ ] 3.3 Usar la extracción de texto solo para los formatos que no admiten entrada nativa, conservando a qué página pertenece cada parte
+- [ ] 3.4 Distinguir "no se pudo leer" de "se leyó y no dice nada de eso": son problemas distintos con soluciones distintas y el cliente necesita saber cuál tiene
+- [ ] 3.5 Rechazar lo que no se puede procesar, sin dejar una compilación a medias
+- [ ] 3.6 Verificar con material representativo: un PDF con tabla de precios, un PDF con precios dentro de una imagen, un documento y un texto plano. El caso de la tabla y el de la imagen son los que justifican la entrada nativa; si fallan, la estrategia no sirve
 
 ## 4. Hechos con procedencia
 
-- [ ] 4.1 Extraer hechos atómicos del texto, cada uno con documento y página
+- [ ] 4.1 Extraer hechos atómicos del material completo en una sola pasada, cada uno con documento y página
 - [ ] 4.2 Descartar toda afirmación que no pueda atribuirse a una parte del material. Un hecho sin procedencia no se guarda
-- [ ] 4.3 Trocear el material sin partir tablas ni listas de precios por la mitad, y dejar dicho en el código por qué el troceado ingenuo no sirve aquí
-- [ ] 4.4 Subir al ancestro los hechos idénticos en todos los hijos, con una regla mecánica y sin intervención del modelo
-- [ ] 4.5 Verificar la extracción contra un documento de prueba con hechos conocidos, incluyendo uno que el documento no contiene y que no debe aparecer
+- [ ] 4.3 Segunda pasada de consolidación: unir duplicados y **reportar contradicciones** en lugar de resolverlas. Dos precios distintos para lo mismo casi siempre significa que uno quedó desactualizado en el documento, y eso lo aclara el cliente, no el modelo
+- [ ] 4.4 Dividir solo cuando el material no quepa, y hacerlo por páginas o secciones, nunca por ventanas de tokens. Dejar dicho en el código por qué: un corte por página es explicable y coincide con el nivel de procedencia; un corte a los 4.000 tokens parte una tabla y nadie sabe dónde
+- [ ] 4.5 Subir al ancestro los hechos idénticos en todos los hijos, con una regla mecánica y sin intervención del modelo
+- [ ] 4.6 Verificar la extracción contra un documento de prueba con hechos conocidos, incluyendo uno que el documento no contiene y que no debe aparecer, y dos que se contradicen y deben reportarse
 
 ## 5. Catálogo y cobertura
 

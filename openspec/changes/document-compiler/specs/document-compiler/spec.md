@@ -2,24 +2,36 @@
 
 ### Requirement: Ingesta del material del cliente
 
-El sistema SHALL aceptar el material de un cliente en texto plano, documento y PDF, asociarlo a un alcance, y extraer su texto para compilarlo.
+El sistema SHALL aceptar el material de un cliente en texto plano, documento y PDF, conservarlo y asociarlo a un alcance.
 
-Cuando no pueda extraer el texto, SHALL decirlo en lugar de compilar un resultado vacío.
+El material SHALL entregarse al modelo en su forma original mientras el formato lo permita, en lugar de aplanarse a texto. Aplanarlo pierde la disposición de la página y todo lo que no sea texto seleccionable.
+
+Cuando el material no pueda leerse, el sistema SHALL decirlo, de forma distinguible de un material que sí se leyó y no contiene cierta información.
 
 #### Scenario: Material aceptado
 
 - **WHEN** un administrador entrega material en uno de los formatos admitidos para un alcance
-- **THEN** el sistema conserva el material y el texto extraído, asociados a ese alcance
+- **THEN** el sistema lo conserva asociado a ese alcance y lo deja disponible para compilar
+
+#### Scenario: Tabla de precios
+
+- **WHEN** el material contiene una tabla de precios
+- **THEN** los hechos que se extraen de ella conservan la correspondencia entre cada concepto y su cifra
+
+#### Scenario: Dato dentro de una imagen
+
+- **WHEN** el material contiene un dato dentro de una imagen y no como texto seleccionable
+- **THEN** el sistema puede extraerlo igual
 
 #### Scenario: Formato no admitido
 
-- **WHEN** el material está en un formato que el sistema no puede leer
+- **WHEN** el material está en un formato que el sistema no puede procesar
 - **THEN** el sistema lo rechaza indicando por qué, sin dejar una compilación a medias
 
-#### Scenario: Documento sin texto legible
+#### Scenario: Material ilegible
 
-- **WHEN** el material se acepta pero no produce texto utilizable
-- **THEN** el sistema lo informa como un problema de lectura, distinguible de un documento que sí se leyó y no contiene cierta información
+- **WHEN** el material se acepta pero no produce nada utilizable
+- **THEN** el sistema lo informa como un problema de lectura, distinguible de un material que sí se leyó y no contiene cierta información
 
 ### Requirement: Hechos con procedencia
 
@@ -41,6 +53,17 @@ Un hecho sin procedencia NO SHALL conservarse.
 
 - **WHEN** la compilación produce una afirmación que no puede atribuirse a ninguna parte del material
 - **THEN** esa afirmación no se conserva como hecho
+
+#### Scenario: El mismo hecho en varias partes
+
+- **WHEN** un mismo hecho aparece repetido en el material
+- **THEN** el sistema lo conserva una sola vez
+
+#### Scenario: El material se contradice
+
+- **WHEN** el material afirma dos valores distintos para el mismo hecho
+- **THEN** el sistema reporta la contradicción para que un humano la resuelva
+- **AND** no elige uno de los dos por su cuenta
 
 ### Requirement: Catálogo de preguntas y reporte de huecos
 

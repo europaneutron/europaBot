@@ -109,6 +109,30 @@ El principio transversal, aplicado aquí: el modelo puede leer, agrupar, propone
 
 Interpretar es barato —el peor caso es un fallback—. Afirmar es donde vive el riesgo, porque una frase con un precio adentro sale a nombre de la marca del cliente.
 
+### El documento entra entero; trocear es el último recurso
+
+Un compilador no es un troceador. Trocear el texto en ventanas es una técnica de RAG, y existe porque hay que *recuperar* fragmentos relevantes para una pregunta concreta. Aquí no se recupera nada: se compila una vez, contra el material completo, y el modelo es quien interpreta.
+
+Por eso el material se le entrega **completo y en su forma original** siempre que quepa, que es el caso normal —el texto útil de un brochure inmobiliario es una fracción de lo que admite cualquier modelo actual—. Los proveedores aceptan documentos como entrada nativa, no solo texto plano, y eso resuelve de raíz tres problemas que el troceado no resuelve:
+
+- **Las tablas siguen siendo tablas.** No hay que protegerlas de un corte, porque no hay corte.
+- **Un precio dentro de una imagen se lee**, porque el modelo ve la página, no un volcado de texto.
+- **La página es un dato real**, no algo que haya que reconstruir después de aplanar el documento.
+
+La extracción de texto pasa a ser el camino de los formatos que no son PDF, no el camino principal.
+
+Cuando un documento de verdad no quepa, la unidad de división son **páginas o secciones**, nunca ventanas de tokens: son fronteras que el documento ya tiene y coinciden con el nivel de procedencia que elegimos. Un corte por página es explicable; un corte a los 4.000 tokens no lo es.
+
+*Alternativa descartada:* trocear siempre por ventanas de texto. Se paga la fragilidad de los cortes en todos los documentos para resolver un problema que solo tienen unos pocos.
+
+### Dos pasadas sobre el material, no una
+
+La extracción de hechos se hace en dos tiempos, y por razones distintas.
+
+La primera lee el material y propone hechos con su página. La segunda los consolida: une duplicados, detecta contradicciones —dos precios distintos para lo mismo, que casi siempre significa que uno está desactualizado en el documento— y aplica la regla de herencia hacia el ancestro.
+
+Separarlas importa porque la consolidación es un problema distinto del de leer. Mezcladas, el modelo tiende a resolver la contradicción por su cuenta eligiendo una de las dos cifras, en silencio. Separadas, la contradicción se puede reportar como lo que es: algo que el cliente tiene que aclarar.
+
 ### La compilación es por etapas, no una llamada larga
 
 Un brochure completo no cabe en el tiempo de una petición: la plataforma corta las funciones mucho antes de que el modelo termine de leerlo entero.
@@ -131,11 +155,13 @@ Las dos decisiones se sostienen entre sí: la procedencia por página solo sirve
 
 - **El modelo puede inventar un hecho que el documento no dice** → Es el riesgo central. La procedencia obligatoria lo acota: un hecho sin cita verificable no debería poder existir, y revisar hechos contra el documento es rápido.
 
-- **La extracción de PDF es sucia** → Columnas, tablas e imágenes con texto salen desordenadas o no salen. Un precio dentro de una imagen es invisible. El sistema tiene que distinguir "el documento no lo dice" de "no lo pude leer", porque son problemas distintos con soluciones distintas.
+- **La página que cita el modelo es una salida del modelo** → Puede equivocarse al atribuir un hecho a una página, y una procedencia incorrecta es peor que ninguna porque parece verificada. Es la razón de fondo para conservar el documento: la única defensa es poder abrirlo y comprobarlo.
+
+- **Los formatos que no son PDF sí pasan por extracción** → Ahí vuelven los problemas de columnas y tablas. El sistema tiene que distinguir "el documento no lo dice" de "no lo pude leer": son problemas distintos y el cliente necesita saber cuál tiene.
 
 - **Revisar sigue siendo trabajo humano** → El compilador reduce el trabajo, no lo elimina. Si la revisión resulta más lenta que escribir a mano, el cambio no sirve; por eso el panel y la aprobación en bloque son parte del alcance y no un extra.
 
-- **Documentos grandes contra los límites del modelo** → Un brochure puede exceder lo que cabe en una llamada. Trocearlo es necesario, y trocearlo mal parte una tabla de precios a la mitad.
+- **Documentos grandes contra los límites del modelo** → Es el caso raro, pero existe: un catálogo corporativo de cientos de páginas. Dividir por páginas evita el corte arbitrario, pero pierde el contexto que cruza de una a otra —el encabezado de una tabla que empieza en la página anterior—.
 
 - **Costo y disponibilidad del proveedor** → La compilación depende de un servicio externo que puede fallar o tardar. No puede bloquear nada del runtime, y una compilación a medias no puede dejar contenido inconsistente aprobado.
 
@@ -158,6 +184,6 @@ Las dos decisiones se sostienen entre sí: la procedencia por página solo sirve
 
 ## Open Questions
 
-**Qué proveedor y qué modelo.** El proyecto ya usa OpenAI con la llave en Vault y el modelo configurable en `bot_config`. Lo razonable es seguir por ahí y dejarlo configurable, pero conviene decidirlo explícitamente antes de implementar, porque la extracción de hechos con procedencia exige más capacidad que la generación de patrones que ya existe.
+**Qué modelo lee el documento.** El proyecto ya usa OpenAI con la llave en Vault y `ai_model` configurable en `bot_config`, hoy `gpt-4o-mini`. Entregar el documento como entrada nativa exige un modelo con visión, y extraer hechos con procedencia exige más capacidad que generar patrones. Conviene confirmar contra la API que la entrada de documentos funciona como se espera, y dejar el modelo del compilador configurable por separado del que genera patrones.
 
 Las dos que quedaban —el nivel de la procedencia y si se conserva el material— están resueltas arriba.
