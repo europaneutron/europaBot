@@ -45,6 +45,28 @@ export interface BotConfig {
 
 export class ConfigRepository {
   /**
+   * Leer varias claves sin caché.
+   *
+   * Se usa para valores operativos editables cuyo cambio debe observarse de
+   * inmediato aunque el dashboard y el bot vivan en procesos distintos.
+   */
+  async getMany(keys: string[]): Promise<Record<string, string>> {
+    const { data, error } = await supabaseServer
+      .from('bot_config')
+      .select('config_key, config_value')
+      .in('config_key', keys);
+
+    if (error) {
+      console.error('Error fetching bot configuration values:', error);
+      throw error;
+    }
+
+    return Object.fromEntries(
+      (data || []).map(config => [config.config_key, config.config_value])
+    );
+  }
+
+  /**
    * Obtener valor de configuración como string
    */
   async get(key: string, defaultValue: string = ''): Promise<string> {

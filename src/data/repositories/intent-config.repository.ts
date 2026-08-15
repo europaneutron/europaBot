@@ -8,6 +8,7 @@ import { normalizeResponseWrite } from '@/lib/utils/response-blocks';
 
 export interface IntentConfiguration {
   id: string;
+  scope_id: string | null;
   intent_name: string;
   display_name: string;
   keywords: string[];
@@ -26,7 +27,8 @@ export interface IntentConfiguration {
 
 export interface BotResponse {
   id: string;
-  intent_name: string;
+  intent_id: string;
+  intent_name?: string;
   response_key: string;
   message_text: string | FragmentedResponse | null;
   media_url: string | null;
@@ -37,6 +39,11 @@ export interface BotResponse {
   created_at: string;
   updated_at: string;
 }
+
+type CreateIntentConfiguration = Omit<
+  IntentConfiguration,
+  'id' | 'scope_id' | 'created_at' | 'updated_at'
+> & { scope_id?: string | null };
 
 export class IntentConfigRepository {
   /**
@@ -60,19 +67,33 @@ export class IntentConfigRepository {
   /**
    * Obtener intención por nombre
    */
-  async getByName(intentName: string): Promise<IntentConfiguration | null> {
+  async getByName(intentName: string, scopeId?: string | null): Promise<IntentConfiguration | null> {
     const { data, error } = await supabaseServer
       .from('intent_configurations')
       .select('*')
-      .eq('intent_name', intentName)
-      .single();
+      .eq('intent_name', intentName);
 
     if (error) {
       console.error(`Error fetching intent "${intentName}":`, error);
       return null;
     }
 
-    return data;
+    const { scopeRepository } = await import('@/data/repositories/scope.repository');
+    try {
+      const [intent] = await scopeRepository.resolveRows<IntentConfiguration>(
+        data || [],
+        scopeId,
+        row => row.intent_name
+      );
+      return intent || null;
+    } catch (resolutionError) {
+      // La resolución lanza si el alcance no existe. El contrato de este método
+      // es devolver null cuando no hay intención, y quien lo llama ya trata ese
+      // caso; propagar aquí convertiría un dato inconsistente en una excepción
+      // sin manejar.
+      console.error(`Error resolving scope for intent "${intentName}":`, resolutionError);
+      return null;
+    }
   }
 
   /**
@@ -96,7 +117,7 @@ export class IntentConfigRepository {
   /**
    * Crear nueva intención
    */
-  async create(data: Omit<IntentConfiguration, 'id' | 'created_at' | 'updated_at'>): Promise<IntentConfiguration> {
+  async create(data: CreateIntentConfiguration): Promise<IntentConfiguration> {
     const { data: intent, error } = await supabaseServer
       .from('intent_configurations')
       .insert(data)
@@ -137,15 +158,15 @@ export class IntentConfigRepository {
   /**
    * Obtener respuestas de una intención
    */
-  async getResponsesByIntent(intentName: string): Promise<BotResponse[]> {
+  async getResponsesByIntentId(intentId: string): Promise<BotResponse[]> {
     const { data, error } = await supabaseServer
       .from('bot_responses')
       .select('*')
-      .eq('intent_name', intentName)
+      .eq('intent_id', intentId)
       .order('order_priority', { ascending: true });
 
     if (error) {
-      console.error(`Error fetching responses for "${intentName}":`, error);
+      console.error(`Error fetching responses for intent id "${intentId}":`, error);
       return [];
     }
 

@@ -14,6 +14,8 @@ import { supabaseServer } from '@/services/supabase/server-client';
 import { whatsappSender } from '@/services/whatsapp/message-sender';
 import type { BotResponse } from '@/types/message-fragments.types';
 import { isSimpleResponseWithMedia } from '@/types/message-fragments.types';
+import type { IntentMatch } from '@/types/intent.types';
+import { ROOT_SCOPE_ID } from '@/data/repositories/scope.repository';
 
 export interface ProcessedResponse {
   responses: BotResponse[]; // Cambiado de 'message: string' a 'responses: BotResponse[]'
@@ -21,6 +23,7 @@ export interface ProcessedResponse {
   wasDetected: boolean;
   isFallback: boolean;
   flowHandled?: boolean; // Indica si ya se manejó un flow state (evita doble verificación en webhook)
+  detectedIntent?: IntentMatch;
 }
 
 export class MessageProcessor {
@@ -31,7 +34,8 @@ export class MessageProcessor {
     phoneNumber: string,
     messageText: string,
     messageId: string,
-    userName?: string
+    userName?: string,
+    scopeId: string | null = ROOT_SCOPE_ID
   ): Promise<ProcessedResponse> {
     try {
       // 0. Enviar indicador de "escribiendo..." si está habilitado
@@ -93,7 +97,7 @@ export class MessageProcessor {
           };
         } else {
           // Usuario está respondiendo al flujo, procesar su respuesta
-          const flowResult = await appointmentManager.processFlowStep(user.id, messageText);
+          const flowResult = await appointmentManager.processFlowStep(user.id, messageText, scopeId);
           
           // Guardar mensaje entrante del usuario
           await conversationRepository.saveIncomingMessage(
@@ -101,6 +105,8 @@ export class MessageProcessor {
             messageId,
             messageText,
             {
+              intent_id: 'appointment_flow',
+              scope_id: scopeId,
               intent_name: 'appointment_flow',
               confidence: 1.0,
               matched_keywords: ['appointment', 'flow'],
@@ -228,12 +234,15 @@ export class MessageProcessor {
       const session = await userRepository.getSession(user.id);
       
       if (session?.awaiting_advisor_name) {
-        return await fallbackHandler.captureAdvisorName(user.id, user, messageText, session);
+        return await fallbackHandler.captureAdvisorName(user.id, user, messageText, session, scopeId);
       }
 
       // 4. Detectar intención con fuzzy matching
-      await intentDetectionService.loadIntents(supabaseServer);
-      const detectionResult = await intentDetectionService.detect(messageText, supabaseServer);
+      const detectionResult = await intentDetectionService.detect(
+        messageText,
+        supabaseServer,
+        scopeId
+      );
 
       // 5. Guardar mensaje entrante
       const conversation = await conversationRepository.saveIncomingMessage(
@@ -261,13 +270,14 @@ export class MessageProcessor {
       await userRepository.resetFallbackAttempts(user.id);
 
       // 9. Procesar intención específica
-      const responses = await this.handleIntent(user.id, detectionResult.intent.intent_name, detectionResult.intent.is_checkpoint ?? false);
+      const responses = await this.handleIntent(user.id, detectionResult.intent, scopeId);
 
       return {
         responses,
         shouldSend: true,
         wasDetected: true,
-        isFallback: false
+        isFallback: false,
+        detectedIntent: detectionResult.intent
       };
 
     } catch (error) {
@@ -285,22 +295,26 @@ export class MessageProcessor {
    * Manejar intención detectada
    * Retorna array de BotResponse (pueden ser strings simples o fragmentados)
    */
-  private async handleIntent(userId: string, intentName: string, isCheckpoint: boolean): Promise<BotResponse[]> {
+  private async handleIntent(
+    userId: string,
+    intent: IntentMatch,
+    scopeId?: string | null
+  ): Promise<BotResponse[]> {
     // Si es intent "cita", iniciar flujo de agendamiento
     // skipConfirmation = true porque el usuario ya dijo explícitamente que quiere agendar
-    if (intentName === 'cita') {
-      const flowResult = await appointmentManager.startFlow(userId, true);
+    if (intent.intent_name === 'cita') {
+      const flowResult = await appointmentManager.startFlow(userId, true, scopeId);
       return [flowResult.message];
     }
 
     // Verificar si es checkpoint (determinado por is_checkpoint de intent_configurations)
-    if (isCheckpoint) {
+    if (intent.is_checkpoint) {
       // Verificar si ya completó este tema
-      const isCompleted = await userRepository.isCheckpointCompleted(userId, intentName);
+      const isCompleted = await userRepository.isCheckpointCompleted(userId, intent.intent_name);
       
       // Marcar como completado (solo si no lo estaba antes)
       if (!isCompleted) {
-        await userRepository.markCheckpointCompleted(userId, intentName);
+        await userRepository.markCheckpointCompleted(userId, intent.intent_name);
         
         // Recalcular lead score automáticamente
         await leadScorer.afterCheckpointCompleted(userId);
@@ -308,7 +322,9 @@ export class MessageProcessor {
     }
 
     // Obtener respuesta configurada desde BD
-    const responses = await conversationRepository.getBotResponses(intentName);
+    const responses = await conversationRepository.getBotResponses(
+      intent.response_intent_ids || intent.intent_id
+    );
     
     if (responses.length === 0) {
       return ['Gracias por tu interés. ¿En qué más puedo ayudarte?'];

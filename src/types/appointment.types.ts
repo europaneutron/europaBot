@@ -21,6 +21,7 @@ export type AppointmentFlowStep =
  */
 export interface AppointmentConfig {
   id: number;
+  scope_id: string | null;
   time_slot: TimeSlot;
   display_name: string;
   start_time: string; // "09:00"
@@ -73,12 +74,25 @@ export interface AppointmentFlowData {
  */
 export interface AgentConfig {
   id: number;
+  scope_id: string | null;
   default_agent_phone: string;
   default_agent_name: string;
   notification_template: string;
+  business_hours?: string | null;
+  advisor_phone?: string | null;
+  advisor_email?: string | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;
+}
+
+export interface ResolvedAgentConfig {
+  phone: string;
+  name?: string;
+  template?: string;
+  business_hours?: string;
+  advisor_phone: string;
+  advisor_email?: string;
 }
 
 /**

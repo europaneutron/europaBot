@@ -15,7 +15,11 @@ export class AppointmentManager {
    * Iniciar flujo de agendamiento
    * @param skipConfirmation - Si es true, salta directo a pedir fecha (cuando usuario dice explícitamente "agendar cita")
    */
-  async startFlow(userId: string, skipConfirmation: boolean = false): Promise<AppointmentFlow> {
+  async startFlow(
+    userId: string,
+    skipConfirmation: boolean = false,
+    scopeId?: string | null
+  ): Promise<AppointmentFlow> {
     if (skipConfirmation) {
       // Usuario ya dijo explícitamente que quiere agendar, ir directo a fecha
       await userRepository.updateAppointmentFlowState(userId, 'ask_date');
@@ -52,7 +56,11 @@ export class AppointmentManager {
   /**
    * Procesar respuesta según el paso actual del flujo
    */
-  async processFlowStep(userId: string, input: string): Promise<AppointmentFlow> {
+  async processFlowStep(
+    userId: string,
+    input: string,
+    scopeId?: string | null
+  ): Promise<AppointmentFlow> {
     const currentStep = await userRepository.getAppointmentFlowState(userId);
 
     switch (currentStep) {
@@ -69,11 +77,11 @@ export class AppointmentManager {
         return this.processTimeSlot(userId, input);
       
       case 'ask_name':
-        return this.processName(userId, input);
+        return this.processName(userId, input, scopeId);
       
       default:
         // No hay flujo activo, iniciar desde cero
-        return this.startFlow(userId);
+        return this.startFlow(userId, false, scopeId);
     }
   }
 
@@ -274,7 +282,11 @@ Puedes escribir:
   /**
    * Procesar nombre y completar cita
    */
-  private async processName(userId: string, name: string): Promise<AppointmentFlow> {
+  private async processName(
+    userId: string,
+    name: string,
+    scopeId?: string | null
+  ): Promise<AppointmentFlow> {
     // Obtener datos temporales
     const flowData = await userRepository.getAppointmentFlowData(userId) as AppointmentFlowData;
     
@@ -288,12 +300,15 @@ Puedes escribir:
     }
 
     // Crear cita en BD
-    const appointment = await appointmentRepository.create({
-      user_id: userId,
-      visitor_name: name.trim(),
-      requested_date: flowData.requested_date,
-      time_slot: flowData.time_slot
-    });
+    const appointment = await appointmentRepository.create(
+      {
+        user_id: userId,
+        visitor_name: name.trim(),
+        requested_date: flowData.requested_date,
+        time_slot: flowData.time_slot
+      },
+      scopeId
+    );
 
     // Obtener info del usuario
     const user = await userRepository.findById(userId);
@@ -307,7 +322,7 @@ Puedes escribir:
 
     // Notificar al agente
     try {
-      await this.notifyAgent(appointment, user.phone_number);
+      await this.notifyAgent(appointment, user.phone_number, scopeId);
     } catch (error) {
       console.error('❌ Error notificando al agente:', error);
       // No bloqueamos el flujo si falla la notificación
@@ -321,7 +336,7 @@ Puedes escribir:
 
     // Formatear mensaje de confirmación con variables
     const dateDisplay = this.formatDate(flowData.requested_date);
-    const timeSlotConfig = await this.getTimeSlotDisplay(flowData.time_slot);
+    const timeSlotConfig = await this.getTimeSlotDisplay(flowData.time_slot, scopeId);
     const address = await configRepository.get(
       'appointment_address',
       'Calle Principal #123, Fraccionamiento Europa, Ciudad'
@@ -348,18 +363,28 @@ Puedes escribir:
 
   /**
    * Notificar al agente por WhatsApp usando template
-   * Usa configuración dinámica desde bot_config (Settings) - solo teléfono
+   * Usa la configuración resuelta para el alcance activo.
    */
-  private async notifyAgent(appointment: any, visitorPhone: string): Promise<void> {
-    // Obtener teléfono dinámico desde bot_config (Settings)
-    const advisorPhone = await configRepository.get('advisor_phone', '');
+  private async notifyAgent(
+    appointment: any,
+    visitorPhone: string,
+    scopeId?: string | null
+  ): Promise<void> {
+    const agentConfig = await appointmentRepository.getDefaultAgent(scopeId);
+    const advisorPhone = agentConfig.advisor_phone;
     
     if (!advisorPhone) {
-      console.error('❌ No hay teléfono de asesor configurado en Settings');
-      throw new Error('advisor_phone no configurado en bot_config');
+      console.error('No hay teléfono de asesor configurado para el alcance');
+      throw new Error('No hay teléfono de asesor configurado para el alcance');
     }
-    
-    const timeSlotDisplay = await this.getTimeSlotDisplay(appointment.time_slot);
+
+    // El nombre solo aparece como saludo en la plantilla. Un alcance
+    // configurado unicamente por bot_config es un estado valido que
+    // getDefaultAgent soporta, y no debe impedir que el asesor se entere de una
+    // cita ya confirmada al lead.
+    const agentName = agentConfig.name || 'Equipo de ventas';
+
+    const timeSlotDisplay = await this.getTimeSlotDisplay(appointment.time_slot, scopeId);
     const dateDisplay = this.formatDate(appointment.requested_date);
 
     // Limpiar el teléfono para el link de WhatsApp
@@ -375,7 +400,7 @@ Puedes escribir:
         {
           type: 'body',
           parameters: [
-            { type: 'text', text: 'Asesor' }, // Nombre genérico fijo
+            { type: 'text', text: agentName },
             { type: 'text', text: appointment.visitor_name },
             { type: 'text', text: dateDisplay },
             { type: 'text', text: timeSlotDisplay },
@@ -551,8 +576,11 @@ Puedes escribir:
   /**
    * Obtener display de time slot
    */
-  private async getTimeSlotDisplay(slot: TimeSlot): Promise<string> {
-    const slots = await appointmentRepository.getTimeSlots();
+  private async getTimeSlotDisplay(
+    slot: TimeSlot,
+    scopeId?: string | null
+  ): Promise<string> {
+    const slots = await appointmentRepository.getTimeSlots(scopeId);
     const config = slots.find(s => s.time_slot === slot);
     return config 
       ? `${config.display_name} (${config.start_time} - ${config.end_time})`

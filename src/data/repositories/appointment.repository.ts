@@ -8,14 +8,17 @@ import type {
   AppointmentData, 
   AppointmentConfig, 
   TimeSlot,
-  AgentConfig 
+  AgentConfig,
+  ResolvedAgentConfig,
 } from '@/types/appointment.types';
+import { ROOT_SCOPE_ID, scopeRepository } from '@/data/repositories/scope.repository';
+import { configRepository } from '@/data/repositories/config.repository';
 
 export class AppointmentRepository {
   /**
    * Obtener configuración de horarios activos
    */
-  async getTimeSlots(): Promise<AppointmentConfig[]> {
+  async getTimeSlots(scopeId?: string | null): Promise<AppointmentConfig[]> {
     const { data, error } = await supabaseServer
       .from('appointment_config')
       .select('*')
@@ -27,7 +30,26 @@ export class AppointmentRepository {
       throw error;
     }
 
-    return data || [];
+    try {
+      const resolved = await scopeRepository.resolveRows<AppointmentConfig>(
+        data || [],
+        scopeId,
+        row => row.time_slot
+      );
+      // resolveRows agrupa por alcance y pierde el orden que pidió la consulta.
+      // Los horarios se muestran al usuario, así que el orden es parte del
+      // resultado, no un detalle de la consulta.
+      return resolved.sort((a, b) => (a.display_order ?? 0) - (b.display_order ?? 0));
+    } catch (resolutionError) {
+      console.error('Error resolving scoped time slots; using root configuration:', resolutionError);
+      const fallbackSlots = new Map<TimeSlot, AppointmentConfig>();
+      for (const fallbackScopeId of [ROOT_SCOPE_ID, null]) {
+        for (const slot of (data || []).filter(row => row.scope_id === fallbackScopeId)) {
+          if (!fallbackSlots.has(slot.time_slot)) fallbackSlots.set(slot.time_slot, slot);
+        }
+      }
+      return Array.from(fallbackSlots.values());
+    }
   }
 
   /**
@@ -38,9 +60,9 @@ export class AppointmentRepository {
     visitor_name: string;
     requested_date: string;
     time_slot: TimeSlot;
-  }): Promise<AppointmentData> {
+  }, scopeId?: string | null): Promise<AppointmentData> {
     // Obtener configuración del time slot para llenar start/end
-    const slots = await this.getTimeSlots();
+    const slots = await this.getTimeSlots(scopeId);
     const slotConfig = slots.find(s => s.time_slot === appointmentData.time_slot);
 
     const { data, error } = await supabaseServer
@@ -87,39 +109,88 @@ export class AppointmentRepository {
   /**
    * Obtener configuración del agente por defecto
    */
-  async getDefaultAgent(): Promise<{ 
-    phone: string; 
-    name: string; 
-    template: string;
-    business_hours?: string;
-    advisor_phone?: string;
-    advisor_email?: string;
-  }> {
-    const { data, error} = await supabaseServer
-      .from('agent_config')
-      .select('default_agent_phone, default_agent_name, notification_template, business_hours, advisor_phone, advisor_email')
-      .eq('is_active', true)
-      .single();
+  async getDefaultAgent(scopeId?: string | null): Promise<ResolvedAgentConfig> {
+    let orderedAgents: AgentConfig[] = [];
+    let allAgents: AgentConfig[] = [];
+    let globalConfig: Record<string, string> = {};
 
-    if (error || !data) {
-      console.warn('⚠️  No se encontró agente en BD, usando fallback');
-      
-      // Fallback hardcoded
-      return {
-        phone: '+525512345678',
-        name: 'Agente Europa',
-        template: 'Hola {agent_name} 👋\n\n*{visitor_name}* está interesado en una visita al fraccionamiento.\n\n📅 Fecha solicitada: {date}\n🕐 Horario: {time_slot}\n\nPuedes comunicarte con él al: {whatsapp_link}\n\n¡Que tengas un excelente día!',
-        business_hours: 'lunes a viernes 9:00 AM - 6:00 PM'
-      };
+    try {
+      const { data, error } = await supabaseServer
+        .from('agent_config')
+        .select('id, scope_id, default_agent_phone, default_agent_name, notification_template, business_hours, advisor_phone, advisor_email, is_active, created_at, updated_at')
+        .eq('is_active', true);
+
+      if (error) throw error;
+
+      allAgents = (data || []) as AgentConfig[];
+      const resolutionOrder = await scopeRepository.getResolutionOrder(scopeId);
+      orderedAgents = resolutionOrder.flatMap(resolvedScopeId =>
+        allAgents.filter(agent => agent.scope_id === resolvedScopeId)
+      );
+    } catch (resolutionError) {
+      // Se degrada a la configuración raíz aun cuando se pidió un alcance
+      // concreto. La notificación puede acabar en el asesor de otro desarrollo,
+      // pero es una persona real de la misma empresa que puede reencaminar el
+      // lead; no notificar a nadie lo pierde. Es lo contrario al caso del
+      // teléfono sembrado por la migración 004, donde el respaldo era un número
+      // de prueba que nadie revisa y por eso sí se prefiere fallar.
+      console.error('Error resolving scoped agent configuration; using bot_config:', resolutionError);
+      orderedAgents = [ROOT_SCOPE_ID, null].flatMap(fallbackScopeId =>
+        allAgents.filter(agent => agent.scope_id === fallbackScopeId)
+      );
+    }
+
+    try {
+      globalConfig = await configRepository.getMany([
+        'advisor_phone',
+        'business_hours',
+        'advisor_email',
+      ]);
+    } catch (globalConfigError) {
+      console.error('Error loading global advisor configuration:', globalConfigError);
+    }
+
+    const firstValue = (
+      valueOf: (agent: AgentConfig) => string | null | undefined
+    ): string | undefined => {
+      for (const agent of orderedAgents) {
+        const value = valueOf(agent)?.trim();
+        if (value) return value;
+      }
+      return undefined;
+    };
+
+    // Precedencia del destino de notificaciones:
+    //   1. advisor_phone del alcance o de sus ancestros: sobrescritura explícita
+    //   2. bot_config.advisor_phone: lo que el administrador configura en Ajustes
+    //
+    // default_agent_phone NO participa. Es NOT NULL y viene sembrado por la
+    // migración 004 con un número de prueba, así que usarlo como respaldo
+    // reproduce exactamente la falla silenciosa que este diseño evita: en una
+    // base recién migrada, donde nadie ha configurado el teléfono en Ajustes,
+    // las notificaciones saldrían a un número que nadie revisa y ningún error
+    // lo delataría. Además son conceptos distintos: default_agent_phone es el
+    // teléfono del agente asignado, no el destino de las notificaciones.
+    //
+    // Si no hay teléfono configurado en ninguna parte se lanza un error, y las
+    // rutas que llaman aquí degradan dejando la solicitud registrada.
+    const advisorPhone =
+      firstValue(agent => agent.advisor_phone)
+      || globalConfig.advisor_phone?.trim();
+
+    if (!advisorPhone) {
+      throw new Error(
+        'No hay teléfono de asesor configurado en agent_config ni en bot_config.advisor_phone'
+      );
     }
 
     return {
-      phone: data.default_agent_phone,
-      name: data.default_agent_name,
-      template: data.notification_template,
-      business_hours: data.business_hours,
-      advisor_phone: data.advisor_phone,
-      advisor_email: data.advisor_email
+      phone: advisorPhone,
+      advisor_phone: advisorPhone,
+      name: firstValue(agent => agent.default_agent_name),
+      template: firstValue(agent => agent.notification_template),
+      business_hours: firstValue(agent => agent.business_hours) || globalConfig.business_hours?.trim() || undefined,
+      advisor_email: firstValue(agent => agent.advisor_email) || globalConfig.advisor_email?.trim() || undefined,
     };
   }
 

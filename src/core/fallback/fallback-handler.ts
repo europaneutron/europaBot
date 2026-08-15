@@ -68,7 +68,8 @@ export class FallbackHandler {
     userId: string,
     user: User,
     messageText: string,
-    session: UserSession
+    session: UserSession,
+    scopeId?: string | null
   ): Promise<ProcessedResponse> {
     // Usar el nombre capturado solo si el usuario no tiene nombre de WhatsApp
     const userName = messageText.trim();
@@ -81,11 +82,7 @@ export class FallbackHandler {
     if (hasPending) {
       await userRepository.updateAwaitingAdvisorName(userId, false);
       await userRepository.resetFallbackAttempts(userId);
-      const businessHours = await configRepository.get(
-        'business_hours',
-        'lunes a viernes 9:00 AM - 6:00 PM'
-      );
-      let alreadyMsg = await configRepository.get(
+      const alreadyMsg = await configRepository.get(
         'derivation_already_pending',
         'Ya hemos registrado tu solicitud. Un asesor se pondrá en contacto contigo pronto. Por favor espera a ser atendido.'
       );
@@ -96,9 +93,6 @@ export class FallbackHandler {
         isFallback: false
       };
     }
-    
-    // Obtener configuración del agente
-    const agentConfig = await appointmentRepository.getDefaultAgent();
     
     // Obtener checkpoints completados
     const checkpointsCompleted = await userRepository.countCompletedCheckpoints(userId);
@@ -117,33 +111,49 @@ export class FallbackHandler {
     await userRepository.updateAwaitingAdvisorName(userId, false);
     await userRepository.resetFallbackAttempts(userId);
     
-    // Notificar al asesor
-    await this.notifyAdvisor({
-      requestId: advisorRequest.id,
-      userName: userName,
-      userPhone: user.phone_number,
-      leadScore: user.lead_score,
-      leadStatus: user.lead_status,
-      checkpointsCompleted: checkpointsCompleted,
-      fallbackCount: session.fallback_attempts,
-      lastMessage: messageText
-    });
-    
-    // Obtener mensaje de confirmación desde configuración
-    const businessHours = await configRepository.get(
-      'business_hours',
-      'lunes a viernes 9:00 AM - 6:00 PM'
-    );
-    
-    let confirmationMessage = await configRepository.get(
-      'derivation_name_confirmed',
-      'Gracias {nombre}! Un asesor se pondrá en contacto contigo pronto. En el horario de {horario}.'
-    );
-    
-    // Reemplazar variables
-    confirmationMessage = confirmationMessage
-      .replace('{nombre}', userName)
-      .replace('{horario}', businessHours);
+    let confirmationMessage: string;
+
+    try {
+      const agentConfig = await appointmentRepository.getDefaultAgent(scopeId);
+
+      // El horario solo decora el mensaje de confirmación. Si falta, se avisa
+      // igual al asesor: dejar la solicitud registrada sin notificar a nadie es
+      // peor que confirmar sin mencionar un horario.
+      await this.notifyAdvisor({
+        requestId: advisorRequest.id,
+        userName: userName,
+        userPhone: user.phone_number,
+        leadScore: user.lead_score,
+        leadStatus: user.lead_status,
+        checkpointsCompleted: checkpointsCompleted,
+        fallbackCount: session.fallback_attempts,
+        lastMessage: messageText,
+        advisorPhone: agentConfig.advisor_phone,
+      });
+
+      if (agentConfig.business_hours) {
+        confirmationMessage = await configRepository.get(
+          'derivation_name_confirmed',
+          'Gracias {nombre}! Un asesor se pondrá en contacto contigo pronto. En el horario de {horario}.'
+        );
+        confirmationMessage = confirmationMessage
+          .replace('{nombre}', userName)
+          .replace('{horario}', agentConfig.business_hours);
+      } else {
+        confirmationMessage = await configRepository.get(
+          'derivation_name_confirmed_no_hours',
+          'Gracias {nombre}! Un asesor se pondrá en contacto contigo pronto.'
+        );
+        confirmationMessage = confirmationMessage.replace('{nombre}', userName);
+      }
+    } catch (configurationError) {
+      console.error('No fue posible resolver la configuración del asesor:', configurationError);
+      confirmationMessage = await configRepository.get(
+        'derivation_config_unavailable',
+        'Gracias {nombre}. Registramos tu solicitud y el equipo de ventas la revisará desde el panel.'
+      );
+      confirmationMessage = confirmationMessage.replace('{nombre}', userName);
+    }
     
     // El mensaje se guarda en el webhook después de enviarlo exitosamente
     
@@ -253,6 +263,7 @@ export class FallbackHandler {
     checkpointsCompleted: number;
     fallbackCount: number;
     lastMessage: string;
+    advisorPhone?: string;
   }): Promise<void> {
     try {
       const { advisorNotificationService } = await import('@/services/whatsapp');

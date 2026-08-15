@@ -7,3 +7,5 @@ export { ConversationRepository, conversationRepository } from './conversation.r
 export { ConfigRepository, configRepository } from './config.repository';
 export { IntentConfigRepository, intentConfigRepository } from './intent-config.repository';
 export { FollowupRepository, followupRepository } from './followup.repository';
+export { ScopeRepository, scopeRepository } from './scope.repository';
+export { ResourceRepository, resourceRepository } from './resource.repository';

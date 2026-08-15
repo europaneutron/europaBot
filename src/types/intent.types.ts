@@ -4,6 +4,7 @@
 
 export interface IntentConfiguration {
   id: string;
+  scope_id: string | null;
   intent_name: string;
   display_name: string;
   keywords: string[];
@@ -18,6 +19,9 @@ export interface IntentConfiguration {
 }
 
 export interface IntentMatch {
+  intent_id: string;
+  scope_id: string | null;
+  response_intent_ids?: string[];
   intent_name: string;
   confidence: number;
   matched_keywords: string[];

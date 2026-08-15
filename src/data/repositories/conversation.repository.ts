@@ -137,36 +137,47 @@ export class ConversationRepository {
   /**
    * Obtener respuesta configurada para un intent
    */
-  async getBotResponse(intentName: string, responseKey: string = 'main'): Promise<string | null> {
+  async getBotResponse(intentIds: string | string[], responseKey: string = 'main'): Promise<string | null> {
+    const resolutionIds = Array.isArray(intentIds) ? intentIds : [intentIds];
     const { data, error } = await supabaseServer
       .from('bot_responses')
-      .select('message_text, variables')
-      .eq('intent_name', intentName)
+      .select('intent_id, message_text, variables')
+      .in('intent_id', resolutionIds)
       .eq('response_key', responseKey)
-      .eq('is_active', true)
-      .single();
+      .eq('is_active', true);
 
     if (error || !data) return null;
 
+    const resolved = resolutionIds
+      .map(intentId => data.find(row => row.intent_id === intentId))
+      .find(Boolean);
+    if (!resolved) return null;
+
     // TODO: Reemplazar variables dinámicas si existen
-    return data.message_text;
+    return resolved.message_text;
   }
 
   /**
    * Obtener múltiples respuestas para un intent (en orden de prioridad)
    * Soporta respuestas simples (string) y fragmentadas (JSON)
    */
-  async getBotResponses(intentName: string): Promise<import('@/types/message-fragments.types').BotResponse[]> {
+  async getBotResponses(intentIds: string | string[]): Promise<import('@/types/message-fragments.types').BotResponse[]> {
+    const resolutionIds = Array.isArray(intentIds) ? intentIds : [intentIds];
     const { data, error } = await supabaseServer
       .from('bot_responses')
-      .select('message_text, media_url, response_type, order_priority')
-      .eq('intent_name', intentName)
+      .select('intent_id, message_text, media_url, response_type, order_priority')
+      .in('intent_id', resolutionIds)
       .eq('is_active', true)
       .order('order_priority', { ascending: true});
 
     if (error || !data) return [];
 
-    return data.map(row => {
+    const resolvedIntentId = resolutionIds.find(
+      intentId => data.some(row => row.intent_id === intentId)
+    );
+    if (!resolvedIntentId) return [];
+
+    return data.filter(row => row.intent_id === resolvedIntentId).map(row => {
       // Si es fragmentado, message_text ya es un objeto JSONB
       if (row.response_type === 'fragmented') {
         return row.message_text as import('@/types/message-fragments.types').FragmentedResponse;

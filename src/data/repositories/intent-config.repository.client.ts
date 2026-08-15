@@ -8,6 +8,7 @@ import { normalizeResponseWrite } from '@/lib/utils/response-blocks';
 
 export interface IntentConfiguration {
   id: string;
+  scope_id: string | null;
   intent_name: string;
   display_name: string;
   keywords: string[];
@@ -26,7 +27,8 @@ export interface IntentConfiguration {
 
 export interface BotResponse {
   id: string;
-  intent_name: string;
+  intent_id: string;
+  intent_name?: string;
   response_key: string;
   message_text: string | FragmentedResponse | null;
   media_url: string | null;
@@ -37,6 +39,11 @@ export interface BotResponse {
   created_at: string;
   updated_at: string;
 }
+
+type CreateIntentConfiguration = Omit<
+  IntentConfiguration,
+  'id' | 'scope_id' | 'created_at' | 'updated_at'
+> & { scope_id?: string | null };
 
 export class IntentConfigRepositoryClient {
   /**
@@ -76,9 +83,33 @@ export class IntentConfigRepositoryClient {
   }
 
   /**
+   * Avisa al servidor que sus cachés de intenciones quedaron obsoletas.
+   *
+   * El dashboard escribe directamente contra Supabase desde el navegador, así
+   * que el proceso servidor no se entera de la edición y seguiría respondiendo
+   * con lo cacheado hasta que expire. Un fallo aquí no debe romper el guardado:
+   * la caché expira sola, solo que más tarde.
+   */
+  private async notifyServerCacheStale(): Promise<void> {
+    try {
+      const response = await fetch('/api/intents/refresh', { method: 'POST' });
+      if (!response.ok) {
+        // Un 401 por sesión expirada no rompe el guardado, pero sí deja al bot
+        // sirviendo lo cacheado hasta que expire. Registrarlo es lo que permite
+        // distinguir "el cambio no se aplicó" de "el cambio no se guardó".
+        console.error(
+          `No fue posible invalidar la caché de intenciones (HTTP ${response.status})`
+        );
+      }
+    } catch (error) {
+      console.error('No fue posible invalidar la caché de intenciones:', error);
+    }
+  }
+
+  /**
    * Crear nueva intención
    */
-  async create(data: Omit<IntentConfiguration, 'id' | 'created_at' | 'updated_at'>): Promise<IntentConfiguration> {
+  async create(data: CreateIntentConfiguration): Promise<IntentConfiguration> {
     const { data: intent, error } = await supabase
       .from('intent_configurations')
       .insert(data)
@@ -89,6 +120,8 @@ export class IntentConfigRepositoryClient {
       console.error('Error creating intent:', error);
       throw error;
     }
+
+    await this.notifyServerCacheStale();
 
     return intent;
   }
@@ -106,6 +139,8 @@ export class IntentConfigRepositoryClient {
       console.error(`Error updating intent ${id}:`, error);
       throw error;
     }
+
+    await this.notifyServerCacheStale();
   }
 
   /**
@@ -118,15 +153,15 @@ export class IntentConfigRepositoryClient {
   /**
    * Obtener respuestas de una intención
    */
-  async getResponsesByIntent(intentName: string): Promise<BotResponse[]> {
+  async getResponsesByIntentId(intentId: string): Promise<BotResponse[]> {
     const { data, error } = await supabase
       .from('bot_responses')
       .select('*')
-      .eq('intent_name', intentName)
+      .eq('intent_id', intentId)
       .order('order_priority', { ascending: true });
 
     if (error) {
-      console.error(`Error fetching responses for "${intentName}":`, error);
+      console.error(`Error fetching responses for intent id "${intentId}":`, error);
       throw error;
     }
 
@@ -148,6 +183,8 @@ export class IntentConfigRepositoryClient {
       throw error;
     }
 
+    await this.notifyServerCacheStale();
+
     return response;
   }
 
@@ -164,6 +201,8 @@ export class IntentConfigRepositoryClient {
       console.error(`Error updating response ${id}:`, error);
       throw error;
     }
+
+    await this.notifyServerCacheStale();
   }
 
   /**
@@ -179,6 +218,8 @@ export class IntentConfigRepositoryClient {
       console.error(`Error deleting response ${id}:`, error);
       throw error;
     }
+
+    await this.notifyServerCacheStale();
   }
 }
 

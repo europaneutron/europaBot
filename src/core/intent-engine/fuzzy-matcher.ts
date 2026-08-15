@@ -101,6 +101,8 @@ export class FuzzyMatcher {
 
     if (matchedKeywords.length > 0) {
       return {
+        intent_id: intent.id,
+        scope_id: intent.scope_id,
         intent_name: intent.intent_name,
         confidence: this.EXACT_MATCH_THRESHOLD,
         matched_keywords: matchedKeywords,
@@ -130,6 +132,8 @@ export class FuzzyMatcher {
 
     if (matchedKeywords.length > 0) {
       return {
+        intent_id: intent.id,
+        scope_id: intent.scope_id,
         intent_name: intent.intent_name,
         confidence: 0.95, // Sinónimo es casi tan bueno como exacto
         matched_keywords: matchedKeywords,
@@ -159,6 +163,8 @@ export class FuzzyMatcher {
 
     if (matchedKeywords.length > 0) {
       return {
+        intent_id: intent.id,
+        scope_id: intent.scope_id,
         intent_name: intent.intent_name,
         confidence: 0.90, // Typo conocido
         matched_keywords: matchedKeywords,
@@ -204,6 +210,8 @@ export class FuzzyMatcher {
       );
 
       return {
+        intent_id: intent.id,
+        scope_id: intent.scope_id,
         intent_name: intent.intent_name,
         confidence: bestMatch.similarity,
         matched_keywords: [bestMatch.keyword],
@@ -250,6 +258,8 @@ export class FuzzyMatcher {
       const avgConfidence = fuzzyMatches.reduce((sum, m) => sum + m.similarity, 0) / fuzzyMatches.length;
       
       return {
+        intent_id: intent.id,
+        scope_id: intent.scope_id,
         intent_name: intent.intent_name,
         confidence: avgConfidence,
         matched_keywords: fuzzyMatches.map(m => m.matched_word),
@@ -320,8 +330,8 @@ export class FuzzyMatcher {
           return b.confidence - a.confidence;
         }
         // Si empatan, por priority del intent
-        const intentA = this.intents.find(i => i.intent_name === a.intent_name);
-        const intentB = this.intents.find(i => i.intent_name === b.intent_name);
+        const intentA = this.intents.find(i => i.id === a.intent_id);
+        const intentB = this.intents.find(i => i.id === b.intent_id);
         return (intentB?.priority || 0) - (intentA?.priority || 0);
       });
 
