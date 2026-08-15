@@ -1,7 +1,7 @@
 ## 1. Preparación
 
 - [ ] 1.1 Mapear y documentar en `design.md`, antes de escribir código, qué determina hoy el alcance en cada ruta que lo recibe, y qué pasaría a determinarlo. Es el paso que evitó rondas de revisión en el cambio anterior
-- [ ] 1.2 Resolver las preguntas abiertas de `design.md`: alias ambiguo, caducidad del foco y anuncio que apunta a un alcance desactivado
+- [ ] 1.2 Leer las decisiones ya cerradas en `design.md` sobre caducidad del foco, anuncio hacia alcance inactivo y alias ambiguo. No quedan preguntas abiertas que resolver
 - [ ] 1.3 Extender la línea base para que cubra el comportamiento con un solo alcance activo a través de todas las rutas nuevas, y registrarla antes de tocar código
 
 ## 2. Esquema
@@ -32,6 +32,15 @@
 - [ ] 5.2 Cambiar el foco ante una mención explícita, incluso hacia un alcance que no sea hijo inmediato de la raíz
 - [ ] 5.3 No cambiar el foco ante el alias de un alcance inactivo
 - [ ] 5.4 Verificar que cambiar de foco no altera el estado asociado al alcance anterior
+- [ ] 5.5 No cambiar el foco ante un alias que pertenece a más de un alcance activo, y dejar constancia de la ambigüedad
+
+## 5b. Caducidad y desambiguación
+
+- [ ] 5b.1 Caducar el foco tras 24 horas de inactividad, sin afectar el historial del lead ni su relación con los alcances por los que preguntó
+- [ ] 5b.2 Determinar, a partir de la distribución del contenido, cuándo una intención depende del alcance: varios alcances activos definen contenido propio para ella
+- [ ] 5b.3 Pedir al lead que indique el desarrollo cuando esa condición se cumple y no hay foco, en lugar de responder con un contenido arbitrario
+- [ ] 5b.4 Retener la pregunta original y responderla una vez establecido el foco, sin obligar al lead a repetirla
+- [ ] 5b.5 No desambiguar nunca cuando existe un solo alcance activo
 
 ## 6. Saludo compuesto
 
@@ -45,6 +54,8 @@
 - [ ] 7.1 Confirmar que con un solo alcance activo la línea base es idéntica, incluyendo saludo, detección, respuestas, recursos y configuración
 - [ ] 7.2 Escenario extremo a extremo con dos alcances: lead que llega por anuncio de uno, cambia de foco nombrando el otro, y vuelve al primero
 - [ ] 7.3 Verificar mediante `POST /api/test/process-message` la resolución desde cada alcance
-- [ ] 7.4 Verificar el comportamiento ante un anuncio sin asociación y ante un alias ambiguo, conforme a lo decidido en la tarea 1.2
+- [ ] 7.4 Verificar el comportamiento ante un anuncio sin asociación, ante un anuncio que apunta a un alcance inactivo, y ante un alias que pertenece a varios alcances
+- [ ] 7.7 Verificar la caducidad del foco: regreso dentro de la ventana conserva foco, regreso posterior lo redetermina, y el historial permanece intacto en ambos casos
+- [ ] 7.8 Verificar la desambiguación extremo a extremo: pregunta dependiente del alcance sin foco, respuesta del lead, y contestación de la pregunta original sin repetirla
 - [ ] 7.5 Confirmar `tsc --noEmit` limpio y sin emojis nuevos, conforme a `AGENTS.md`
 - [ ] 7.6 Dejar anotado en el cambio qué debe verificarse en el esquema remoto antes de aplicar en producción

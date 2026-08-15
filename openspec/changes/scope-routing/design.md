@@ -87,6 +87,22 @@ Para poder medirlo, el alcance de cada mensaje queda registrado desde esta entre
 
 ## Open Questions
 
-- ¿Cómo se resuelve un alias que pertenece a más de un alcance activo? La opción propuesta es no cambiar el foco y dejar constancia, antes que elegir uno en silencio.
-- ¿El foco debe caducar tras un periodo de inactividad? Un lead que vuelve semanas después quizá venga por otro desarrollo. Conviene decidirlo observando el tiempo real entre conversaciones.
-- ¿Qué ocurre si un anuncio apunta a un alcance que luego se desactiva? Debe definirse si se ignora el origen o se rutea al ancestro activo más cercano.
+Resueltas antes de implementar:
+
+**El foco caduca a las 24 horas de inactividad.** No es un número arbitrario: coincide con la ventana de atención al cliente de WhatsApp, tras la cual la plataforma ya no permite enviar mensajes libres. Es el límite que la plataforma y el propio lead perciben como el fin de una conversación.
+
+Caduca el foco, no el interés. El foco es estado conversacional; la relación durable de una persona con los alcances por los que preguntó pertenece a `scope-progress` y no se ve afectada.
+
+**Un anuncio que apunta a un alcance inactivo se trata como si no tuviera origen.** Las campañas sobreviven a los desarrollos: un anuncio puede seguir publicado, o alguien abrir un enlace compartido meses después de que el desarrollo se agote. Servir contenido de algo que ya no se vende es un callejón sin salida; ofrecer lo disponible convierte ese lead en uno vivo.
+
+*Alternativa descartada:* rutear al ancestro activo más cercano. El ancestro no es un sustituto comercial del desarrollo agotado, y la sustitución sería invisible para el lead.
+
+**Un alias que pertenece a más de un alcance activo no cambia el foco.** Elegir uno en silencio reproduce la clase de falla que costó varias rondas en `scope-tree`: nada se rompe, el bot simplemente responde sobre el desarrollo equivocado. Ante la ambigüedad, el sistema pide precisión en lugar de adivinar.
+
+### La ambigüedad se deriva de los datos, no se declara
+
+Una intención depende del alcance cuando varios alcances activos definen contenido propio para ella. No hace falta marcar cada intención con una bandera: la distribución del contenido ya lo dice.
+
+Eso evita una configuración que habría que mantener sincronizada a mano —y que se desincronizaría en cuanto alguien agregara contenido a un alcance sin acordarse de actualizar la bandera.
+
+Cuando esa condición se cumple y no hay foco, el bot pregunta de cuál desarrollo se trata y retiene la pregunta original para responderla una vez establecido el foco, sin obligar al lead a repetirla.

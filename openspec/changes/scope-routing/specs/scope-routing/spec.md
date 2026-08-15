@@ -15,6 +15,12 @@ Cuando un mensaje se origina en un anuncio asociado a un alcance, el sistema SHA
 - **WHEN** llega un mensaje desde un anuncio que no está asociado a ningún alcance
 - **THEN** el sistema continúa sin foco de anuncio y determina el alcance por los demás medios disponibles
 
+#### Scenario: Anuncio que apunta a un alcance inactivo
+
+- **WHEN** llega un mensaje desde un anuncio asociado a un alcance que ya no está activo
+- **THEN** el sistema no establece ese alcance como foco
+- **AND** trata la conversación como si no tuviera origen de anuncio, ofreciendo los alcances que sí están disponibles
+
 #### Scenario: Mensaje sin origen de anuncio
 
 - **WHEN** llega un mensaje que no proviene de un anuncio
@@ -40,10 +46,60 @@ La sesión SHALL mantener el alcance sobre el que se está conversando, y ese fo
 - **AND** ni el origen ni el contenido permiten determinar un alcance
 - **THEN** el sistema resuelve desde el alcance raíz
 
-#### Scenario: El foco sobrevive a la conversación
+#### Scenario: El foco sobrevive dentro de la misma conversación
 
-- **WHEN** un lead vuelve a escribir después de un tiempo sin actividad
+- **WHEN** un lead vuelve a escribir dentro de la ventana de conversación vigente
 - **THEN** conserva el foco que tenía, sin necesidad de volver a indicarlo
+
+### Requirement: Caducidad del foco
+
+El foco SHALL caducar tras un periodo de inactividad, de modo que una conversación nueva no arrastre el supuesto de que el lead sigue interesado en el mismo alcance.
+
+La caducidad SHALL alcanzar únicamente al foco. El historial del lead y su relación con los alcances por los que ha preguntado no se ven afectados.
+
+#### Scenario: Regreso dentro de la ventana
+
+- **WHEN** un lead con foco establecido escribe antes de que venza el periodo de inactividad
+- **THEN** conserva su foco
+
+#### Scenario: Regreso después de la ventana
+
+- **WHEN** un lead escribe después de que venció el periodo de inactividad
+- **THEN** el foco deja de aplicarse y el alcance se determina de nuevo
+- **AND** su historial de conversación permanece intacto
+
+#### Scenario: El origen vuelve a establecer el foco
+
+- **WHEN** un lead cuyo foco caducó vuelve a escribir desde un anuncio o nombrando un alcance
+- **THEN** el foco se establece de nuevo sin intervención adicional
+
+### Requirement: Desambiguación cuando la pregunta depende del alcance
+
+Cuando el sistema no puede determinar el alcance y la intención detectada tiene contenido distinto en varios alcances activos, SHALL pedir al lead que indique de cuál se trata en lugar de responder con un contenido arbitrario.
+
+La condición SHALL derivarse de los datos: una intención depende del alcance cuando varios alcances activos definen contenido propio para ella. No requiere marcarla como tal.
+
+#### Scenario: Pregunta dependiente del alcance sin foco
+
+- **WHEN** un lead sin foco pregunta algo cuya respuesta está definida por separado en varios alcances activos
+- **THEN** el sistema le pide que indique de cuál desarrollo se trata
+- **AND** no responde con el contenido de uno de ellos elegido arbitrariamente
+
+#### Scenario: La respuesta del lead establece el foco
+
+- **WHEN** el lead indica cuál alcance le interesa tras esa pregunta
+- **THEN** el foco queda establecido
+- **AND** el sistema responde la pregunta original sin pedir que la repita
+
+#### Scenario: Pregunta que no depende del alcance
+
+- **WHEN** un lead sin foco pregunta algo cuya respuesta es común a todos los alcances
+- **THEN** el sistema responde directamente, sin preguntar
+
+#### Scenario: Un solo alcance activo
+
+- **WHEN** existe un único alcance activo
+- **THEN** el sistema nunca pide desambiguar
 
 ### Requirement: Cambio de foco por mención
 
