@@ -45,6 +45,23 @@ Se conserva también el foco previo. Sin él no hay forma de resolver una refere
 
 El cambio de foco solo mueve el punto de partida de la resolución. El estado asociado al alcance anterior permanece intacto, de modo que volver a él no pierde nada de lo conversado.
 
+### Contenido del cliente y mensajes de sistema son cosas distintas
+
+Conviene nombrarlo porque determina de dónde sale cada texto:
+
+- **Contenido del cliente** —precio, ubicación, amenidades— varía por alcance, sale del material que el cliente proporciona y se administra por desarrollo.
+- **Mensajes de sistema** —desambiguación, fallback, flujo de cita, derivación— no aparecen en ningún brochure. Son parte del producto: se siembran con un valor por defecto utilizable y el cliente los ajusta una sola vez si quiere cambiar el tono.
+
+Los textos que introduce este cambio pertenecen a la segunda categoría, y siguen el patrón que ya establece la migración 011: sembrados en la configuración, editables desde el dashboard, con sus variables documentadas en la descripción.
+
+De ahí sale también la respuesta a cómo sabe el bot decir "desarrollo": no lo sabe. Está en el texto por defecto que sembramos, y un cliente que venda plazas comerciales lo cambia una vez. Ningún comportamiento depende de esa palabra.
+
+### La interpolación vive en un solo lugar
+
+Hoy cada manejador sustituye sus variables a mano con reemplazos sucesivos, y la interpolación de las respuestas de intenciones quedó pendiente como `TODO`. Sumar más mensajes con variables por el camino actual multiplica ese patrón disperso.
+
+Un único punto de sustitución sirve a los dos casos y evita que las reglas diverjan, que es exactamente lo que ya ocurrió con la configuración del asesor al existir en dos tablas.
+
 ### El saludo se compone, no se escribe
 
 Enumerar los desarrollos en un texto fijo obliga a editarlo a mano en cada alta, y ese texto es el mensaje de mayor volumen del bot. Se resuelve con la interpolación de variables que el esquema ya contempla y el código dejó pendiente.

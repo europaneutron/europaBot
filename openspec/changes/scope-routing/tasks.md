@@ -42,9 +42,10 @@
 - [ ] 5b.4 Retener la pregunta original y responderla una vez establecido el foco, sin obligar al lead a repetirla
 - [ ] 5b.5 No desambiguar nunca cuando existe un solo alcance activo
 
-## 6. Saludo compuesto
+## 6. Mensajes y saludo compuesto
 
-- [ ] 6.1 Implementar la interpolación de variables en respuestas, hoy pendiente como `TODO` en `conversation.repository.ts`
+- [ ] 6.1 Implementar la interpolación de variables en un único lugar, compartido por los mensajes de sistema y por las respuestas de intenciones. Hoy la de respuestas está pendiente como `TODO` en `conversation.repository.ts` y la de mensajes de sistema se hace con reemplazos sucesivos en cada manejador
+- [ ] 6.1b Sembrar por migración los mensajes de desambiguación y de presentación de alcances, siguiendo el patrón de la migración 011: texto por defecto utilizable, editable desde el dashboard, con sus variables documentadas en la descripción
 - [ ] 6.2 Componer el saludo con los alcances activos disponibles
 - [ ] 6.3 No plantear elección cuando hay un solo alcance activo o cuando el foco ya está determinado por el anuncio
 - [ ] 6.4 Verificar que activar un alcance nuevo lo incorpora al saludo sin editar textos

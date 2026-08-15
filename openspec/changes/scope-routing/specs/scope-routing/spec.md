@@ -140,6 +140,46 @@ La detección de intención y la resolución de contenido SHALL partir del foco 
 - **WHEN** existe un único alcance activo
 - **THEN** la detección de intención y las respuestas son idénticas a las de antes de este cambio
 
+### Requirement: Los mensajes de ruteo son configurables
+
+Los textos que el bot usa para desambiguar y para presentar los alcances SHALL venir sembrados con un valor por defecto utilizable y ser editables desde el dashboard, como el resto de los mensajes de sistema. NO SHALL estar escritos en el código.
+
+Su descripción SHALL documentar las variables que admiten, para que quien los edite sepa qué puede usar.
+
+#### Scenario: Mensajes disponibles desde el primer arranque
+
+- **WHEN** se aplica el cambio sobre una base existente
+- **THEN** los mensajes de desambiguación y de presentación de alcances existen con un texto por defecto utilizable, sin que nadie tenga que redactarlos
+
+#### Scenario: Edición del texto
+
+- **WHEN** el administrador edita uno de esos mensajes desde el dashboard
+- **THEN** el bot usa el texto editado, conservando la interpolación de sus variables
+
+#### Scenario: Vocabulario del cliente
+
+- **WHEN** el cliente no llama "desarrollo" a sus proyectos
+- **THEN** puede cambiar esa palabra editando el mensaje, sin que ningún comportamiento dependa de ella
+
+### Requirement: Interpolación de variables en mensajes
+
+La sustitución de variables en los textos configurables SHALL resolverse en un único lugar, compartido por los mensajes de sistema y por las respuestas de las intenciones.
+
+#### Scenario: Variable con valor
+
+- **WHEN** un mensaje contiene una variable para la que hay valor disponible
+- **THEN** se sustituye por ese valor
+
+#### Scenario: Variable sin valor
+
+- **WHEN** un mensaje contiene una variable para la que no hay valor disponible
+- **THEN** el mensaje se entrega sin exponer al lead la notación de la variable
+
+#### Scenario: Mensaje sin variables
+
+- **WHEN** un mensaje no contiene variables
+- **THEN** se entrega tal cual
+
 ### Requirement: Saludo compuesto con los alcances disponibles
 
 El mensaje de saludo SHALL poder enumerar los alcances activos disponibles a partir de los datos, sin que ese listado tenga que mantenerse a mano en el texto.
