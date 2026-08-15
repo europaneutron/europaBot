@@ -15,7 +15,31 @@ import { whatsappSender } from '@/services/whatsapp/message-sender';
 import type { BotResponse } from '@/types/message-fragments.types';
 import { isSimpleResponseWithMedia } from '@/types/message-fragments.types';
 import type { IntentMatch } from '@/types/intent.types';
-import { ROOT_SCOPE_ID } from '@/data/repositories/scope.repository';
+import { ROOT_SCOPE_ID, scopeRepository } from '@/data/repositories/scope.repository';
+import {
+  scopeRoutingService,
+  SCOPE_FOCUS_WINDOW_MS,
+  type ScopeFocusSource,
+} from './scope-routing.service';
+import type { User, UserSession } from '@/data/models/user.model';
+import { scopeRoutingRepository } from '@/data/repositories/scope-routing.repository';
+import { interpolateMessage } from '@/lib/interpolate-message';
+
+// Fuentes de foco que pueden reanudar una pregunta retenida: las tres nacen de
+// algo que el lead acaba de decir o traer. El foco heredado de la sesión no
+// cuenta, porque entonces la pregunta se reanudaría en cada mensaje siguiente.
+const RESUMING_FOCUS_SOURCES: ScopeFocusSource[] = ['alias', 'referral', 'override'];
+
+function isPendingQuestionFresh(session: UserSession | null): boolean {
+  if (!session?.pending_scope_message || !session.pending_scope_updated_at) return false;
+  const askedAt = new Date(session.pending_scope_updated_at).getTime();
+  return Number.isFinite(askedAt) && Date.now() - askedAt < SCOPE_FOCUS_WINDOW_MS;
+}
+
+export interface ProcessMessageOptions {
+  scopeId?: string;
+  referralAdId?: string;
+}
 
 export interface ProcessedResponse {
   responses: BotResponse[]; // Cambiado de 'message: string' a 'responses: BotResponse[]'
@@ -24,6 +48,7 @@ export interface ProcessedResponse {
   isFallback: boolean;
   flowHandled?: boolean; // Indica si ya se manejó un flow state (evita doble verificación en webhook)
   detectedIntent?: IntentMatch;
+  scopeId?: string;
 }
 
 export class MessageProcessor {
@@ -35,7 +60,7 @@ export class MessageProcessor {
     messageText: string,
     messageId: string,
     userName?: string,
-    scopeId: string | null = ROOT_SCOPE_ID
+    options: ProcessMessageOptions = {}
   ): Promise<ProcessedResponse> {
     try {
       // 0. Enviar indicador de "escribiendo..." si está habilitado
@@ -58,6 +83,26 @@ export class MessageProcessor {
           isFallback: false
         };
       }
+
+      const sessionBeforeRouting = await userRepository.getSession(user.id);
+      const routing = await scopeRoutingService.resolve({
+        userId: user.id,
+        message: messageText,
+        referralAdId: options.referralAdId,
+        scopeOverride: options.scopeId,
+      });
+      const scopeId = routing.scopeId;
+
+      // Pregunta retenida por una desambiguación anterior. Solo cuenta si el
+      // foco quedó establecido por algo que el lead acaba de decir o traer, y
+      // si sigue dentro de la ventana: reanudarla más tarde sería contestar
+      // algo que el lead ya no está preguntando.
+      const pendingQuestion =
+        routing.hasFocus &&
+        RESUMING_FOCUS_SOURCES.includes(routing.source) &&
+        isPendingQuestionFresh(sessionBeforeRouting)
+          ? sessionBeforeRouting!.pending_scope_message!
+          : null;
 
       // 3. Actualizar última interacción
       await userRepository.updateLastInteraction(user.id);
@@ -93,7 +138,8 @@ export class MessageProcessor {
             shouldSend: true,
             wasDetected: true,
             isFallback: false,
-            flowHandled: true
+            flowHandled: true,
+            scopeId,
           };
         } else {
           // Usuario está respondiendo al flujo, procesar su respuesta
@@ -112,7 +158,8 @@ export class MessageProcessor {
               matched_keywords: ['appointment', 'flow'],
               fuzzy_matches: [],
               detection_method: 'exact'
-            }
+            },
+            { scopeId, referralAdId: options.referralAdId }
           );
           
           // Si el mensaje está vacío (confirm_date, ask_time), no lo enviamos aquí
@@ -128,7 +175,8 @@ export class MessageProcessor {
             shouldSend: true,
             wasDetected: true,
             isFallback: false,
-            flowHandled: hasMessage
+            flowHandled: hasMessage,
+            scopeId,
           };
         }
       }
@@ -205,7 +253,8 @@ export class MessageProcessor {
               shouldSend: true,
               wasDetected: true,
               isFallback: false,
-              flowHandled: true
+              flowHandled: true,
+              scopeId,
             };
           } else {
             // Usuario no acepta o pregunta otra cosa
@@ -224,7 +273,8 @@ export class MessageProcessor {
               shouldSend: true,
               wasDetected: true,
               isFallback: false,
-              flowHandled: true
+              flowHandled: true,
+              scopeId,
             };
           }
         }
@@ -234,27 +284,87 @@ export class MessageProcessor {
       const session = await userRepository.getSession(user.id);
       
       if (session?.awaiting_advisor_name) {
-        return await fallbackHandler.captureAdvisorName(user.id, user, messageText, session, scopeId);
+        return {
+          ...await fallbackHandler.captureAdvisorName(user.id, user, messageText, session, scopeId),
+          scopeId,
+        };
       }
 
       // 4. Detectar intención con fuzzy matching
-      const detectionResult = await intentDetectionService.detect(
-        messageText,
-        supabaseServer,
-        scopeId
+      //
+      // Sin foco se busca en todos los alcances alcanzables, no solo en las
+      // ramas de primer nivel: una intención definida únicamente en un
+      // sub-alcance existe y tiene que poder detectarse. Cuál de ellos responde
+      // es otra decisión, y de esa se ocupa la desambiguación, que sí razona
+      // por rama.
+      const availableScopes = routing.hasFocus
+        ? []
+        : await scopeRoutingRepository.getAvailableScopes();
+      const detectableScopeIds = routing.hasFocus || availableScopes.length <= 1
+        ? []
+        : Array.from(await scopeRepository.getReachableScopeIds());
+      const detectIn = (text: string) => (
+        detectableScopeIds.length === 0
+          ? intentDetectionService.detect(text, supabaseServer, scopeId)
+          : intentDetectionService.detectAcrossScopes(text, supabaseServer, detectableScopeIds)
       );
+
+      let detectionResult = await detectIn(messageText);
+      let messageForDetection = messageText;
+
+      // El mensaje que establece el foco suele ser solo el nombre del
+      // desarrollo, y por sí mismo no pregunta nada: ese es el momento de
+      // recuperar la pregunta retenida. Si el lead aprovechó para preguntar
+      // otra cosa —"¿dónde queda Beta?"—, esa es su pregunta; contestarle en su
+      // lugar la de ayer descarta en silencio lo que acaba de escribir.
+      if (pendingQuestion && !detectionResult.detected) {
+        detectionResult = await detectIn(pendingQuestion);
+        messageForDetection = pendingQuestion;
+      }
+      if (pendingQuestion) {
+        await userRepository.clearPendingScopeQuestion(user.id);
+      }
 
       // 5. Guardar mensaje entrante
       const conversation = await conversationRepository.saveIncomingMessage(
         user.id,
         messageId,
         messageText,
-        detectionResult.intent
+        detectionResult.intent,
+        { scopeId, referralAdId: options.referralAdId }
       );
+
+      if (
+        !routing.hasFocus &&
+        detectionResult.intent &&
+        await scopeRoutingRepository.isIntentScopeDependent(detectionResult.intent.intent_name)
+      ) {
+        await userRepository.setPendingScopeQuestion(
+          user.id,
+          messageText,
+          detectionResult.intent.intent_name
+        );
+        const scopeList = await this.getAvailableScopeList();
+        const template = await configRepository.get(
+          'scope_disambiguation_message',
+          '¿De cuál desarrollo te gustaría recibir información?\n\n{alcances}'
+        );
+        return {
+          responses: [interpolateMessage(template, { alcances: scopeList })],
+          shouldSend: true,
+          wasDetected: true,
+          isFallback: false,
+          detectedIntent: detectionResult.intent,
+          scopeId,
+        };
+      }
 
       // 6. Si no se detectó intención → Fallback
       if (!detectionResult.detected || !detectionResult.intent) {
-        return await fallbackHandler.handle(user.id, messageText);
+        return {
+          ...await fallbackHandler.handle(user.id, messageText),
+          scopeId,
+        };
       }
 
       // 7. Guardar log de intención
@@ -262,7 +372,7 @@ export class MessageProcessor {
         user.id,
         conversation.id,
         detectionResult.intent,
-        messageText,
+        messageForDetection,
         detectionResult.normalized_message
       );
 
@@ -270,14 +380,20 @@ export class MessageProcessor {
       await userRepository.resetFallbackAttempts(user.id);
 
       // 9. Procesar intención específica
-      const responses = await this.handleIntent(user.id, detectionResult.intent, scopeId);
+      const responses = await this.handleIntent(
+        user,
+        detectionResult.intent,
+        scopeId,
+        routing.hasFocus
+      );
 
       return {
         responses,
         shouldSend: true,
         wasDetected: true,
         isFallback: false,
-        detectedIntent: detectionResult.intent
+        detectedIntent: detectionResult.intent,
+        scopeId,
       };
 
     } catch (error) {
@@ -286,7 +402,8 @@ export class MessageProcessor {
         responses: ['Disculpa, tuve un problema técnico. ¿Podrías repetir tu pregunta?'],
         shouldSend: true,
         wasDetected: false,
-        isFallback: true
+        isFallback: true,
+        scopeId: options.scopeId ?? ROOT_SCOPE_ID,
       };
     }
   }
@@ -296,10 +413,13 @@ export class MessageProcessor {
    * Retorna array de BotResponse (pueden ser strings simples o fragmentados)
    */
   private async handleIntent(
-    userId: string,
+    user: User,
     intent: IntentMatch,
-    scopeId?: string | null
+    scopeId?: string | null,
+    hasFocus: boolean = true
   ): Promise<BotResponse[]> {
+    const userId = user.id;
+
     // Si es intent "cita", iniciar flujo de agendamiento
     // skipConfirmation = true porque el usuario ya dijo explícitamente que quiere agendar
     if (intent.intent_name === 'cita') {
@@ -322,8 +442,10 @@ export class MessageProcessor {
     }
 
     // Obtener respuesta configurada desde BD
+    const scopeList = await this.getAvailableScopeList();
     const responses = await conversationRepository.getBotResponses(
-      intent.response_intent_ids || intent.intent_id
+      intent.response_intent_ids || intent.intent_id,
+      { alcances: scopeList, nombre: user.name ?? '', telefono: user.phone_number }
     );
     
     if (responses.length === 0) {
@@ -347,7 +469,23 @@ export class MessageProcessor {
       // para asegurar que el estado ya está guardado en BD
     }
 
+    if (intent.intent_name === 'saludo' && !hasFocus) {
+      const scopes = await scopeRoutingRepository.getAvailableScopes();
+      if (scopes.length > 1) {
+        const template = await configRepository.get(
+          'scope_presentation_message',
+          'Estos son los desarrollos disponibles:\n\n{alcances}\n\n¿Cuál te interesa?'
+        );
+        responses.push(interpolateMessage(template, { alcances: scopeList }));
+      }
+    }
+
     return responses;
+  }
+
+  private async getAvailableScopeList(): Promise<string> {
+    const scopes = await scopeRoutingRepository.getAvailableScopes();
+    return scopes.map(scope => `- ${scope.name}`).join('\n');
   }
 }
 

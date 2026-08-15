@@ -16,6 +16,9 @@
 import { followupRepository, configRepository } from '@/data/repositories';
 import { WhatsAppMessageSender } from '@/services/whatsapp/message-sender';
 import { supabaseServer } from '@/services/supabase/server-client';
+import { interpolateMessage } from '@/lib/interpolate-message';
+import { conversationRepository } from '@/data/repositories/conversation.repository';
+import { scopeRoutingService } from '@/core/conversation/scope-routing.service';
 
 const whatsappSender = new WhatsAppMessageSender();
 
@@ -100,9 +103,7 @@ export class FollowupSender {
         const nombre = messageVariables.nombre || user.name || 'Hola!';
         const telefono = user.phone_number;
 
-        let finalMessage = template
-          .replace(/\{nombre\}/g, nombre)
-          .replace(/\{telefono\}/g, telefono);
+        const finalMessage = interpolateMessage(template, { nombre, telefono });
 
         // 5.3. Enviar mensaje por WhatsApp
         console.log(`[FollowupSender] Enviando mensaje a ${telefono}...`);
@@ -118,19 +119,17 @@ export class FollowupSender {
           continue;
         }
 
-        const sent_at = new Date().toISOString();
-
         // 5.4. Registrar en conversations como mensaje saliente
-        const { error: conversationError } = await supabase
-          .from('conversations')
-          .insert({
-            user_id: userId,
-            message_text: finalMessage,
-            direction: 'outbound',
-            created_at: sent_at,
-          });
-
-        if (conversationError) {
+        try {
+          const scopeId = await scopeRoutingService.getPersistedScope(userId);
+          await conversationRepository.saveOutgoingMessage(
+            userId,
+            finalMessage,
+            false,
+            undefined,
+            scopeId
+          );
+        } catch (conversationError) {
           console.warn(`[FollowupSender] Error registrando conversación para ${userId}:`, conversationError);
           // No bloqueante, el mensaje ya se envió
         }

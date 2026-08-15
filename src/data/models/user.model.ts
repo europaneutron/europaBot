@@ -27,6 +27,12 @@ export interface UserSession {
   last_fallback_at?: Date;
   conversation_context: any[];
   awaiting_advisor_name?: boolean; // Para derivación a asesor
+  current_scope_id?: string | null;
+  previous_scope_id?: string | null;
+  scope_focus_updated_at?: string | Date | null;
+  pending_scope_message?: string | null;
+  pending_scope_intent_name?: string | null;
+  pending_scope_updated_at?: string | Date | null;
   session_started_at: Date;
   updated_at: Date;
 }

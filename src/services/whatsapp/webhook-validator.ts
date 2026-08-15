@@ -70,6 +70,7 @@ export class WebhookValidator {
     messageId: string;
     text: string;
     name?: string;
+    referralAdId?: string;
   } | null {
     try {
       const entry = body.entry?.[0];
@@ -109,7 +110,10 @@ export class WebhookValidator {
         from: message.from,
         messageId: message.id,
         text: text,
-        name: contact?.profile?.name
+        name: contact?.profile?.name,
+        referralAdId: typeof message.referral?.source_id === 'string'
+          ? message.referral.source_id
+          : undefined
       };
     } catch (error) {
       console.error('Error extracting message:', error);

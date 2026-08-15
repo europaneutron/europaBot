@@ -13,6 +13,7 @@ const processMessageRequestSchema = z.object({
   message: z.string().min(1),
   messageId: z.string().min(1).optional(),
   scopeId: z.string().uuid().nullable().optional(),
+  referralAdId: z.string().min(1).optional(),
 });
 
 export async function POST(request: NextRequest) {
@@ -29,7 +30,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { phoneNumber, message, messageId, scopeId } = parsedRequest.data;
+    const { phoneNumber, message, messageId, scopeId, referralAdId } = parsedRequest.data;
     if (scopeId === null) {
       return NextResponse.json(
         { error: 'scopeId cannot be null; omit it to use the root scope' },
@@ -52,7 +53,7 @@ export async function POST(request: NextRequest) {
       message,
       messageId || `test_${Date.now()}`,
       'Usuario Test',
-      scopeId
+      { scopeId, referralAdId }
     );
 
     const { isFragmentedResponse, isSimpleResponseWithMedia } = await import('@/types/message-fragments.types');
@@ -170,7 +171,7 @@ export async function POST(request: NextRequest) {
       isFallback: result.isFallback,
       intent: result.detectedIntent?.intent_name || null,
       intentId: result.detectedIntent?.intent_id || null,
-      scopeId: result.detectedIntent?.scope_id || null,
+      scopeId: result.scopeId || null,
       confidence: result.wasDetected ? 0.95 : 0
     });
 

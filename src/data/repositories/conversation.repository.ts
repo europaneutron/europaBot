@@ -5,6 +5,12 @@
 import { supabaseServer } from '@/services/supabase/server-client';
 import type { Conversation, IntentLog } from '@/data/models/conversation.model';
 import type { IntentMatch } from '@/types/intent.types';
+import {
+  interpolateMessage,
+  interpolateMessageValue,
+  toMessageVariables,
+  type MessageVariables,
+} from '@/lib/interpolate-message';
 
 export class ConversationRepository {
   /**
@@ -14,7 +20,8 @@ export class ConversationRepository {
     userId: string,
     messageId: string,
     messageText: string,
-    detectedIntent?: IntentMatch
+    detectedIntent?: IntentMatch,
+    routing?: { scopeId?: string | null; referralAdId?: string }
   ): Promise<Conversation> {
     const { data, error } = await supabaseServer
       .from('conversations')
@@ -26,7 +33,9 @@ export class ConversationRepository {
         message_type: 'text',
         detected_intent: detectedIntent?.intent_name,
         intent_confidence: detectedIntent?.confidence,
-        was_fallback: false
+        was_fallback: false,
+        scope_id: routing?.scopeId ?? detectedIntent?.scope_id ?? null,
+        referral_ad_id: routing?.referralAdId ?? null
       })
       .select()
       .single();
@@ -42,7 +51,8 @@ export class ConversationRepository {
     userId: string,
     messageText: string,
     wasFallback: boolean = false,
-    fallbackLevel?: number
+    fallbackLevel?: number,
+    scopeId?: string | null
   ): Promise<Conversation> {
     const { data, error } = await supabaseServer
       .from('conversations')
@@ -52,7 +62,8 @@ export class ConversationRepository {
         message_text: messageText,
         message_type: 'text',
         was_fallback: wasFallback,
-        fallback_level: fallbackLevel
+        fallback_level: fallbackLevel,
+        scope_id: scopeId ?? null
       })
       .select()
       .single();
@@ -137,7 +148,11 @@ export class ConversationRepository {
   /**
    * Obtener respuesta configurada para un intent
    */
-  async getBotResponse(intentIds: string | string[], responseKey: string = 'main'): Promise<string | null> {
+  async getBotResponse(
+    intentIds: string | string[],
+    responseKey: string = 'main',
+    variables: MessageVariables = {}
+  ): Promise<string | null> {
     const resolutionIds = Array.isArray(intentIds) ? intentIds : [intentIds];
     const { data, error } = await supabaseServer
       .from('bot_responses')
@@ -153,19 +168,29 @@ export class ConversationRepository {
       .find(Boolean);
     if (!resolved) return null;
 
-    // TODO: Reemplazar variables dinámicas si existen
-    return resolved.message_text;
+    return interpolateMessage(resolved.message_text, {
+      ...toMessageVariables(resolved.variables),
+      ...variables,
+    });
   }
 
   /**
    * Obtener múltiples respuestas para un intent (en orden de prioridad)
    * Soporta respuestas simples (string) y fragmentadas (JSON)
+   *
+   * `variables` es el contexto de la conversación: lo que solo se conoce al
+   * responder. La columna `bot_responses.variables` aporta los valores fijos
+   * que el administrador dejó escritos con la respuesta, y el contexto los
+   * sobrescribe cuando trae algo para la misma clave.
    */
-  async getBotResponses(intentIds: string | string[]): Promise<import('@/types/message-fragments.types').BotResponse[]> {
+  async getBotResponses(
+    intentIds: string | string[],
+    variables: MessageVariables = {}
+  ): Promise<import('@/types/message-fragments.types').BotResponse[]> {
     const resolutionIds = Array.isArray(intentIds) ? intentIds : [intentIds];
     const { data, error } = await supabaseServer
       .from('bot_responses')
-      .select('intent_id, message_text, media_url, response_type, order_priority')
+      .select('intent_id, message_text, media_url, response_type, order_priority, variables')
       .in('intent_id', resolutionIds)
       .eq('is_active', true)
       .order('order_priority', { ascending: true});
@@ -178,25 +203,32 @@ export class ConversationRepository {
     if (!resolvedIntentId) return [];
 
     return data.filter(row => row.intent_id === resolvedIntentId).map(row => {
+      const rowVariables = { ...toMessageVariables(row.variables), ...variables };
+
       // Si es fragmentado, message_text ya es un objeto JSONB
       if (row.response_type === 'fragmented') {
-        return row.message_text as import('@/types/message-fragments.types').FragmentedResponse;
+        return interpolateMessageValue(
+          row.message_text,
+          rowVariables
+        ) as import('@/types/message-fragments.types').FragmentedResponse;
       }
-      
+
       // Si tiene media_url, crear SimpleResponseWithMedia
       if (row.media_url && typeof row.media_url === 'string' && row.media_url.trim()) {
         return {
-          text: typeof row.message_text === 'string' ? row.message_text : null,
+          text: typeof row.message_text === 'string'
+            ? interpolateMessage(row.message_text, rowVariables)
+            : null,
           media_url: row.media_url,
           media_type: this.detectMediaType(row.media_url)
         } as import('@/types/message-fragments.types').SimpleResponseWithMedia;
       }
-      
+
       // Si es simple sin media, message_text es un string
       if (typeof row.message_text === 'string') {
-        return row.message_text;
+        return interpolateMessage(row.message_text, rowVariables);
       }
-      
+
       // Si PostgreSQL lo devolvió como string JSON, parsearlo
       return String(row.message_text);
     });

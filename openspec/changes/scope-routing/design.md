@@ -8,6 +8,21 @@ El cambio `scope-tree` dejó el árbol funcionando, pero todas las rutas pasan e
 
 La interpolación de variables en respuestas está declarada como `TODO` en `conversation.repository.ts` y nunca se implementó, aunque `bot_responses.variables` existe en el esquema desde la migración 001.
 
+### Mapa del alcance antes y después del cambio
+
+| Ruta | Qué determina hoy el alcance | Qué lo determinará |
+|---|---|---|
+| Webhook de WhatsApp | No lo determina; llama al procesador sin alcance y cae en la raíz | Propagará el identificador del anuncio; el procesador resolverá anuncio, mención, foco vigente o raíz |
+| Endpoint de prueba | Un `scopeId` opcional impuesto por la petición; si se omite usa raíz | Permitirá inyectar anuncio o alcance explícito para pruebas, pero usará el mismo resolvedor que producción |
+| Procesador de mensajes | Parámetro `scopeId`, raíz por defecto | `scope-routing.service` antes de detectar intención; el resultado será el único alcance vigente del mensaje |
+| Detección de intención | El `scopeId` que recibe del procesador | El foco resuelto para el mensaje |
+| Resolución de respuestas y recursos | La cadena de intenciones visible desde el `scopeId` recibido | La cadena visible desde el foco resuelto |
+| Flujo de citas | El `scopeId` que el procesador reenvía | El foco resuelto, sin mover el estado del alcance anterior |
+| Fallback y derivación | El `scopeId` que el procesador reenvía en las rutas que lo admiten | El foco resuelto; si no existe, raíz |
+| Persistencia de conversación | No registra alcance ni anuncio | Cada mensaje registra el foco resuelto y el entrante conserva el anuncio de origen |
+
+La resolución ocurre una sola vez por mensaje, después de buscar o crear al usuario y antes de cualquier ruta que consuma alcance. Así se evita que detección, respuesta y flujos tomen decisiones distintas sobre el mismo mensaje.
+
 ## Goals / Non-Goals
 
 **Goals:**
@@ -102,6 +117,18 @@ Para poder medirlo, el alcance de cada mensaje queda registrado desde esta entre
 
 **Rollback:** revertir el código basta. Las columnas nuevas son aditivas y quedan sin usar; ninguna lectura previa depende de ellas.
 
+### Verificación previa a producción
+
+Antes de ejecutar la migración remota se debe confirmar:
+
+- que `public.scopes`, `public.user_sessions`, `public.conversations`, `public.bot_config` y `public.admin_users` existen con la forma resultante de las migraciones `001 → 027`;
+- que no existe ya una tabla o columna con los nombres introducidos por la migración 028;
+- que `service_role` conserva acceso al Data API y que `authenticated` puede leer las tablas de catálogo mediante las políticas de administrador;
+- que los anuncios activos que deban rutearse tienen un `ad_id` real de Meta asociado a un alcance activo;
+- que cada alcance comercial activo tiene al menos un alias normalizado y que los alias compartidos intencionalmente están identificados;
+- que `scope_disambiguation_message` y `scope_presentation_message` aparecen en Ajustes después de migrar;
+- que una consulta de conteo por `conversations.scope_id` y `conversations.referral_ad_id` devuelve resultados después del smoke test, sin modificar datos de producción manualmente.
+
 ## Open Questions
 
 Resueltas antes de implementar:
@@ -123,3 +150,27 @@ Una intención depende del alcance cuando varios alcances activos definen conten
 Eso evita una configuración que habría que mantener sincronizada a mano —y que se desincronizaría en cuanto alguien agregara contenido a un alcance sin acordarse de actualizar la bandera.
 
 Cuando esa condición se cumple y no hay foco, el bot pregunta de cuál desarrollo se trata y retiene la pregunta original para responderla una vez establecido el foco, sin obligar al lead a repetirla.
+
+## Decisiones que salieron de la revisión
+
+Tres defectos confirmados con sonda contra el stack local obligaron a nombrar cosas que la propuesta daba por supuestas.
+
+### El árbol tiene profundidad; el menú no
+
+"Los alcances activos disponibles" se había leído como "todos los alcances que no son la raíz". En un árbol de tres niveles eso ponía un desarrollo y su propia torre lado a lado en el saludo, y hacía que un cliente con un solo desarrollo dejara de comportarse como tal en cuanto ese desarrollo ganaba un submodelo —justo el caso que `scope-tree` existe para permitir.
+
+Lo que se ofrece son las ramas de primer nivel. La profundidad sigue estando disponible para el foco, para la detección y para la herencia de contenido: un alias de un submodelo cambia el foco, y una intención que solo ese submodelo responde se sigue detectando. Lo que no hace la profundidad es aparecer en una lista de alternativas.
+
+De ahí sale también la distinción entre *activo* y *alcanzable*: un alcance es alcanzable cuando su fila y las de todos sus ancestros están activas. Desactivar un desarrollo tiene que retirar con él todo lo que cuelga; si solo se mirara la fila propia, sus submodelos seguirían cambiando el foco después de que el desarrollo se agotara.
+
+### La pregunta retenida cede ante una pregunta nueva
+
+Retener la pregunta y contestarla en cuanto se establece el foco es correcto cuando la respuesta del lead es solo el nombre del desarrollo, que es el caso frecuente. Cuando el lead aprovecha para preguntar otra cosa —"¿dónde queda Beta?"— la retenida se descarta: contestarle el precio de ayer tira a la basura lo que acaba de escribir, y lo hace en silencio.
+
+La regla operativa es que la retenida solo se reanuda si el mensaje que estableció el foco no trae intención propia. Y caduca con la misma ventana que el foco: reanudarla días después es contestar algo que el lead ya no está preguntando.
+
+### Centralizar la interpolación obliga a aportar el contexto
+
+Un único punto de sustitución que borra lo que no reconoce convierte cualquier variable no prevista en una desaparición silenciosa. Al conectarlo pasando solo `{alcances}`, una respuesta escrita con `{nombre}` se entregaba mutilada y el administrador no veía el síntoma.
+
+Quien pide la sustitución aporta el contexto de la conversación. La columna `bot_responses.variables` —que existía desde la migración 001 y nunca se leyó— aporta los valores fijos que el administrador dejó escritos junto a la respuesta, y el contexto los sobrescribe cuando trae algo para la misma clave.

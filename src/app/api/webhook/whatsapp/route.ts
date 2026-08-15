@@ -68,7 +68,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ status: 'no_message' }, { status: 200 });
     }
 
-    const { from, messageId, text, name } = messageData;
+    const { from, messageId, text, name, referralAdId } = messageData;
 
     console.log(`📨 Mensaje recibido de ${from}: "${text}"`);
 
@@ -76,7 +76,13 @@ export async function POST(request: NextRequest) {
     await whatsappSender.markAsRead(messageId);
 
     // Procesar mensaje con el cerebro del bot
-    const response = await messageProcessor.processMessage(from, text, messageId, name);
+    const response = await messageProcessor.processMessage(
+      from,
+      text,
+      messageId,
+      name,
+      { referralAdId }
+    );
 
     // Obtener userId SIEMPRE (necesario para verificar flow state)
     const { supabaseServer } = await import('@/services/supabase/server-client');
@@ -124,7 +130,9 @@ export async function POST(request: NextRequest) {
             await conversationRepository.saveOutgoingMessage(
               user.id,
               botResponse,
-              response.isFallback
+              response.isFallback,
+              undefined,
+              response.scopeId
             );
           }
 
@@ -173,7 +181,9 @@ export async function POST(request: NextRequest) {
             await conversationRepository.saveOutgoingMessage(
               user.id,
               messageText,
-              response.isFallback
+              response.isFallback,
+              undefined,
+              response.scopeId
             );
           }
 
@@ -196,7 +206,9 @@ export async function POST(request: NextRequest) {
               await conversationRepository.saveOutgoingMessage(
                 user.id,
                 textContent,
-                response.isFallback
+                response.isFallback,
+                undefined,
+                response.scopeId
               );
             }
           }
@@ -253,7 +265,9 @@ export async function POST(request: NextRequest) {
             await conversationRepository.saveOutgoingMessage(
               user.id,
               appointmentOffer,
-              false
+              false,
+              undefined,
+              response.scopeId
             );
           }
         }
@@ -300,7 +314,9 @@ export async function POST(request: NextRequest) {
               await conversationRepository.saveOutgoingMessage(
                 user.id,
                 bodyText,
-                false
+                false,
+                undefined,
+                response.scopeId
               );
             }
           }
@@ -338,7 +354,9 @@ export async function POST(request: NextRequest) {
             await conversationRepository.saveOutgoingMessage(
               user.id,
               bodyText,
-              false
+              false,
+              undefined,
+              response.scopeId
             );
           }
         }

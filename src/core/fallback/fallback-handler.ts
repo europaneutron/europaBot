@@ -18,6 +18,7 @@ import { FallbackLevel } from './fallback-levels.enum';
 import { FALLBACK_MESSAGES } from './fallback-messages';
 import type { User, UserSession } from '@/data/models/user.model';
 import type { ProcessedResponse } from '@/core/conversation/message-processor';
+import { interpolateMessage } from '@/lib/interpolate-message';
 
 export class FallbackHandler {
   /**
@@ -136,15 +137,16 @@ export class FallbackHandler {
           'derivation_name_confirmed',
           'Gracias {nombre}! Un asesor se pondrá en contacto contigo pronto. En el horario de {horario}.'
         );
-        confirmationMessage = confirmationMessage
-          .replace('{nombre}', userName)
-          .replace('{horario}', agentConfig.business_hours);
+        confirmationMessage = interpolateMessage(confirmationMessage, {
+          nombre: userName,
+          horario: agentConfig.business_hours,
+        });
       } else {
         confirmationMessage = await configRepository.get(
           'derivation_name_confirmed_no_hours',
           'Gracias {nombre}! Un asesor se pondrá en contacto contigo pronto.'
         );
-        confirmationMessage = confirmationMessage.replace('{nombre}', userName);
+        confirmationMessage = interpolateMessage(confirmationMessage, { nombre: userName });
       }
     } catch (configurationError) {
       console.error('No fue posible resolver la configuración del asesor:', configurationError);
@@ -152,7 +154,7 @@ export class FallbackHandler {
         'derivation_config_unavailable',
         'Gracias {nombre}. Registramos tu solicitud y el equipo de ventas la revisará desde el panel.'
       );
-      confirmationMessage = confirmationMessage.replace('{nombre}', userName);
+      confirmationMessage = interpolateMessage(confirmationMessage, { nombre: userName });
     }
     
     // El mensaje se guarda en el webhook después de enviarlo exitosamente

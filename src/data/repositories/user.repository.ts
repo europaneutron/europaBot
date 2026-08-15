@@ -135,10 +135,56 @@ export class UserRepository {
    * Actualizar sesión
    */
   async updateSession(userId: string, updates: Partial<UserSession>): Promise<void> {
-    await supabaseServer
+    const { error } = await supabaseServer
       .from('user_sessions')
       .update(updates)
       .eq('user_id', userId);
+
+    if (error) throw error;
+  }
+
+  async setScopeFocus(
+    userId: string,
+    scopeId: string,
+    currentScopeId: string | null
+  ): Promise<void> {
+    const updates: Partial<UserSession> = {
+      current_scope_id: scopeId,
+      scope_focus_updated_at: new Date().toISOString(),
+    };
+
+    if (currentScopeId && currentScopeId !== scopeId) {
+      updates.previous_scope_id = currentScopeId;
+    }
+
+    await this.updateSession(userId, updates);
+  }
+
+  async clearScopeFocus(userId: string): Promise<void> {
+    await this.updateSession(userId, {
+      current_scope_id: null,
+      scope_focus_updated_at: null,
+    });
+  }
+
+  async setPendingScopeQuestion(
+    userId: string,
+    message: string,
+    intentName: string
+  ): Promise<void> {
+    await this.updateSession(userId, {
+      pending_scope_message: message,
+      pending_scope_intent_name: intentName,
+      pending_scope_updated_at: new Date().toISOString(),
+    });
+  }
+
+  async clearPendingScopeQuestion(userId: string): Promise<void> {
+    await this.updateSession(userId, {
+      pending_scope_message: null,
+      pending_scope_intent_name: null,
+      pending_scope_updated_at: null,
+    });
   }
 
   /**

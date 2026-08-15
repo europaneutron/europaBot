@@ -14,6 +14,8 @@ export interface Conversation {
   intent_confidence?: number;
   was_fallback: boolean;
   fallback_level?: number;
+  scope_id?: string | null;
+  referral_ad_id?: string | null;
   sent_at: Date;
   created_at: Date;
 }

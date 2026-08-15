@@ -1,0 +1,20 @@
+{
+  "singleActiveScope": {
+    "focus": "00000000-0000-4000-8000-000000000001",
+    "previousFocus": null,
+    "requiresDisambiguation": false,
+    "presentsScopeChoice": false
+  },
+  "messageOrigin": {
+    "withoutReferral": null,
+    "unknownReferralFallsBack": true,
+    "inactiveReferralFallsBack": true
+  },
+  "focusWindowHours": 24,
+  "precedence": [
+    "referral",
+    "explicit_alias",
+    "session_focus",
+    "root"
+  ]
+}

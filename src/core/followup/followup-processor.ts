@@ -15,6 +15,9 @@
 import { supabaseServer } from '@/services/supabase/server-client';
 import { configRepository } from '@/data/repositories';
 import { WhatsAppMessageSender } from '@/services/whatsapp/message-sender';
+import { interpolateMessage } from '@/lib/interpolate-message';
+import { conversationRepository } from '@/data/repositories/conversation.repository';
+import { scopeRoutingService } from '@/core/conversation/scope-routing.service';
 
 const whatsappSender = new WhatsAppMessageSender();
 
@@ -86,9 +89,7 @@ export class FollowupProcessor {
         const nombre = conversation.name || 'Hola!';
         const telefono = conversation.phone_number;
         
-        const finalMessage = template
-          .replace(/\{nombre\}/g, nombre)
-          .replace(/\{telefono\}/g, telefono);
+        const finalMessage = interpolateMessage(template, { nombre, telefono });
 
         // 4.3. Enviar mensaje por WhatsApp
         console.log(`[FollowupProcessor] Enviando follow-up a usuario ${conversation.user_id}...`);
@@ -108,17 +109,15 @@ export class FollowupProcessor {
           continue;
         }
 
-        const sent_at = new Date().toISOString();
-
         // 4.4. Registrar en conversations como outbound
-        await supabaseServer
-          .from('conversations')
-          .insert({
-            user_id: conversation.user_id,
-            message_text: finalMessage,
-            direction: 'outbound',
-            created_at: sent_at
-          });
+        const scopeId = await scopeRoutingService.getPersistedScope(conversation.user_id);
+        await conversationRepository.saveOutgoingMessage(
+          conversation.user_id,
+          finalMessage,
+          false,
+          undefined,
+          scopeId
+        );
 
         // 4.5. Marcar followup_sent = true (permanente)
         await supabaseServer

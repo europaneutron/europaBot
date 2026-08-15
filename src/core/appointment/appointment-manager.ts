@@ -9,6 +9,7 @@ import { configRepository } from '@/data/repositories/config.repository';
 import { leadScorer } from '@/core/scoring';
 import { whatsappSender } from '@/services/whatsapp/message-sender';
 import type { AppointmentFlow, TimeSlot, AppointmentFlowData } from '@/types/appointment.types';
+import { interpolateMessage } from '@/lib/interpolate-message';
 
 export class AppointmentManager {
   /**
@@ -349,10 +350,11 @@ Puedes escribir:
     );
 
     // Reemplazar variables
-    confirmationMsg = confirmationMsg
-      .replace('{fecha}', dateDisplay)
-      .replace('{hora}', timeSlotConfig)
-      .replace('{direccion}', address);
+    confirmationMsg = interpolateMessage(confirmationMsg, {
+      fecha: dateDisplay,
+      hora: timeSlotConfig,
+      direccion: address,
+    });
 
     return {
       step: 'completed',

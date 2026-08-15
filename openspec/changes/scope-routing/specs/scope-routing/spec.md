@@ -91,6 +91,18 @@ La condición SHALL derivarse de los datos: una intención depende del alcance c
 - **THEN** el foco queda establecido
 - **AND** el sistema responde la pregunta original sin pedir que la repita
 
+#### Scenario: El lead pregunta otra cosa al elegir
+
+- **WHEN** el lead responde a la desambiguación indicando un alcance y preguntando algo distinto en el mismo mensaje
+- **THEN** el sistema responde la pregunta nueva
+- **AND** la pregunta retenida se descarta, sin contestarse en su lugar
+
+#### Scenario: La pregunta retenida caduca
+
+- **WHEN** el lead vuelve a escribir después de vencido el mismo periodo que caduca el foco
+- **THEN** la pregunta retenida ya no se reanuda
+- **AND** el sistema atiende el mensaje nuevo como cualquier otro
+
 #### Scenario: Pregunta que no depende del alcance
 
 - **WHEN** un lead sin foco pregunta algo cuya respuesta es común a todos los alcances
@@ -165,6 +177,13 @@ Su descripción SHALL documentar las variables que admiten, para que quien los e
 
 La sustitución de variables en los textos configurables SHALL resolverse en un único lugar, compartido por los mensajes de sistema y por las respuestas de las intenciones.
 
+Quien pida la sustitución SHALL aportar el contexto de la conversación, y no solo las variables que introduce este cambio. Una respuesta escrita con una variable que el contexto conoce NO SHALL perderla.
+
+#### Scenario: Variable del contexto de la conversación
+
+- **WHEN** una respuesta de intención usa una variable que el sistema conoce del lead
+- **THEN** se sustituye por su valor
+
 #### Scenario: Variable con valor
 
 - **WHEN** un mensaje contiene una variable para la que hay valor disponible
@@ -179,6 +198,38 @@ La sustitución de variables en los textos configurables SHALL resolverse en un 
 
 - **WHEN** un mensaje no contiene variables
 - **THEN** se entrega tal cual
+
+### Requirement: Lo que se ofrece son las ramas de primer nivel
+
+Los alcances que el sistema enumera al lead —en el saludo y al desambiguar— SHALL ser únicamente los hijos activos de la raíz. Lo que cuelga de uno de ellos es granularidad interna de esa rama y NO SHALL presentarse como una alternativa a su propio ancestro.
+
+Un alcance SHALL considerarse disponible solo si su fila está activa y las de todos sus ancestros también.
+
+#### Scenario: Alcance anidado dentro de un desarrollo
+
+- **WHEN** un desarrollo activo contiene sub-alcances activos
+- **THEN** el sistema ofrece el desarrollo y no sus sub-alcances
+
+#### Scenario: Un desarrollo con sub-alcances sigue siendo uno
+
+- **WHEN** existe un único desarrollo activo, con sub-alcances propios
+- **THEN** el sistema se comporta como con un solo alcance: no desambigua ni plantea elección
+
+#### Scenario: Desactivar un desarrollo arrastra lo que cuelga de él
+
+- **WHEN** se desactiva un desarrollo que contiene sub-alcances activos
+- **THEN** ni el desarrollo ni sus sub-alcances se ofrecen
+- **AND** el alias de un sub-alcance deja de cambiar el foco
+
+#### Scenario: La profundidad no limita el foco ni la detección
+
+- **WHEN** el lead nombra un sub-alcance, o pregunta algo que solo ese sub-alcance responde
+- **THEN** el sistema lo resuelve desde ahí, aunque no sea una de las ramas ofrecidas
+
+#### Scenario: Una intención repetida dentro de la misma rama no es ambigua
+
+- **WHEN** una intención tiene contenido propio en un desarrollo y también en uno de sus sub-alcances, y en ninguna otra rama
+- **THEN** el sistema no pide desambiguar, porque ambas respuestas pertenecen al mismo desarrollo
 
 ### Requirement: Saludo compuesto con los alcances disponibles
 

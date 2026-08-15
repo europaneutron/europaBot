@@ -137,6 +137,25 @@ export class IntentDetectionService {
     };
   }
 
+  async detectAcrossScopes(
+    message: string,
+    supabaseClient: any,
+    scopeIds: string[]
+  ): Promise<DetectionResult> {
+    const results = await Promise.all(
+      scopeIds.map(scopeId => this.detect(message, supabaseClient, scopeId))
+    );
+    const matches = results.flatMap(result => result.all_matches);
+
+    matches.sort((left, right) => right.confidence - left.confidence);
+    return {
+      detected: matches.length > 0,
+      intent: matches[0],
+      normalized_message: results[0]?.normalized_message ?? message,
+      all_matches: matches,
+    };
+  }
+
   /**
    * Descarta las cachés de intenciones y del árbol de alcances, sin recargar.
    *

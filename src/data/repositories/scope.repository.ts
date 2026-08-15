@@ -78,6 +78,90 @@ export class ScopeRepository {
     return data as Scope;
   }
 
+  /**
+   * Un alcance es alcanzable cuando su propia fila está activa y todos sus
+   * ancestros también lo están.
+   *
+   * `isActiveScope` mira solo la fila, que basta para validar una petición
+   * puntual. Para decidir de qué se conversa no basta: desactivar un desarrollo
+   * tiene que retirar con él todo lo que cuelga de sus ramas. Si solo se mirara
+   * la fila propia, los submodelos de un desarrollo agotado seguirían
+   * cambiando el foco y ofreciéndose en el saludo.
+   */
+  async isReachableScope(scopeId: string, client: any = supabaseServer): Promise<boolean> {
+    const scopes = await this.getScopesContaining(scopeId, client);
+    return this.reachableIdsFrom(scopes).has(scopeId);
+  }
+
+  /**
+   * Identificadores de todos los alcances alcanzables, en una sola pasada.
+   */
+  async getReachableScopeIds(client: any = supabaseServer): Promise<Set<string>> {
+    return this.reachableIdsFrom(await this.getScopes(client));
+  }
+
+  private reachableIdsFrom(scopes: Scope[]): Set<string> {
+    const scopesById = new Map(scopes.map(scope => [scope.id, scope]));
+    const reachable = new Set<string>();
+    const unreachable = new Set<string>();
+
+    for (const scope of scopes) {
+      const chain: string[] = [];
+      const visited = new Set<string>();
+      let currentId: string | null = scope.id;
+      let result: boolean | null = null;
+
+      while (currentId) {
+        if (reachable.has(currentId)) { result = true; break; }
+        if (unreachable.has(currentId)) { result = false; break; }
+        if (visited.has(currentId)) throw new Error('Scope hierarchy contains a cycle');
+        visited.add(currentId);
+
+        const current: Scope | undefined = scopesById.get(currentId);
+        if (!current || !current.is_active) { result = false; break; }
+
+        chain.push(currentId);
+        currentId = current.parent_id;
+      }
+
+      const isReachable = result ?? true;
+      for (const id of chain) (isReachable ? reachable : unreachable).add(id);
+    }
+
+    return reachable;
+  }
+
+  /**
+   * Rama de primer nivel de la que desciende un alcance: el hijo de la raíz que
+   * lo contiene, o él mismo si ya lo es.
+   *
+   * Es la unidad que el lead reconoce como "un desarrollo". Todo lo que cuelga
+   * más abajo —modelos, torres, etapas— es granularidad interna de esa misma
+   * rama y no una alternativa entre la que haya que elegir.
+   *
+   * Devuelve null para la raíz y para un alcance que no exista.
+   */
+  async getBranchId(scopeId: string, client: any = supabaseServer): Promise<string | null> {
+    if (scopeId === ROOT_SCOPE_ID) return null;
+
+    const scopes = await this.getScopesContaining(scopeId, client);
+    const scopesById = new Map(scopes.map(scope => [scope.id, scope]));
+    const visited = new Set<string>();
+    let currentId: string | null = scopeId;
+
+    while (currentId) {
+      if (visited.has(currentId)) throw new Error('Scope hierarchy contains a cycle');
+      visited.add(currentId);
+
+      const scope: Scope | undefined = scopesById.get(currentId);
+      if (!scope) return null;
+      if (scope.parent_id === ROOT_SCOPE_ID || scope.parent_id === null) return scope.id;
+      currentId = scope.parent_id;
+    }
+
+    return null;
+  }
+
   async getResolutionOrder(
     scopeId?: string | null,
     client: any = supabaseServer
