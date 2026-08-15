@@ -1,0 +1,37 @@
+{
+  "rootScopeId": "00000000-0000-4000-8000-000000000001",
+  "cases": [
+    {
+      "message": "precio",
+      "intent": "precio",
+      "responseCount": 2
+    },
+    {
+      "message": "ubicacion",
+      "intent": "ubicacion",
+      "responseCount": 2
+    },
+    {
+      "message": "hola",
+      "intent": "saludo",
+      "responseCount": 1
+    }
+  ],
+  "responseFormats": [
+    "test_fragmented",
+    "test_simple_media",
+    "test_simple_text"
+  ],
+  "resourceSetSize": 3,
+  "configuration": {
+    "advisorPhone": "+525500000001",
+    "advisorName": "Agente Europa",
+    "advisorEmail": "ventas@europa.com",
+    "businessHours": "lunes a viernes 9:00 AM - 6:00 PM",
+    "timeSlots": [
+      "morning",
+      "afternoon",
+      "evening"
+    ]
+  }
+}

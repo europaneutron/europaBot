@@ -14,6 +14,7 @@ config({ path: resolve(__dirname, '../.env.development.local') });
 config({ path: resolve(__dirname, '../.env.local') });
 
 import { createClient } from '@supabase/supabase-js';
+import { RESPONSE_FORMAT_INTENTS, type ResponseFormatIntentName } from './fixtures/response-format-fixtures';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -30,36 +31,58 @@ if (!supabaseUrl.includes('127.0.0.1') && !supabaseUrl.includes('localhost')) {
 
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-const INTENTS = ['test_fragmented', 'test_simple_media', 'test_simple_text'];
+const ROOT_SCOPE_ID = '00000000-0000-4000-8000-000000000001';
 
-async function seedIntent(intentName: string) {
-  const { error } = await supabase
+async function seedIntent(intentName: ResponseFormatIntentName, intentId: string): Promise<string> {
+  const { data: existingIntent, error: findError } = await supabase
     .from('intent_configurations')
-    .upsert(
-      {
-        intent_name: intentName,
-        display_name: `Prueba: ${intentName}`,
-        keywords: [intentName],
-        synonyms: [],
-        typos: [],
-        phrases: [],
-        min_confidence: 0.75,
-        priority: 0,
-        response_type: 'text',
-        is_active: true,
-        is_checkpoint: false,
-      },
-      { onConflict: 'intent_name' }
-    );
+    .select('id')
+    .eq('scope_id', ROOT_SCOPE_ID)
+    .eq('intent_name', intentName)
+    .maybeSingle();
+
+  if (findError) throw findError;
+
+  const values = {
+    intent_name: intentName,
+    scope_id: ROOT_SCOPE_ID,
+    display_name: `Prueba: ${intentName}`,
+    keywords: [intentName],
+    synonyms: [],
+    typos: [],
+    phrases: [],
+    min_confidence: 0.75,
+    priority: 0,
+    response_type: 'text',
+    is_active: true,
+    is_checkpoint: false,
+  };
+
+  if (existingIntent) {
+    const { error } = await supabase
+      .from('intent_configurations')
+      .update(values)
+      .eq('id', existingIntent.id);
+
+    if (error) throw error;
+    return existingIntent.id;
+  }
+
+  const { data: insertedIntent, error } = await supabase
+    .from('intent_configurations')
+    .insert({ id: intentId, ...values })
+    .select('id')
+    .single();
 
   if (error) throw error;
+  return insertedIntent.id;
 }
 
-async function seedResponse(intentName: string, data: Record<string, unknown>) {
-  await supabase.from('bot_responses').delete().eq('intent_name', intentName).eq('response_key', 'main');
+async function seedResponse(intentId: string, data: Record<string, unknown>) {
+  await supabase.from('bot_responses').delete().eq('intent_id', intentId).eq('response_key', 'main');
 
   const { error } = await supabase.from('bot_responses').insert({
-    intent_name: intentName,
+    intent_id: intentId,
     response_key: 'main',
     order_priority: 1,
     is_active: true,
@@ -71,11 +94,15 @@ async function seedResponse(intentName: string, data: Record<string, unknown>) {
 }
 
 async function main() {
-  for (const intentName of INTENTS) {
-    await seedIntent(intentName);
+  const intentIds = {} as Record<ResponseFormatIntentName, string>;
+  for (const [intentName, intentId] of Object.entries(RESPONSE_FORMAT_INTENTS)) {
+    intentIds[intentName as ResponseFormatIntentName] = await seedIntent(
+      intentName as ResponseFormatIntentName,
+      intentId
+    );
   }
 
-  await seedResponse('test_fragmented', {
+  await seedResponse(intentIds.test_fragmented, {
     response_type: 'fragmented',
     message_text: {
       fragments: [
@@ -97,19 +124,19 @@ async function main() {
     media_url: null,
   });
 
-  await seedResponse('test_simple_media', {
+  await seedResponse(intentIds.test_simple_media, {
     response_type: 'simple',
     message_text: 'Aqui tienes la fachada de la propiedad.',
     media_url: 'https://127.0.0.1:54921/storage/v1/object/public/bot-media/images/casa.jpg',
   });
 
-  await seedResponse('test_simple_text', {
+  await seedResponse(intentIds.test_simple_text, {
     response_type: 'simple',
     message_text: 'Este es un mensaje de solo texto.',
     media_url: null,
   });
 
-  console.log('Datos de prueba sembrados para:', INTENTS.join(', '));
+  console.log('Datos de prueba sembrados para:', Object.keys(RESPONSE_FORMAT_INTENTS).join(', '));
 }
 
 main()

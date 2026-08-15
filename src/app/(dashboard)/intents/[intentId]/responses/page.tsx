@@ -65,7 +65,7 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
 
       setIntent(intentData);
 
-      const responsesData = await intentConfigRepositoryClient.getResponsesByIntent(intentData.intent_name);
+      const responsesData = await intentConfigRepositoryClient.getResponsesByIntentId(intentData.id);
       setResponses(responsesData);
 
     } catch (error) {
@@ -147,7 +147,7 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
       setFormError(null);
 
       const responseData = {
-        intent_name: intent.intent_name,
+        intent_id: intent.id,
         response_key: formData.response_key.trim(),
         message_text: fragmentedResponse,
         media_url: null,

@@ -15,8 +15,7 @@ import { config } from 'dotenv';
 import { resolve } from 'path';
 config({ path: resolve(__dirname, '../.env.development.local') });
 config({ path: resolve(__dirname, '../.env.local') });
-
-const TEST_INTENTS = ['test_fragmented', 'test_simple_media', 'test_simple_text'];
+import { RESPONSE_FORMAT_INTENTS } from './fixtures/response-format-fixtures';
 
 async function main() {
   // Import dinámico: el modulo del repositorio valida variables de entorno
@@ -27,8 +26,8 @@ async function main() {
 
   console.log('Linea base de getBotResponses (tres formatos)\n');
 
-  for (const intentName of TEST_INTENTS) {
-    const responses = await conversationRepository.getBotResponses(intentName);
+  for (const [intentName, intentId] of Object.entries(RESPONSE_FORMAT_INTENTS)) {
+    const responses = await conversationRepository.getBotResponses(intentId);
     console.log(`Intent: ${intentName} (${responses.length} respuesta(s))`);
 
     if (responses.length === 0) {

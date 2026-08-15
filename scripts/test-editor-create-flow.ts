@@ -17,6 +17,7 @@ import { config } from 'dotenv';
 import { resolve } from 'path';
 config({ path: resolve(__dirname, '../.env.development.local') });
 config({ path: resolve(__dirname, '../.env.local') });
+import { RESPONSE_FORMAT_INTENTS } from './fixtures/response-format-fixtures';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 
@@ -47,7 +48,7 @@ async function main() {
   } = await import('../src/lib/utils/response-blocks');
   const { validateFragmentedResponse, isFragmentedResponse } = await import('../src/types/message-fragments.types');
 
-  const intentName = 'test_fragmented';
+  const intentId = RESPONSE_FORMAT_INTENTS.test_fragmented;
   const responseKey = `create_flow_${Date.now()}`;
 
   // Componer: texto + dos imágenes + un documento (el caso más común del negocio)
@@ -67,7 +68,7 @@ async function main() {
   const { data: created, error: insertError } = await supabaseServer
     .from('bot_responses')
     .insert({
-      intent_name: intentName,
+      intent_id: intentId,
       response_key: responseKey,
       message_text: fragmented,
       media_url: null,
@@ -84,7 +85,7 @@ async function main() {
 
   try {
     // Recuperar como lo haría el bot en tiempo de conversación
-    const responses = await conversationRepository.getBotResponses(intentName);
+    const responses = await conversationRepository.getBotResponses(intentId);
     const allFragmented = responses.filter(isFragmentedResponse);
     const recovered = allFragmented.find((r) => r.fragments.length === blocks.length);
     assert(!!recovered, 'getBotResponses recupera la respuesta recién creada');

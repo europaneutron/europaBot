@@ -106,7 +106,31 @@ src/
 
 ---
 
-## 6. Pruebas
+## 6. Deuda conocida: configuración duplicada
+
+Tres valores existen en dos tablas a la vez. La migración 009 introdujo el sistema de
+configuración por clave y valor y volvió a declarar lo que la 007 ya tenía como columnas,
+sin retirar lo anterior:
+
+| Valor | `agent_config` (007) | `bot_config` (009) |
+|---|---|---|
+| `advisor_phone` | columna, sembrada con un número de prueba | clave, editable en Ajustes |
+| `business_hours` | columna | clave, editable en Ajustes |
+| `advisor_email` | columna | clave, editable en Ajustes |
+
+**Mientras esto exista, `bot_config` es la fuente de verdad de esos tres valores**, porque es
+la que edita el administrador desde el dashboard. `agent_config` solo puede sobrescribirla
+cuando un alcance define explícitamente el suyo.
+
+Es una trampa silenciosa: nada falla al leer del lado equivocado, simplemente el sistema usa
+un valor mientras el humano edita otro. Ya ocurrió una vez, al acotar `agent_config` por
+alcance.
+
+Antes de tocar cualquier ruta que lea configuración del asesor o de horarios, verificar de
+qué tabla la toma. La unificación —acotar `bot_config` por alcance y retirar las tres
+columnas duplicadas de `agent_config`— está planificada como cambio propio.
+
+## 7. Pruebas
 
 El proyecto no usa framework de pruebas. La convención son **scripts ejecutables con `tsx`**
 en `scripts/`, nombrados `test-<área>.ts`:
@@ -136,7 +160,7 @@ Todo cambio en `core/` debe traer su script de verificación.
 
 ---
 
-## 7. Antipatrones a evitar
+## 8. Antipatrones a evitar
 
 - Consultar Supabase fuera de `data/repositories/`.
 - Valores hardcodeados donde corresponde configuración (`bot_config`) o variable de entorno.
@@ -149,7 +173,7 @@ Todo cambio en `core/` debe traer su script de verificación.
 
 ---
 
-## 8. Estilo
+## 9. Estilo
 
 - **No agregar emojis** en código, comentarios, logs ni mensajes del sistema.
   El código existente contiene emojis en logs anteriores a esta regla: se dejan como están,
@@ -161,7 +185,7 @@ Todo cambio en `core/` debe traer su script de verificación.
 
 ---
 
-## 9. Entornos
+## 10. Entornos
 
 - **Producción:** Vercel + proyecto Supabase remoto. No se modifica sin pruebas previas.
 - **Local:** stack de Supabase por Docker (`supabase start`) y `.env.development.local`,
@@ -201,7 +225,7 @@ psql "postgresql://postgres:postgres@127.0.0.1:54922/postgres" \
 
 ---
 
-## 10. Control de cambios
+## 11. Control de cambios
 
 - El trabajo de features se especifica con OpenSpec (`openspec/`) antes de implementarse.
 - Una rama por cambio. Commits que describan qué se hizo y por qué.

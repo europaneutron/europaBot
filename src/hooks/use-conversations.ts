@@ -281,14 +281,29 @@ export function useConversationDetail(userId: string) {
         created_at: msg.created_at
       }));
 
-      // Mapear checkpoints con su estado de completado (desde user_checkpoints)
-      const checkpoints: CheckpointConfig[] = (checkpointsResult.data || []).map((intent) => {
-        return {
+      // Mapear checkpoints con su estado de completado (desde user_checkpoints).
+      //
+      // Se deduplica por intent_name porque desde la migracion 026 el nombre ya
+      // no es unico a nivel global: dos alcances pueden tener un checkpoint con
+      // el mismo nombre. Sin deduplicar, la lista trae repetidos y el progreso
+      // se infla.
+      //
+      // Los checkpoints siguen registrandose por nombre en user_checkpoints, sin
+      // distinguir alcance. Medirlos por alcance corresponde al cambio
+      // scope-progress; hasta entonces, dos alcances con un checkpoint homonimo
+      // comparten un mismo registro de completado.
+      const seenCheckpoints = new Set<string>();
+      const checkpoints: CheckpointConfig[] = (checkpointsResult.data || [])
+        .filter((intent) => {
+          if (seenCheckpoints.has(intent.intent_name)) return false;
+          seenCheckpoints.add(intent.intent_name);
+          return true;
+        })
+        .map((intent) => ({
           intent_name: intent.intent_name,
           display_name: intent.display_name,
           is_completed: completedIntents.has(intent.intent_name),
-        };
-      });
+        }));
 
       setDetail({
         user,

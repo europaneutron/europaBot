@@ -10,6 +10,7 @@ import type { IntentConfiguration } from '../src/types/intent.types';
 const mockIntents: IntentConfiguration[] = [
   {
     id: '1',
+    scope_id: null,
     intent_name: 'precio',
     display_name: 'Precio',
     keywords: ['precio', 'precios', 'costo', 'cuanto', 'vale'],
@@ -24,6 +25,7 @@ const mockIntents: IntentConfiguration[] = [
   },
   {
     id: '2',
+    scope_id: null,
     intent_name: 'ubicacion',
     display_name: 'Ubicación',
     keywords: ['ubicacion', 'donde', 'dirección', 'lugar'],

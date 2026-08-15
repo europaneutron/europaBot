@@ -46,11 +46,15 @@ console.log(`   Es fragmentado: ${isFragmentedResponse(fragmentedResponse)}`);
 // =====================================================
 console.log('\n✅ Test 2: Repository Layer');
 
-import { conversationRepository } from '@/data/repositories/conversation.repository';
-
 async function testRepository() {
   try {
-    const responses = await conversationRepository.getBotResponses('precio');
+    const { conversationRepository } = await import('@/data/repositories/conversation.repository');
+    const { intentConfigRepository } = await import('@/data/repositories/intent-config.repository');
+    const { ROOT_SCOPE_ID } = await import('@/data/repositories/scope.repository');
+    const intent = await intentConfigRepository.getByName('precio', ROOT_SCOPE_ID);
+    if (!intent) throw new Error('Intent precio not found in root scope');
+
+    const responses = await conversationRepository.getBotResponses(intent.id);
     
     console.log(`   Respuestas obtenidas: ${responses.length}`);
     

@@ -24,6 +24,25 @@ La decisión de fondo ya está tomada: un solo árbol auto-referenciado en lugar
 
 ## Decisions
 
+### Mapa de lectura de configuración
+
+La configuración del asesor se resuelve por valor. Una fila cercana puede definir un campo y dejar que otro continúe buscando en sus ancestros. `bot_config` es el último nivel global de la misma cadena y conserva la edición desde Ajustes; no se copian sus valores a `agent_config`.
+
+| Ruta o flujo | Valor consumido | Alcance activo y ancestros | Respaldo global | Comportamiento si falta |
+|---|---|---|---|---|
+| Dashboard `/settings`, sección Contacto | `advisor_phone` | No aplica | Lee y escribe `bot_config.advisor_phone` | El formulario muestra vacío |
+| Dashboard `/settings`, sección Contacto | `business_hours` | No aplica | Lee y escribe `bot_config.business_hours` | El formulario muestra vacío |
+| Dashboard `/settings`, sección Contacto | `advisor_email` | No aplica | Lee y escribe `bot_config.advisor_email` | El formulario muestra vacío |
+| `FallbackHandler.captureAdvisorName()` | Teléfono para notificar la derivación | En cada nivel usa `agent_config.advisor_phone` y, si está vacío, `agent_config.default_agent_phone`; después continúa con el ancestro | `bot_config.advisor_phone` | Error de configuración claro; nunca un número de prueba |
+| `FallbackHandler.captureAdvisorName()` | Horario mostrado en la confirmación | Primer `agent_config.business_hours` no vacío | `bot_config.business_hours` | Error de configuración claro; nunca un texto hardcodeado |
+| `AppointmentManager.notifyAgent()` | Teléfono que recibe la cita | En cada nivel usa `agent_config.advisor_phone` y, si está vacío, `agent_config.default_agent_phone`; después continúa con el ancestro | `bot_config.advisor_phone` | Error de configuración claro; nunca un número de prueba |
+| `AppointmentManager.notifyAgent()` | Nombre y plantilla del agente por defecto | Primer `agent_config.default_agent_name` y `agent_config.notification_template` no vacíos, resueltos por valor | No existe una clave equivalente en `bot_config` | Error claro si el campo requerido no existe |
+| `AdvisorNotificationService.notifyAdvisorRequest()` | Teléfono que recibe la derivación | Recibe el teléfono ya resuelto por el flujo | `bot_config.advisor_phone` como última defensa para llamadas sin teléfono resuelto | Registra el error y devuelve `false` |
+| `AppointmentRepository.getDefaultAgent()` | Email del asesor | Primer `agent_config.advisor_email` no vacío | `bot_config.advisor_email` | Devuelve `undefined`; hoy no hay consumidor de envío por email |
+| Flujo de citas (`getTimeSlots()`, selección y creación) | Horarios disponibles, etiquetas y horas de inicio/fin | Conjunto de `appointment_config` del alcance más cercano por `time_slot`, heredando los slots no sustituidos | No existe equivalente en `bot_config` | Si falla el árbol usa los slots raíz/globales ya cargados; un error de consulta conserva su error explícito |
+
+`getDefaultAgent(scopeId)` es el único punto que compone los valores de `agent_config` con las claves globales de `bot_config`. Los consumidores no agregan placeholders propios. La duplicidad física entre ambas tablas se conserva por compatibilidad en este cambio; decidir qué columnas retirar será un cambio independiente.
+
 ### Un árbol auto-referenciado, no dos mecanismos
 
 Una sola tabla con referencia a sí misma cubre tanto la separación entre desarrollos como cualquier variante interna futura. La alternativa considerada —una entidad de proyecto para el ruteo y otra de variante para parametrizar respuestas— exige dos algoritmos de resolución que hacen lo mismo a distinta altura, y obliga a clasificar cada dato en una de las dos categorías. El árbol reemplaza esa clasificación por una pregunta más simple: a qué altura deja de ser cierto para todos.
@@ -54,6 +73,24 @@ La resolución busca primero en el alcance activo, luego en sus ancestros y por 
 
 La propia migración crea un alcance raíz y asocia a él las intenciones, respuestas y recursos actuales. Producción queda funcionando igual sin que nadie tenga que ejecutar nada, y la secuencia completa de migraciones sigue corriendo desde cero en un entorno nuevo.
 
+### Actividad y jerarquía son responsabilidades distintas
+
+El caché del árbol conserva todos los nodos, incluidos los inactivos. Un nodo inactivo no aporta contenido, pero continúa siendo el enlace hacia sus ancestros; eliminarlo del mapa haría inaccesible la raíz y el contenido adoptado por la migración. La existencia y la actividad se validan al aceptar un alcance de entrada, mientras que el recorrido siempre sigue la relación `parent_id` completa.
+
+El caché se separa por cliente de Supabase mediante referencias débiles y `refresh()` invalida tanto los matchers como el árbol del cliente. Los matchers por alcance tienen una cota de cien entradas para impedir que identificadores arbitrarios hagan crecer el proceso sin límite.
+
+Cuando un identificador no aparece en el árbol cacheado, el repositorio invalida y carga una sola vez antes de declararlo inexistente. Las escrituras de alcance pasan por `scopeRepository.create()` y `scopeRepository.reparent()`, que invalidan el cliente después de confirmar la escritura. No existe todavía una ruta HTTP de administración de alcances; cuando se agregue, deberá usar esos métodos en vez de escribir Supabase directamente.
+
+### Los recursos se heredan como conjuntos
+
+Los recursos no son valores singleton. Para cada categoría, la resolución devuelve todas las filas del alcance más cercano que defina esa categoría. Ese conjunto sustituye al del ancestro; no se mezclan filas ni se colapsa por `resource_type`. Así, tres brochures del desarrollo sobreviven como tres recursos y reemplazan juntos los brochures heredados.
+
+### La compatibilidad antigua debe fallar ante ambigüedad
+
+Mientras conviven `intent_name` e `intent_id`, el trigger acepta escrituras antiguas solo cuando el nombre identifica una única intención. Si existe en varios alcances, rechaza la escritura y exige `intent_id`; escoger por el orden binario de un UUID produciría asociaciones silenciosas e impredecibles.
+
+Antes de declarar `intent_id` como obligatorio, la migración cuenta las respuestas que no pudieron asociarse. Para que el despliegue sea autónomo, las adopta bajo una intención raíz desactivada llamada `legacy_orphaned_response`; si aun así queda alguna fila, aborta con el conteo y una indicación accionable en vez de delegar el diagnóstico al error genérico de `NOT NULL`.
+
 ## Risks / Trade-offs
 
 - **La clave foránea de `bot_responses` es el punto más frágil del cambio** → Migración en dos etapas con convivencia de ambas columnas, y verificación de que las respuestas existentes se siguen resolviendo igual antes de retirar la anterior.
@@ -82,5 +119,14 @@ La propia migración crea un alcance raíz y asocia a él las intenciones, respu
 
 ## Open Questions
 
-- ¿Dónde vive la resolución ascendente: en base de datos o en la capa de repositorios con caché en memoria? Decidir midiendo, con el criterio de no agregar consultas por mensaje.
-- ¿Qué valores de configuración se acotan por alcance en esta entrega y cuáles siguen siendo globales? El criterio propuesto es acotar solo los que un segundo desarrollo necesitaría distintos de inmediato, y dejar el resto para cuando haga falta.
+Resueltas durante la implementación:
+
+- La resolución ascendente vive en `scope.repository.ts`. El árbol completo se carga con un TTL de cinco minutos y los matchers se cachean por alcance con el mismo TTL. Los nodos inactivos permanecen disponibles para recorrer la jerarquía, aunque no contribuyen contenido. Así el recorrido se reutiliza para intenciones, recursos y configuración sin agregar una consulta del árbol por mensaje.
+- En esta entrega se acotan `appointment_config` y `agent_config`, porque horarios y asesor son los valores que un segundo desarrollo necesita variar de inmediato. `bot_config` permanece global; acotarlo clave por clave se hará cuando exista un caso de negocio concreto.
+- El `scopeId` se propaga desde el procesador de mensajes hasta la creación de la cita, la selección de horario y la notificación al asesor. El repositorio no vuelve a consultar horarios sin el alcance recibido.
+
+## Verificación y despliegue
+
+Antes de aplicar en producción se debe comparar el esquema remoto en modo lectura contra la secuencia local. Usar una cadena de conexión de solo lectura para ejecutar `pg_dump --schema-only --schema=public` sobre remoto y otro dump sobre `postgresql://postgres:postgres@127.0.0.1:54922/postgres`; comparar ambos archivos fuera del repositorio. No vincular el proyecto ni ejecutar `db pull`, `db push` o SQL de escritura durante esta revisión.
+
+Después del despliegue, verificar que `bot_responses.intent_id` no contiene nulos, que todas las respuestas resuelven por identificador y que no quedan consumidores de `bot_responses.intent_name`. Solo entonces una migración posterior podrá eliminar el trigger `sync_bot_response_intent_reference_before_write`, la función `sync_bot_response_intent_reference` y la columna heredada `bot_responses.intent_name`. Esa migración no forma parte de `scope-tree` para conservar el rollback del código.

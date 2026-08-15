@@ -27,6 +27,7 @@ import { config } from 'dotenv';
 import { resolve } from 'path';
 config({ path: resolve(__dirname, '../.env.development.local') });
 config({ path: resolve(__dirname, '../.env.local') });
+import { RESPONSE_FORMAT_INTENTS } from './fixtures/response-format-fixtures';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 
@@ -34,8 +35,6 @@ if (!supabaseUrl || (!supabaseUrl.includes('127.0.0.1') && !supabaseUrl.includes
   console.error(`NEXT_PUBLIC_SUPABASE_URL no apunta al stack local (${supabaseUrl || 'sin definir'}). Abortando.`);
   process.exit(1);
 }
-
-const TEST_INTENTS = ['test_fragmented', 'test_simple_media', 'test_simple_text'];
 
 let failures = 0;
 
@@ -54,16 +53,16 @@ async function main() {
   const { responseRowToBlocks, blocksToFragmentedResponse } = await import('../src/lib/utils/response-blocks');
   const { isFragmentedResponse, isSimpleResponseWithMedia } = await import('../src/types/message-fragments.types');
 
-  for (const intentName of TEST_INTENTS) {
+  for (const [intentName, intentId] of Object.entries(RESPONSE_FORMAT_INTENTS)) {
     console.log(`\nIntent: ${intentName}`);
 
-    const before = await conversationRepository.getBotResponses(intentName);
+    const before = await conversationRepository.getBotResponses(intentId);
     assert(before.length === 1, 'tiene exactamente una respuesta sembrada');
 
     const { data: rows, error: readError } = await supabaseServer
       .from('bot_responses')
       .select('id, message_text, media_url, response_type')
-      .eq('intent_name', intentName)
+      .eq('intent_id', intentId)
       .eq('response_key', 'main');
     if (readError) throw readError;
     const row = rows?.[0];
@@ -92,7 +91,7 @@ async function main() {
     if (writeError) throw writeError;
 
     // 3. Recargar y comparar contra el runtime del bot
-    const after = await conversationRepository.getBotResponses(intentName);
+    const after = await conversationRepository.getBotResponses(intentId);
     assert(after.length === 1, 'sigue habiendo exactamente una respuesta tras guardar');
 
     const afterResponse = after[0];

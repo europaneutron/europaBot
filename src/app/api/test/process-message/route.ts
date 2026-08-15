@@ -5,17 +5,41 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { messageProcessor } from '@/core/conversation/message-processor';
+import { scopeRepository } from '@/data/repositories/scope.repository';
+import { z } from 'zod';
+
+const processMessageRequestSchema = z.object({
+  phoneNumber: z.string().min(1),
+  message: z.string().min(1),
+  messageId: z.string().min(1).optional(),
+  scopeId: z.string().uuid().nullable().optional(),
+});
 
 export async function POST(request: NextRequest) {
   if (process.env.NODE_ENV === 'production') {
     return NextResponse.json({ error: 'Not found' }, { status: 404 });
   }
   try {
-    const { phoneNumber, message, messageId } = await request.json();
+    const parsedRequest = processMessageRequestSchema.safeParse(await request.json());
 
-    if (!phoneNumber || !message) {
+    if (!parsedRequest.success) {
       return NextResponse.json(
-        { error: 'phoneNumber and message are required' },
+        { error: 'Invalid request', details: parsedRequest.error.flatten() },
+        { status: 400 }
+      );
+    }
+
+    const { phoneNumber, message, messageId, scopeId } = parsedRequest.data;
+    if (scopeId === null) {
+      return NextResponse.json(
+        { error: 'scopeId cannot be null; omit it to use the root scope' },
+        { status: 400 }
+      );
+    }
+
+    if (scopeId !== undefined && !(await scopeRepository.isActiveScope(scopeId))) {
+      return NextResponse.json(
+        { error: 'scopeId must reference an active scope' },
         { status: 400 }
       );
     }
@@ -27,7 +51,8 @@ export async function POST(request: NextRequest) {
       phoneNumber,
       message,
       messageId || `test_${Date.now()}`,
-      'Usuario Test'
+      'Usuario Test',
+      scopeId
     );
 
     const { isFragmentedResponse, isSimpleResponseWithMedia } = await import('@/types/message-fragments.types');
@@ -143,7 +168,9 @@ export async function POST(request: NextRequest) {
       responses: allResponses,
       wasDetected: result.wasDetected,
       isFallback: result.isFallback,
-      intent: result.wasDetected ? 'detected' : null,
+      intent: result.detectedIntent?.intent_name || null,
+      intentId: result.detectedIntent?.intent_id || null,
+      scopeId: result.detectedIntent?.scope_id || null,
       confidence: result.wasDetected ? 0.95 : 0
     });
 
