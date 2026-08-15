@@ -140,6 +140,38 @@ La aprobación SHALL ocurrir en dos momentos: primero la forma del árbol, despu
 - **THEN** ese contenido no se usa
 - **AND** el hueco correspondiente sigue reportado
 
+### Requirement: Señales de revisión sobre lo propuesto
+
+Cada propuesta SHALL llevar las señales que indican por qué merece atención, visibles junto al contenido que se va a aprobar.
+
+Cuando una propuesta contenga una cifra de dinero, una fecha o una condición contractual, SHALL señalarse como dato sensible mediante una regla determinista, sin depender del criterio del modelo.
+
+#### Scenario: Propuesta con un dato sensible
+
+- **WHEN** una respuesta propuesta contiene un precio
+- **THEN** queda señalada como dato sensible
+
+#### Scenario: Propuesta con procedencia dudosa
+
+- **WHEN** el compilador no pudo atribuir con confianza un hecho a una parte del material
+- **THEN** la propuesta que depende de ese hecho lo indica
+
+#### Scenario: Propuesta sin señales
+
+- **WHEN** una propuesta no tiene ninguna señal
+- **THEN** se presenta como apta para aprobar sin revisión individual
+
+#### Scenario: Orden de la revisión
+
+- **WHEN** un administrador abre el resultado de una compilación
+- **THEN** lo que tiene señales aparece antes que lo que no
+
+#### Scenario: Las señales no bloquean
+
+- **WHEN** un administrador decide aprobar una propuesta señalada
+- **THEN** puede hacerlo
+- **AND** queda registrado que se aprobó con esa señal
+
 ### Requirement: Revisión en panel
 
 La revisión del contenido propuesto SHALL presentarse agrupada, con la procedencia y los huecos a la vista, y SHALL permitir aprobar en bloque.

@@ -4,7 +4,8 @@
 - [ ] 1.2 Leer las decisiones cerradas en `design.md`. La procedencia llega a documento y página, y el material original se conserva
 - [ ] 1.3 Registrar la línea base antes de tocar código: con cero material compilado, el bot responde exactamente lo mismo que hoy. Verificar que la línea base recoge el comportamiento **correcto** y no un defecto existente
 - [ ] 1.4 Confirmar contra la API que el proveedor acepta el documento como entrada nativa —no solo texto— y que el modelo elegido lo soporta. De eso depende toda la estrategia de ingesta, así que se comprueba antes de diseñarla
-- [ ] 1.5 Decidir y dejar escrito qué modelo lee el documento, y por qué puede diferir del que genera patrones. Configurable por separado
+- [ ] 1.5 Medir, no opinar: compilar el mismo brochure real con el modelo económico y con el más capaz disponible, y contrastar ambos contra una lista de hechos hecha a mano. Dejar el resultado escrito en `design.md`. Es un documento y dos ejecuciones, y cierra una discusión que de otro modo no se cierra
+- [ ] 1.6 Separar los tres papeles de modelo en configuración —extracción, redacción y patrones— en lugar del único `ai_model` actual, conservando el valor de hoy para los patrones
 
 ## 2. Esquema
 
@@ -13,6 +14,7 @@
 - [ ] 2.3 Hechos con su procedencia —documento y página— y el alcance al que se atribuyen
 - [ ] 2.4 Dependencia entre una respuesta y los hechos de los que salió, y el origen de la respuesta: propuesta o escrita a mano
 - [ ] 2.5 Estado de aprobación de lo propuesto, y huecos de cobertura detectados
+- [ ] 2.5b Señales de revisión de cada propuesta, y registro de con qué señales se aprobó
 - [ ] 2.6 Estado de la compilación por etapas, para poder retomarla sin repetir lo ya hecho
 - [ ] 2.7 Marcar como escritas a mano las respuestas que ya existen, para no atribuirlas después al compilador
 - [ ] 2.8 Verificar que la secuencia completa de migraciones corre desde cero sin error
@@ -54,6 +56,9 @@
 
 - [ ] 7.1 Confirmar la forma del árbol **antes** de generar contenido para ella
 - [ ] 7.2 Panel de revisión con las respuestas agrupadas, la procedencia visible y los huecos al lado
+- [ ] 7.2b Señalar cada propuesta con lo que merece atención: sin respaldo, contradicción, procedencia dudosa, dato sensible, cambió desde la última compilación, editada a mano
+- [ ] 7.2c Marcar el dato sensible con una **regla determinista** sobre el tipo del hecho —dinero, fecha, condición contractual—, no con el criterio del modelo. Es la señal más barata y la que cubre el riesgo real
+- [ ] 7.2d Ordenar el panel por señal y no por intención, de modo que lo que necesita ojos aparezca primero y lo limpio se pueda aprobar en bloque
 - [ ] 7.3 Aprobar en bloque, y permitir editar antes de aprobar conservando la dependencia de los hechos
 - [ ] 7.4 Rechazar deja el hueco reportado, no lo cierra en silencio
 - [ ] 7.5 Verificación **manual en el navegador** del panel completo, antes de pedir revisión. Es la lección de `fragment-editor`: `tsc` y los scripts pasaron en verde con veintitrés hallazgos de interacción abiertos

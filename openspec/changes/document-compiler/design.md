@@ -133,6 +133,41 @@ La primera lee el material y propone hechos con su página. La segunda los conso
 
 Separarlas importa porque la consolidación es un problema distinto del de leer. Mezcladas, el modelo tiende a resolver la contradicción por su cuenta eligiendo una de las dos cifras, en silencio. Separadas, la contradicción se puede reportar como lo que es: algo que el cliente tiene que aclarar.
 
+### Las dudas del compilador son anotaciones, no un riesgo abstracto
+
+*Decidido con el usuario el 2026-08-15.*
+
+Un compilador que sabe que algo puede estar mal y no lo dice obliga a revisar todo con la misma desconfianza. Uno que lo señala convierte la revisión en un triaje.
+
+Cada propuesta lleva sus **señales de revisión**, visibles en el bloque que se va a aprobar:
+
+| señal | qué significa | de dónde sale |
+|---|---|---|
+| sin respaldo | ningún hecho la sostiene | de la cobertura |
+| contradicción | dos hechos discrepan | de la consolidación |
+| procedencia dudosa | el modelo no pudo fijar la página con confianza | del modelo |
+| dato sensible | contiene una cifra de dinero, una fecha o una condición legal | **regla determinista** |
+| cambió | su hecho cambió desde la última compilación | de la recompilación |
+| editada a mano | alguien la escribió o corrigió | del origen |
+
+La de **dato sensible** es la más valiosa y la más barata: no depende del juicio del modelo, es una regla sobre el tipo del hecho. Ahí es donde vive el riesgo comercial —una frase con un precio adentro sale a nombre de la marca del cliente— y ahí es donde los ojos humanos rinden más.
+
+Lo que cambia en la práctica: con cuarenta respuestas, "aprobar todo" es imprudente y "revisar una por una" es agotador, así que en la práctica se aprueba todo sin mirar. Con señales se aprueban treinta y cinco en bloque y se miran cinco. El panel ordena por señal, no por intención.
+
+Hay una razón que va más allá del uso actual. Hoy quien revisa es quien construyó esto y comprueba cada cifra. El producto se vende por tenant a inmobiliarias, y mañana quien apruebe será alguien de marketing que no sabe qué mirar. **Las señales son lo que traslada ese cuidado a una persona que no lo tiene.**
+
+### Tres papeles de modelo, no uno
+
+`bot_config` tiene hoy un solo `ai_model`, que basta cuando el único uso es generar patrones. El compilador tiene tres trabajos con economías distintas:
+
+- **Leer el documento y extraer hechos.** Se ejecuta una vez por documento, y su salida lleva precios dentro. Un error aquí se propaga a todas las respuestas que dependen del hecho. Aquí conviene el modelo más capaz disponible, y el costo es irrelevante comparado con las horas de transcripción que sustituye.
+- **Redactar las respuestas.** Es la parte con más llamadas —una por par de alcance e intención— y la de menor riesgo: los hechos ya están fijados y verificados, y un humano lee el texto antes de aprobarlo. Un modelo económico basta.
+- **Generar patrones del matcher.** Lo que ya existe y ya funciona con el modelo económico.
+
+Que sean configurables por separado no es flexibilidad decorativa: es lo que permite gastar donde importa sin pagarlo en el resto.
+
+*Cuál conviene se decide midiendo, no opinando:* compilar el mismo brochure con dos modelos y contrastar contra una lista de hechos hecha a mano. Es un documento y dos ejecuciones, y sustituye una discusión que de otro modo no se cierra.
+
 ### La compilación es por etapas, no una llamada larga
 
 Un brochure completo no cabe en el tiempo de una petición: la plataforma corta las funciones mucho antes de que el modelo termine de leerlo entero.
@@ -184,6 +219,6 @@ Las dos decisiones se sostienen entre sí: la procedencia por página solo sirve
 
 ## Open Questions
 
-**Qué modelo lee el documento.** El proyecto ya usa OpenAI con la llave en Vault y `ai_model` configurable en `bot_config`, hoy `gpt-4o-mini`. Entregar el documento como entrada nativa exige un modelo con visión, y extraer hechos con procedencia exige más capacidad que generar patrones. Conviene confirmar contra la API que la entrada de documentos funciona como se espera, y dejar el modelo del compilador configurable por separado del que genera patrones.
+Ninguna. La elección concreta del modelo de extracción se resuelve midiendo, según la tarea 1.5, y no bloquea el diseño: los tres papeles quedan configurables por separado.
 
 Las dos que quedaban —el nivel de la procedencia y si se conserva el material— están resueltas arriba.
