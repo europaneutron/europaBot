@@ -83,10 +83,12 @@ async function testRepository() {
 // =====================================================
 console.log('\n✅ Test 3: Message Processor');
 
-import { MessageProcessor } from '@/core/conversation/message-processor';
-
 async function testMessageProcessor() {
   try {
+    // El modulo se carga aqui y no arriba: un import estatico se iza por
+    // encima de config(), y el cliente de Supabase se construiria antes de que
+    // existan las variables de entorno.
+    const { MessageProcessor } = await import('@/core/conversation/message-processor');
     const processor = new MessageProcessor();
     
     const testPhone = '+5212345678901'; // Número de prueba

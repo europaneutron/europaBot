@@ -15,12 +15,16 @@ import { resolve } from 'path';
 // Cargar variables de entorno
 config({ path: resolve(__dirname, '../.env.development.local') });
 config({ path: resolve(__dirname, '../.env.local') });
-import { leadScorer } from '../src/core/scoring';
-import { userRepository } from '../src/data/repositories/user.repository';
-import { appointmentRepository } from '../src/data/repositories/appointment.repository';
-import { configRepository } from '../src/data/repositories/config.repository';
 
 async function testLeadScoring() {
+  // Los modulos se cargan aqui y no arriba: un import estatico se iza por
+  // encima de config(), y el cliente de Supabase se construiria antes de que
+  // existan las variables de entorno.
+  const { leadScorer } = await import('../src/core/scoring');
+  const { userRepository } = await import('../src/data/repositories/user.repository');
+  const { appointmentRepository } = await import('../src/data/repositories/appointment.repository');
+  const { configRepository } = await import('../src/data/repositories/config.repository');
+
   console.log('🧪 Iniciando prueba del sistema de Lead Scoring\n');
 
   // 1. Verificar configuración

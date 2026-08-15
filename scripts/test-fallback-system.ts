@@ -14,11 +14,15 @@ import { resolve } from 'path';
 // Cargar variables de entorno
 config({ path: resolve(__dirname, '../.env.development.local') });
 config({ path: resolve(__dirname, '../.env.local') });
-import { fallbackHandler } from '../src/core/fallback';
-import { userRepository } from '../src/data/repositories/user.repository';
-import { configRepository } from '../src/data/repositories/config.repository';
 
 async function testFallbackSystem() {
+  // Los modulos se cargan aqui y no arriba: un import estatico se iza por
+  // encima de config(), y el cliente de Supabase se construiria antes de que
+  // existan las variables de entorno.
+  const { fallbackHandler } = await import('../src/core/fallback');
+  const { userRepository } = await import('../src/data/repositories/user.repository');
+  const { configRepository } = await import('../src/data/repositories/config.repository');
+
   console.log('🧪 Iniciando prueba del sistema de fallback\n');
 
   // 1. Crear usuario de prueba
