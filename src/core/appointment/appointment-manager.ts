@@ -10,6 +10,7 @@ import { leadScorer } from '@/core/scoring';
 import { whatsappSender } from '@/services/whatsapp/message-sender';
 import type { AppointmentFlow, TimeSlot, AppointmentFlowData } from '@/types/appointment.types';
 import { interpolateMessage } from '@/lib/interpolate-message';
+import { ROOT_SCOPE_ID } from '@/data/repositories/scope.repository';
 
 export class AppointmentManager {
   /**
@@ -21,6 +22,10 @@ export class AppointmentManager {
     skipConfirmation: boolean = false,
     scopeId?: string | null
   ): Promise<AppointmentFlow> {
+    await userRepository.updateAppointmentFlowData(userId, {
+      scope_id: scopeId ?? ROOT_SCOPE_ID,
+    });
+
     if (skipConfirmation) {
       // Usuario ya dijo explícitamente que quiere agendar, ir directo a fecha
       await userRepository.updateAppointmentFlowState(userId, 'ask_date');
@@ -92,9 +97,15 @@ export class AppointmentManager {
   private async processConfirmation(userId: string, input: string): Promise<AppointmentFlow> {
     const normalized = input.toLowerCase().trim();
     const positiveResponses = ['si', 'sí', 'claro', 'ok', 'dale', 'yes', 'por favor', 'me interesa', 'quiero'];
+    const flowData = await userRepository.getAppointmentFlowData(userId) as AppointmentFlowData;
+    const offerScopeId = flowData?.offer_scope_id;
 
     if (positiveResponses.some(r => normalized.includes(r))) {
       await userRepository.updateAppointmentFlowState(userId, 'ask_date');
+      if (offerScopeId) {
+        await userRepository.markAppointmentOfferResponded(userId, offerScopeId);
+        await leadScorer.afterAutoOfferResponse(userId, offerScopeId);
+      }
       
       // Obtener mensajes desde configuración
       const yesResponse = await configRepository.get(
@@ -111,6 +122,7 @@ export class AppointmentManager {
         message: `${yesResponse}\n\n${requestDate}`
       };
     } else {
+      await userRepository.markAppointmentOfferRejected(userId);
       await userRepository.clearAppointmentFlow(userId);
       
       // Obtener mensaje de rechazo desde configuración
@@ -300,6 +312,8 @@ Puedes escribir:
       };
     }
 
+    const originScopeId = flowData.scope_id ?? scopeId ?? ROOT_SCOPE_ID;
+
     // Crear cita en BD
     const appointment = await appointmentRepository.create(
       {
@@ -308,7 +322,7 @@ Puedes escribir:
         requested_date: flowData.requested_date,
         time_slot: flowData.time_slot
       },
-      scopeId
+      originScopeId
     );
 
     // Obtener info del usuario
@@ -323,7 +337,7 @@ Puedes escribir:
 
     // Notificar al agente
     try {
-      await this.notifyAgent(appointment, user.phone_number, scopeId);
+      await this.notifyAgent(appointment, user.phone_number, originScopeId);
     } catch (error) {
       console.error('❌ Error notificando al agente:', error);
       // No bloqueamos el flujo si falla la notificación
@@ -333,11 +347,11 @@ Puedes escribir:
     await userRepository.clearAppointmentFlow(userId);
 
     // Actualizar lead score (cita agendada aumenta puntos significativamente)
-    await leadScorer.afterAppointmentCreated(userId);
+    await leadScorer.afterAppointmentCreated(userId, originScopeId);
 
     // Formatear mensaje de confirmación con variables
     const dateDisplay = this.formatDate(flowData.requested_date);
-    const timeSlotConfig = await this.getTimeSlotDisplay(flowData.time_slot, scopeId);
+    const timeSlotConfig = await this.getTimeSlotDisplay(flowData.time_slot, originScopeId);
     const address = await configRepository.get(
       'appointment_address',
       'Calle Principal #123, Fraccionamiento Europa, Ciudad'

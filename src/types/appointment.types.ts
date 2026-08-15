@@ -39,6 +39,7 @@ export interface AppointmentConfig {
 export interface AppointmentData {
   id: string;
   user_id: string;
+  scope_id: string;
   visitor_name: string;
   requested_date: string; // ISO date: "2025-10-23"
   time_slot: TimeSlot;
@@ -67,6 +68,8 @@ export interface AppointmentFlow {
 export interface AppointmentFlowData {
   requested_date?: string; // ISO date
   time_slot?: TimeSlot;
+  scope_id?: string;
+  offer_scope_id?: string;
 }
 
 /**

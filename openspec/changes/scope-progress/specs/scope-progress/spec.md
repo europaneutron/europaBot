@@ -79,6 +79,28 @@ La agregación SHALL resolverse en un único lugar.
 - **WHEN** existe un único alcance activo
 - **THEN** la cifra agregada es idéntica a la que el sistema calculaba antes de este cambio
 
+### Requirement: La calificación conseguida no se pierde
+
+La cifra agregada SHALL considerar todo el progreso de la persona, sin descartarlo por el alcance al que esté atribuido ni por si ese alcance sigue activo. Un lead calificado NO SHALL dejar de estarlo porque cambie el catálogo.
+
+Para que esa suma no reintroduzca lo que este cambio elimina, el alcance raíz SHALL puntuar únicamente el progreso atribuido a él, y no el de las ramas que cuelgan de él.
+
+#### Scenario: Alta de un desarrollo nuevo
+
+- **WHEN** todo el progreso de un lead está atribuido a la raíz y se da de alta un desarrollo
+- **THEN** su calificación agregada no cambia
+
+#### Scenario: Desarrollo agotado
+
+- **WHEN** se desactiva el desarrollo en el que un lead se calificó
+- **THEN** su calificación agregada se conserva
+
+#### Scenario: La raíz no suma entre ramas
+
+- **WHEN** un lead tiene checkpoints repartidos entre dos desarrollos
+- **THEN** la raíz no los cuenta como progreso propio
+- **AND** no se dispara ninguna oferta por esa suma
+
 ### Requirement: El ofrecimiento de cita se lleva por alcance
 
 Haber ofrecido una cita para un alcance NO SHALL impedir ofrecerla para otro.

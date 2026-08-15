@@ -162,6 +162,57 @@ export class ScopeRepository {
     return null;
   }
 
+  async getDescendantIds(
+    scopeId: string,
+    client: any = supabaseServer
+  ): Promise<string[]> {
+    const scopes = await this.getScopesContaining(scopeId, client);
+    if (!scopes.some(scope => scope.id === scopeId)) return [];
+
+    const childrenByParent = new Map<string, string[]>();
+    for (const scope of scopes) {
+      if (!scope.parent_id) continue;
+      const children = childrenByParent.get(scope.parent_id) || [];
+      children.push(scope.id);
+      childrenByParent.set(scope.parent_id, children);
+    }
+
+    const descendants: string[] = [];
+    const pending = [scopeId];
+    const visited = new Set<string>();
+
+    while (pending.length > 0) {
+      const currentId = pending.shift()!;
+      if (visited.has(currentId)) throw new Error('Scope hierarchy contains a cycle');
+      visited.add(currentId);
+      descendants.push(currentId);
+      pending.push(...(childrenByParent.get(currentId) || []));
+    }
+
+    return descendants;
+  }
+
+  /**
+   * Alcances cuyo progreso suma al de `scopeId`.
+   *
+   * Para un desarrollo son él y sus descendientes: lo que pasa en una torre
+   * cuenta para su desarrollo.
+   *
+   * Para la raíz es únicamente ella misma. La raíz no es un desarrollo: es el
+   * tronco compartido. Contar su subárbol completo sumaría el interés de todas
+   * las ramas en una sola cifra, que es precisamente el defecto que este
+   * cambio existe para eliminar —quien pregunta el precio en dos desarrollos
+   * está comparando, no calificando—. Lo que se atribuye a la raíz es interés
+   * real todavía sin asignar a ningún desarrollo, y puntúa por sí solo.
+   */
+  async getScoringScopeIds(
+    scopeId: string,
+    client: any = supabaseServer
+  ): Promise<string[]> {
+    if (scopeId === ROOT_SCOPE_ID) return [ROOT_SCOPE_ID];
+    return this.getDescendantIds(scopeId, client);
+  }
+
   async getResolutionOrder(
     scopeId?: string | null,
     client: any = supabaseServer

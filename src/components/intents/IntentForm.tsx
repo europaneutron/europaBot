@@ -33,6 +33,7 @@ interface FormData {
   priority: number;
   is_active: boolean;
   is_checkpoint: boolean;
+  is_strong_signal: boolean;
   response_type: string;
   response_template: string | null;
 }
@@ -56,6 +57,7 @@ export default function IntentForm({ mode, intentId }: IntentFormProps) {
     priority: 50,
     is_active: true,
     is_checkpoint: true,
+    is_strong_signal: false,
     response_type: 'text',
     response_template: null
   });
@@ -88,6 +90,7 @@ export default function IntentForm({ mode, intentId }: IntentFormProps) {
         priority: intent.priority,
         is_active: intent.is_active,
         is_checkpoint: intent.is_checkpoint,
+        is_strong_signal: intent.is_strong_signal,
         response_type: intent.response_type,
         response_template: intent.response_template
       });
@@ -157,6 +160,7 @@ export default function IntentForm({ mode, intentId }: IntentFormProps) {
         priority: formData.priority,
         is_active: formData.is_active,
         is_checkpoint: formData.is_checkpoint,
+        is_strong_signal: formData.is_strong_signal,
         response_type: formData.response_type,
         response_template: formData.response_template || null
       };
@@ -502,6 +506,18 @@ export default function IntentForm({ mode, intentId }: IntentFormProps) {
                 />
                 <Label htmlFor="is_active" className="text-sm font-normal cursor-pointer">
                   Intención activa
+                </Label>
+              </div>
+
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="is_strong_signal"
+                  checked={formData.is_strong_signal}
+                  onCheckedChange={(checked: boolean) => handleInputChange('is_strong_signal', checked)}
+                  disabled={saving}
+                />
+                <Label htmlFor="is_strong_signal" className="text-sm font-normal cursor-pointer">
+                  Señal fuerte de compra (puede adelantar la oferta de cita)
                 </Label>
               </div>
             </div>

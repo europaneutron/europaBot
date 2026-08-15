@@ -164,6 +164,7 @@ export class ScopeRoutingService {
       response_type: 'text',
       is_active: true,
       is_checkpoint: false,
+      is_strong_signal: false,
     };
   }
 }

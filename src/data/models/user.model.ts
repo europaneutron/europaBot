@@ -54,6 +54,9 @@ export interface UserProgress {
   brochure_completed_at?: Date;
   appointment_offered: boolean;
   appointment_offered_at?: Date;
+  appointment_offer_count?: number;
+  last_appointment_offer_at?: string | Date | null;
+  last_appointment_offer_rejected_at?: string | Date | null;
   // Campos para flujo de citas
   appointment_flow_state?: string;
   appointment_flow_data?: any;

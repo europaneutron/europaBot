@@ -21,6 +21,7 @@ export interface IntentConfiguration {
   response_type: string;
   is_active: boolean;
   is_checkpoint: boolean;
+  is_strong_signal: boolean;
   created_at: string;
   updated_at: string;
 }

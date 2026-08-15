@@ -16,6 +16,7 @@ export interface IntentConfiguration {
   response_type: string;
   is_active: boolean;
   is_checkpoint: boolean;
+  is_strong_signal?: boolean;
 }
 
 export interface IntentMatch {
@@ -28,6 +29,7 @@ export interface IntentMatch {
   fuzzy_matches: FuzzyMatch[];
   detection_method: 'exact' | 'synonym' | 'typo' | 'phrase' | 'fuzzy';
   is_checkpoint?: boolean;
+  is_strong_signal?: boolean;
 }
 
 export interface FuzzyMatch {

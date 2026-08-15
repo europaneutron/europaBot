@@ -1,0 +1,25 @@
+{
+  "capturedAt": "2026-08-15",
+  "environment": "local",
+  "activeScope": {
+    "id": "00000000-0000-4000-8000-000000000001",
+    "name": "Europa",
+    "type": "root"
+  },
+  "configuration": {
+    "checkpointPoints": 15,
+    "checkpointsForAppointment": 4,
+    "coldMax": 39,
+    "warmMax": 69
+  },
+  "observedCases": [
+    { "checkpoints": 0, "hasActiveAppointment": false, "score": 0, "status": "cold" },
+    { "checkpoints": 1, "hasActiveAppointment": false, "score": 15, "status": "cold" },
+    { "checkpoints": 3, "hasActiveAppointment": true, "score": 65, "status": "warm" },
+    { "checkpoints": 6, "hasActiveAppointment": false, "score": 90, "status": "hot" }
+  ],
+  "dashboardContract": {
+    "scoreColumn": "users.lead_score",
+    "statusColumn": "users.lead_status"
+  }
+}

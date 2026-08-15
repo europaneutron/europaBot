@@ -17,6 +17,7 @@ config({ path: resolve(__dirname, '../.env.development.local') });
 config({ path: resolve(__dirname, '../.env.local') });
 
 async function testLeadScoring() {
+  const rootScopeId = '00000000-0000-4000-8000-000000000001';
   // Los modulos se cargan aqui y no arriba: un import estatico se iza por
   // encima de config(), y el cliente de Supabase se construiria antes de que
   // existan las variables de entorno.
@@ -56,9 +57,9 @@ async function testLeadScoring() {
 
   // 4. Test: Usuario con 3 checkpoints (WARM)
   console.log('4️⃣ Test: Usuario con 3 checkpoints (esperado: WARM)');
-  await userRepository.markCheckpointCompleted(user.id, 'precio');
-  await userRepository.markCheckpointCompleted(user.id, 'ubicacion');
-  await userRepository.markCheckpointCompleted(user.id, 'modelo');
+  await userRepository.markCheckpointCompleted(user.id, rootScopeId, 'precio');
+  await userRepository.markCheckpointCompleted(user.id, rootScopeId, 'ubicacion');
+  await userRepository.markCheckpointCompleted(user.id, rootScopeId, 'modelo');
   await leadScorer.recalculateAndUpdate(user.id);
   
   breakdown = await leadScorer.getScoreBreakdown(user.id);
@@ -69,9 +70,9 @@ async function testLeadScoring() {
 
   // 5. Test: Usuario con 6 checkpoints (HOT)
   console.log('5️⃣ Test: Usuario con 6 checkpoints (esperado: HOT)');
-  await userRepository.markCheckpointCompleted(user.id, 'creditos');
-  await userRepository.markCheckpointCompleted(user.id, 'seguridad');
-  await userRepository.markCheckpointCompleted(user.id, 'brochure');
+  await userRepository.markCheckpointCompleted(user.id, rootScopeId, 'creditos');
+  await userRepository.markCheckpointCompleted(user.id, rootScopeId, 'seguridad');
+  await userRepository.markCheckpointCompleted(user.id, rootScopeId, 'brochure');
   await leadScorer.recalculateAndUpdate(user.id);
   
   breakdown = await leadScorer.getScoreBreakdown(user.id);
@@ -86,9 +87,9 @@ async function testLeadScoring() {
   const user2 = await userRepository.findOrCreateByPhone(user2Phone, 'Usuario Test Con Cita');
   
   // Marcar 3 checkpoints
-  await userRepository.markCheckpointCompleted(user2.id, 'precio');
-  await userRepository.markCheckpointCompleted(user2.id, 'ubicacion');
-  await userRepository.markCheckpointCompleted(user2.id, 'modelo');
+  await userRepository.markCheckpointCompleted(user2.id, rootScopeId, 'precio');
+  await userRepository.markCheckpointCompleted(user2.id, rootScopeId, 'ubicacion');
+  await userRepository.markCheckpointCompleted(user2.id, rootScopeId, 'modelo');
   
   // Crear cita
   await appointmentRepository.create({
@@ -96,7 +97,7 @@ async function testLeadScoring() {
     visitor_name: 'Usuario Test Con Cita',
     requested_date: new Date().toISOString().split('T')[0],
     time_slot: 'morning'
-  });
+  }, rootScopeId);
   
   await leadScorer.recalculateAndUpdate(user2.id);
   breakdown = await leadScorer.getScoreBreakdown(user2.id);

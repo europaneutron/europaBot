@@ -69,6 +69,7 @@ export class AppointmentRepository {
       .from('appointments')
       .insert({
         user_id: appointmentData.user_id,
+        scope_id: scopeId ?? ROOT_SCOPE_ID,
         visitor_name: appointmentData.visitor_name,
         requested_date: appointmentData.requested_date,
         appointment_date: appointmentData.requested_date, // Usar requested_date como appointment_date
@@ -210,6 +211,33 @@ export class AppointmentRepository {
       throw error;
     }
 
+    return data || [];
+  }
+
+  async hasActiveInScopes(userId: string, scopeIds: string[]): Promise<boolean> {
+    if (scopeIds.length === 0) return false;
+
+    const { data, error } = await supabaseServer
+      .from('appointments')
+      .select('id')
+      .eq('user_id', userId)
+      .in('scope_id', scopeIds)
+      .in('status', ['pending', 'confirmed'])
+      .limit(1);
+
+    if (error) throw error;
+    return (data?.length ?? 0) > 0;
+  }
+
+  async getByScopeId(scopeId: string, limit = 100): Promise<AppointmentData[]> {
+    const { data, error } = await supabaseServer
+      .from('appointments')
+      .select('*')
+      .eq('scope_id', scopeId)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+
+    if (error) throw error;
     return data || [];
   }
 

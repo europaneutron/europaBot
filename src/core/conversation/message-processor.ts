@@ -10,6 +10,7 @@ import { userRepository } from '@/data/repositories/user.repository';
 import { conversationRepository } from '@/data/repositories/conversation.repository';
 import { configRepository } from '@/data/repositories/config.repository';
 import { appointmentManager } from '@/core/appointment/appointment-manager';
+import { shouldOfferAppointment } from '@/core/appointment/appointment-offer-policy';
 import { supabaseServer } from '@/services/supabase/server-client';
 import { whatsappSender } from '@/services/whatsapp/message-sender';
 import type { BotResponse } from '@/types/message-fragments.types';
@@ -184,6 +185,10 @@ export class MessageProcessor {
       // 3.6. Verificar si está esperando confirmación de oferta automática
       const flowState = await userRepository.getAppointmentFlowState(user.id);
       if (flowState === 'pending_auto_offer') {
+        const flowData = await userRepository.getAppointmentFlowData(user.id);
+        const offerScopeId = flowData?.offer_scope_id
+          || await scopeRepository.getBranchId(scopeId)
+          || scopeId;
         const normalized = messageText.toLowerCase().trim();
         
         // Detectar si es una pregunta nueva en lugar de respuesta a la oferta
@@ -230,9 +235,10 @@ export class MessageProcessor {
           if (isPositive) {
             // Usuario acepta, iniciar flujo de cita
             await userRepository.updateAppointmentFlowState(user.id, 'ask_date');
+            await userRepository.markAppointmentOfferResponded(user.id, offerScopeId);
             
             // Actualizar score por responder al auto-offer
-            await leadScorer.afterAutoOfferResponse(user.id);
+            await leadScorer.afterAutoOfferResponse(user.id, offerScopeId);
             
             // Obtener mensajes desde configuración
             const yesResponse = await configRepository.get(
@@ -258,6 +264,7 @@ export class MessageProcessor {
             };
           } else {
             // Usuario no acepta o pregunta otra cosa
+            await userRepository.markAppointmentOfferRejected(user.id);
             await userRepository.clearAppointmentFlow(user.id);
             
             // Obtener mensaje de rechazo desde configuración
@@ -419,26 +426,41 @@ export class MessageProcessor {
     hasFocus: boolean = true
   ): Promise<BotResponse[]> {
     const userId = user.id;
+    const resolvedScopeId = scopeId ?? ROOT_SCOPE_ID;
 
     // Si es intent "cita", iniciar flujo de agendamiento
     // skipConfirmation = true porque el usuario ya dijo explícitamente que quiere agendar
     if (intent.intent_name === 'cita') {
-      const flowResult = await appointmentManager.startFlow(userId, true, scopeId);
+      await leadScorer.afterScopeInteraction(userId, resolvedScopeId);
+      const flowResult = await appointmentManager.startFlow(userId, true, resolvedScopeId);
       return [flowResult.message];
     }
 
     // Verificar si es checkpoint (determinado por is_checkpoint de intent_configurations)
     if (intent.is_checkpoint) {
       // Verificar si ya completó este tema
-      const isCompleted = await userRepository.isCheckpointCompleted(userId, intent.intent_name);
+      const isCompleted = await userRepository.isCheckpointCompleted(
+        userId,
+        resolvedScopeId,
+        intent.intent_name
+      );
       
       // Marcar como completado (solo si no lo estaba antes)
       if (!isCompleted) {
-        await userRepository.markCheckpointCompleted(userId, intent.intent_name);
+        await userRepository.markCheckpointCompleted(userId, resolvedScopeId, intent.intent_name);
         
         // Recalcular lead score automáticamente
-        await leadScorer.afterCheckpointCompleted(userId);
+        await leadScorer.afterCheckpointCompleted(userId, resolvedScopeId);
       }
+    } else if (!await userRepository.getScopeProgress(userId, resolvedScopeId)) {
+      // Una interacción sin checkpoint también inicia el detalle del alcance.
+      // De otro modo el dashboard no podría distinguir "preguntó, score 0" de
+      // "nunca mostró interés en esta rama".
+      //
+      // Solo en el primer contacto. Recalcular en cada mensaje reescribía una
+      // cifra que no había cambiado, a costa de una decena de consultas por
+      // mensaje en un webhook que ya bloquea mientras envía.
+      await leadScorer.afterScopeInteraction(userId, resolvedScopeId);
     }
 
     // Obtener respuesta configurada desde BD
@@ -448,25 +470,40 @@ export class MessageProcessor {
       { alcances: scopeList, nombre: user.name ?? '', telefono: user.phone_number }
     );
     
-    if (responses.length === 0) {
-      return ['Gracias por tu interés. ¿En qué más puedo ayudarte?'];
-    }
-
     // Verificar si debe ofrecer cita (configurable desde BD)
-    const completedCount = await userRepository.countCompletedCheckpoints(userId);
-    const progress = await userRepository.getProgress(userId);
+    const offerScopeId = await scopeRepository.getBranchId(resolvedScopeId) ?? resolvedScopeId;
+    const completedCount = await userRepository.countCompletedCheckpoints(userId, offerScopeId);
+    const appointmentOffered = await userRepository.hasAppointmentBeenOffered(userId, offerScopeId);
     
     // Obtener configuración dinámica
     const checkpointsRequired = await configRepository.getInt('checkpoints_for_appointment', 4);
     const autoOfferEnabled = await configRepository.getBoolean('appointment_auto_offer_enabled', true);
+    const cooldownHours = await configRepository.getInt('appointment_offer_cooldown_hours', 168);
+    const isCoolingDown = await userRepository.isAppointmentOfferCoolingDown(userId, cooldownHours);
+    const shouldOffer = shouldOfferAppointment({
+      autoOfferEnabled,
+      completedCheckpoints: completedCount,
+      requiredCheckpoints: checkpointsRequired,
+      isStrongSignal: intent.is_strong_signal === true,
+      alreadyOfferedInScope: appointmentOffered,
+      isCoolingDown,
+    });
 
-    if (autoOfferEnabled && completedCount >= checkpointsRequired && !progress?.appointment_offered) {
+    if (shouldOffer) {
       // Marcar como ofrecido y establecer estado ANTES de enviar mensaje
-      await userRepository.markAppointmentOffered(userId);
+      await userRepository.markAppointmentOffered(userId, offerScopeId);
+      await userRepository.updateAppointmentFlowData(userId, {
+        scope_id: resolvedScopeId,
+        offer_scope_id: offerScopeId,
+      });
       await userRepository.updateAppointmentFlowState(userId, 'pending_auto_offer');
       
       // NO enviar el auto-offer aquí, se enviará después en el webhook
       // para asegurar que el estado ya está guardado en BD
+    }
+
+    if (responses.length === 0) {
+      return ['Gracias por tu interés. ¿En qué más puedo ayudarte?'];
     }
 
     if (intent.intent_name === 'saludo' && !hasFocus) {

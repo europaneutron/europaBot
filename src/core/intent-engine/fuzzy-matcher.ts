@@ -108,7 +108,8 @@ export class FuzzyMatcher {
         matched_keywords: matchedKeywords,
         fuzzy_matches: [],
         detection_method: 'exact',
-        is_checkpoint: intent.is_checkpoint
+        is_checkpoint: intent.is_checkpoint,
+        is_strong_signal: intent.is_strong_signal
       };
     }
 
@@ -139,7 +140,8 @@ export class FuzzyMatcher {
         matched_keywords: matchedKeywords,
         fuzzy_matches: [],
         detection_method: 'synonym',
-        is_checkpoint: intent.is_checkpoint
+        is_checkpoint: intent.is_checkpoint,
+        is_strong_signal: intent.is_strong_signal
       };
     }
 
@@ -170,7 +172,8 @@ export class FuzzyMatcher {
         matched_keywords: matchedKeywords,
         fuzzy_matches: [],
         detection_method: 'typo',
-        is_checkpoint: intent.is_checkpoint
+        is_checkpoint: intent.is_checkpoint,
+        is_strong_signal: intent.is_strong_signal
       };
     }
 
@@ -217,7 +220,8 @@ export class FuzzyMatcher {
         matched_keywords: [bestMatch.keyword],
         fuzzy_matches: fuzzyMatches,
         detection_method: 'phrase',
-        is_checkpoint: intent.is_checkpoint
+        is_checkpoint: intent.is_checkpoint,
+        is_strong_signal: intent.is_strong_signal
       };
     }
 
@@ -265,7 +269,8 @@ export class FuzzyMatcher {
         matched_keywords: fuzzyMatches.map(m => m.matched_word),
         fuzzy_matches: fuzzyMatches,
         detection_method: 'fuzzy',
-        is_checkpoint: intent.is_checkpoint
+        is_checkpoint: intent.is_checkpoint,
+        is_strong_signal: intent.is_strong_signal
       };
     }
 

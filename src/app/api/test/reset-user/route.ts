@@ -21,13 +21,10 @@ export async function POST(request: NextRequest) {
     }
 
     const { supabaseServer } = await import('@/services/supabase/server-client');
+    const { userRepository } = await import('@/data/repositories/user.repository');
 
     // Buscar usuario
-    const { data: user } = await supabaseServer
-      .from('users')
-      .select('id')
-      .eq('phone_number', phoneNumber)
-      .single();
+    const user = await userRepository.findByPhone(phoneNumber);
 
     if (!user) {
       return NextResponse.json(
@@ -36,35 +33,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Resetear user_progress completamente
-    const { error: resetError } = await supabaseServer
-      .from('user_progress')
-      .update({
-        precio_completed: false,
-        precio_completed_at: null,
-        ubicacion_completed: false,
-        ubicacion_completed_at: null,
-        modelo_completed: false,
-        modelo_completed_at: null,
-        creditos_completed: false,
-        creditos_completed_at: null,
-        seguridad_completed: false,
-        seguridad_completed_at: null,
-        brochure_completed: false,
-        brochure_completed_at: null,
-        appointment_offered: false,
-        appointment_offered_at: null,
-        appointment_flow_state: null,
-        appointment_flow_data: null,
-        last_intent: null,
-        last_intent_at: null
-      })
-      .eq('user_id', user.id);
-
-    if (resetError) {
-      console.error('Error resetting user_progress:', resetError);
-      throw resetError;
-    }
+    await userRepository.resetProgressForTesting(user.id);
 
     // Limpiar mensajes de conversación
     const { error: messagesError } = await supabaseServer

@@ -23,6 +23,61 @@ Diecisiete archivos leen `lead_score` o `lead_status`, casi todos del dashboard.
 | Frecuencia de iniciativa | Por usuario, ya lo es | Sigue siendo por usuario, deliberadamente |
 | Lectura del dashboard | `users.lead_score` | `users.lead_score`, con el mismo significado |
 
+### Inventario de lecturas y escrituras
+
+El inventario previo a la implementación encontró dieciocho archivos en `src/` (el conteo
+de diecisiete que motivó la propuesta no incluía `types/advisor.types.ts`). La decisión por
+archivo es:
+
+| Archivo | Uso actual | Decisión |
+|---|---|---|
+| `data/repositories/user.repository.ts` | Escribe `users.lead_score/status`, checkpoints y `user_progress.appointment_offered` | Cambia: será el único acceso al detalle por alcance y mantendrá el agregado de `users` |
+| `core/scoring/lead-scorer.ts` | Calcula globalmente y escribe `users` | Cambia: calcula el alcance, delega persistencia y agregación al repositorio |
+| `core/conversation/message-processor.ts` | Registra/count checkpoints y decide la oferta global | Cambia: atribuye al foco y evalúa la rama; la frecuencia sigue siendo por persona |
+| `app/api/test/reset-user/route.ts` | Reinicia el booleano global | Cambia: usa el repositorio para reiniciar también el detalle por alcance |
+| `core/fallback/fallback-handler.ts` | Lee score/status y conteo para derivación | Conserva la lectura agregada; el conteo mostrado sigue siendo por persona |
+| `data/repositories/advisor.repository.ts` | Copia score agregado al crear/listar solicitudes | Sin cambio: conserva la fotografía agregada del lead |
+| `hooks/use-advisor-requests.ts` | Lee score/status agregados | Sin cambio |
+| `hooks/use-analytics.ts` | Filtra y agrega score/status de `users` | Sin cambio |
+| `hooks/use-conversations.ts` | Lee score/status y checkpoints para el detalle | Score/status siguen agregados; la lista de checkpoints se deduplica para conservar la UI actual |
+| `app/(dashboard)/advisor-requests/page.tsx` | Muestra score/status agregados | Sin cambio |
+| `app/(dashboard)/appointments/page.tsx` | Lee score agregado del usuario | Sin cambio |
+| `app/(dashboard)/appointments/appointments-client.tsx` | Muestra score agregado | Sin cambio |
+| `app/(dashboard)/conversations/[userId]/page.tsx` | Muestra score/status y checkpoints | Sin cambio |
+| `app/(dashboard)/conversations/page.tsx` | Filtra y muestra score/status | Sin cambio |
+| `app/(dashboard)/conversations/page-old.tsx` | Vista antigua del mismo agregado | Sin cambio |
+| `app/(dashboard)/dashboard/page.tsx` | Muestra status agregado | Sin cambio |
+| `data/models/user.model.ts` | Modela los campos agregados y el booleano legado | Cambia solo el modelo del detalle; `User` conserva score/status |
+| `types/advisor.types.ts` | Modela la fotografía agregada de la solicitud | Sin cambio |
+
+Hay otros caminos relacionados que no coincidían con los cuatro nombres buscados:
+`appointment-manager.ts` y `appointment.repository.ts` cambian para conservar el alcance de
+origen; los repositorios y el formulario de intenciones cambian para exponer la señal fuerte.
+Los procesadores de follow-up ya limitan y cancelan por `user_id`, por lo que conservan su
+comportamiento y no ganan una dimensión de alcance.
+
+### Línea base de un solo alcance
+
+La línea base se registró el 2026-08-15 contra el stack local, antes de modificar código o
+esquema, y quedó serializada en `baseline.json`. Solo estaba activa la raíz `Europa`. La
+configuración observada mantiene 15 puntos por checkpoint y el umbral de oferta en cuatro;
+las clasificaciones son `cold` hasta 39, `warm` hasta 69 y `hot` desde 70.
+
+Los cuatro leads existentes confirman la regla vigente: 0 checkpoints produce 0/cold, uno
+produce 15/cold, tres más una cita activa producen 65/warm, y seis producen 90/hot. Las
+vistas consultan directamente `users.lead_score` y `users.lead_status`, de modo que esa es
+la interfaz de compatibilidad que debe permanecer estable.
+
+### Regla única de agregación
+
+El score de cada alcance se calcula con actividad de ese alcance y sus descendientes. El
+score agregado de la persona es el **máximo** de sus scores de rama, no la suma ni el
+promedio. Así el dashboard representa el desarrollo de mayor intención comercial sin
+mezclar ramas ni rebajar un interés fuerte porque la persona también comparó otra opción.
+El estado agregado se deriva una sola vez de ese máximo. La escritura del detalle y el
+recálculo de `users` forman una única operación de repositorio; ningún consumidor calcula
+su propia variante.
+
 ## Goals / Non-Goals
 
 **Goals:**
@@ -113,3 +168,39 @@ El arreglo no es un clasificador: es una intención más, marcada como señal fu
 Ninguna. Las decisiones que quedaban abiertas —qué es un checkpoint, dónde se cuenta el umbral, dónde vive el score, cómo se evita el spam, y cómo se cubre la intensidad sin un clasificador— están resueltas arriba.
 
 Lo que sí conviene revisar por separado, y no bloquea este cambio: el ofrecimiento de cita es el punto más frágil del sistema, porque es único y no tiene reintento. Merece su propia mirada una vez que este cambio lo haya multiplicado por rama.
+
+## Verificación previa a producción
+
+Antes de ejecutar las migraciones en el proyecto remoto se debe comprobar, sin escribir:
+
+- que el historial remoto termina en la migración 028 y no contiene una versión divergente;
+- cuántos alcances activos existen y cuál era la única rama vigente para el progreso anterior;
+- los conteos de `user_checkpoints`, citas, ofertas y usuarios por `lead_score/lead_status`;
+- que no hay checkpoints duplicados ni referencias de alcance huérfanas;
+- que `bot_config` conserva `checkpoint_points`, el umbral, los límites de estado y el teléfono real del asesor;
+- después de aplicar, que los conteos no cambian, todas las filas tienen alcance, el score agregado de cada usuario es idéntico y `user_scope_progress` tiene RLS y las políticas esperadas.
+
+La aplicación remota debe hacerse solo después de comparar esos resultados con la línea base
+del entorno y de ejecutar `test-scope-progress.ts` contra una copia local de sus datos.
+
+## Decisiones que salieron de la revisión
+
+### El agregado no filtra; la raíz no suma
+
+La primera versión acotó el máximo agregado a las ramas activas de primer nivel. Esa restricción borraba historial en dos situaciones que no son hipotéticas:
+
+**Al dar de alta el segundo desarrollo.** Todo el progreso anterior a los alcances vive en la raíz, que es exactamente el estado de producción hoy. En cuanto existe una rama, la raíz deja de contar, y cada lead histórico cae a cero en cuanto vuelve a escribir. Reproducido en local: el detalle decía 60 y el dashboard decía 0. La erosión además es gradual —solo al recalcular—, así que nadie la ve empezar.
+
+**Al agotarse un desarrollo.** Sus leads calificados se apagaban con él, cuando son justamente las personas a las que el equipo quiere llamar para ofrecerles lo siguiente.
+
+Un lead calificado no deja de estarlo porque cambie el catálogo. El agregado es el máximo entre todas las filas de progreso de la persona, sin filtrar.
+
+Lo que evita que esa suma reintroduzca el defecto original vive en otro sitio: **la raíz puntúa solo lo que se le atribuyó a ella.** La raíz no es un desarrollo, es el tronco compartido; contar su subárbol completo sumaría el interés de todas las ramas en una cifra, que es el disparo falso que este cambio existe para eliminar. Lo atribuido a la raíz es interés real todavía sin asignar, y puntúa por sí solo.
+
+Las dos reglas juntas son coherentes: cada alcance mide lo suyo sin cruzar a otra rama, y el agregado se queda con el mayor de esos números, viva donde viva.
+
+### El score no se reescribe en cada mensaje
+
+Recalcular en toda interacción sin checkpoint costaba una decena de consultas por mensaje para reescribir una cifra que no había cambiado —24 consultas para responder "ok", medidas con un contador sobre el cliente—. La spec pide iniciar el detalle en el primer contacto con un alcance, no mantenerlo al día en cada mensaje. Se recalcula al crear la fila y cuando algo cambia de verdad: un checkpoint, una cita, una respuesta a la oferta. El conteo bajó a 19.
+
+Del mismo paso salió sustituir una consulta por descendiente por una sola con `in`.
