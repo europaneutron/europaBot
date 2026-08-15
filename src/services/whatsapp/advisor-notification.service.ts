@@ -17,6 +17,7 @@ interface AdvisorNotificationData {
   fallbackCount: number;
   lastMessage: string;
   dashboardUrl?: string;
+  advisorPhone?: string;
 }
 
 class AdvisorNotificationService {
@@ -27,10 +28,10 @@ class AdvisorNotificationService {
   async notifyAdvisorRequest(data: AdvisorNotificationData): Promise<boolean> {
     try {
       // Obtener teléfono del asesor desde configuración
-      const advisorPhone = await configRepository.get('advisor_phone', '');
+      const advisorPhone = data.advisorPhone?.trim() || (await configRepository.get('advisor_phone', '')).trim();
       
       if (!advisorPhone) {
-        console.error('[AdvisorNotification] No advisor phone configured');
+        console.error('[AdvisorNotification] No hay teléfono configurado en el alcance ni en bot_config.advisor_phone');
         return false;
       }
 
