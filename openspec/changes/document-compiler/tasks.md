@@ -126,3 +126,33 @@ acuerde de comprobarlo. La prueba se escribió mal la primera vez por asumir que
 la única defensa era la del servicio.
 
 - [ ] 12.6 Pendiente, no automatizable desde aquí: revisión manual del panel `/compiler` en el navegador (tarea 7.5)
+
+## 13. Defecto abierto: el panel expone la máquina
+
+Detectado por el usuario al abrir `/compiler` el 2026-08-15. **No se corrige aquí**:
+la corrección depende de decisiones que pertenecen a `onboarding-chat` —qué palabra
+usa el cliente, dónde nace un desarrollo y cómo se dispara la compilación—, y
+arreglarlo antes obligaría a rehacerlo después.
+
+Lo que está mal:
+
+- Aparece la palabra **alcance**, que es el nombre de nuestro modelo. Las decisiones
+  de `onboarding-chat` prohíben expresamente que el usuario vea el modelo del sistema:
+  ve su propio negocio, con su propia palabra.
+- El panel pide **elegir un alcance que no se puede crear** desde ninguna pantalla.
+  Las specs de `scope-tree` y `scope-routing` dejaron fuera esa administración dando
+  por hecho que el chat la cubriría, y el compilador se apoyó en algo que aún no existe.
+- Hay un botón para **ejecutar la siguiente etapa**. Las etapas existen porque un
+  brochure no cabe en una petición; es infraestructura, no una decisión del usuario.
+- Se muestran **"hechos y procedencia"** y **"el original queda conservado"**, que son
+  nombres de nuestras tablas y de nuestro almacenamiento.
+
+Lo que el panel debe ser: la segunda compuerta y nada más —revisar lo propuesto,
+ver de dónde salió cada dato, aprobar o rechazar, y ver qué falta por compilar—.
+
+Causa de fondo: `design.md` fijó que la revisión va en un panel y no en un chat, que
+es correcto, pero nunca dijo que la **operación** fuera un panel. Se construyó pantalla
+para todo el pipeline y la revisión se hizo leyendo código en lugar de abriendo la
+aplicación, que es justo lo que la tarea 7.5 existía para evitar.
+
+- [ ] 13.1 Corregido en `onboarding-chat`
