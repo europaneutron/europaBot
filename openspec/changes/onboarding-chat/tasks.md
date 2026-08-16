@@ -77,9 +77,32 @@
 - [x] 9.6 Corregir los acentos de las muestras de tono, que son el texto con el que el cliente juzga si el producto está cuidado
 - [x] 9.7 Reescribir las aserciones de vocabulario, que afirmaban como correcta la reescritura del nombre propio
 
-**Pendiente de tu criterio:** la compuerta del árbol se aprueba sola en
-`onboarding.service.ts`, y `proposed_tree` se genera y no lo consume nadie. O se
-retira de la spec y se documenta que la estructura la deciden los pasos 2 y 3, o
-el compilador reconcilia lo que dedujo del material con lo declarado.
+- [x] 9.8 Compuerta del árbol resuelta: no se retira ni se reconcilia, se invierte el orden. Ver la sección 10
 
-- [ ] 9.8 Resolver la compuerta del árbol según esa decisión
+
+## 10. Invertir el orden: el material primero
+
+Decidido el 2026-08-16. La estructura dejaba de proponerse desde el material para
+pedírsela al cliente en frío, y era el único punto del sistema donde el humano
+iba antes que el modelo. Ver la decisión en `design.md`.
+
+- [ ] 10.1 Mover la entrega de material al principio del recorrido, antes de pedir estructura
+- [ ] 10.2 Presentar la estructura deducida con los nombres del cliente, y pedir confirmarla o corregirla. Es la primera compuerta que `document-compiler` ya exigía y que había quedado vacía
+- [ ] 10.3 Consumir `proposed_tree` para crear los proyectos y sus partes. Hoy se calcula, se guarda y no lo lee nadie
+- [ ] 10.4 Permitir aplanar de un toque cuando el cliente no venda las opciones por separado
+- [ ] 10.5 Hacer la pregunta sobre cómo ocurre una visita **después** de la propuesta, sobre nombres concretos
+- [ ] 10.6 Conservar la declaración a mano como alternativa explícita para quien no tenga material, no como camino normal
+- [ ] 10.7 Retirar la aprobación automática del árbol de `onboarding.service.ts`
+- [ ] 10.8 Verificar el caso de una parte que el cliente no habría mencionado: aparece en la propuesta y su contenido no se atribuye a otro proyecto en silencio
+
+## 11. La espera y el avance
+
+- [ ] 11.1 Indicador de avance dentro del propio recorrido, con cuánto puede tardar y la instrucción de no cerrar. Es lo mínimo: sin eso la pantalla parece congelada y nadie sabe si sigue viva
+- [ ] 11.2 Encadenar las etapas mientras el cliente espera, sin controles técnicos
+- [ ] 11.3 Reanudar desde donde quedó **entre por donde entre**, incluido el panel de revisión. Hoy solo empuja la pantalla del recorrido, así que volver por el panel deja la compilación varada
+- [ ] 11.4 Retirar `/api/cron/advance-compilations` y su entrada en `vercel.json`. No es desplegable en el plan actual y solo compraba terminar antes para alguien que no está mirando
+- [ ] 11.5 Verificar que cerrar la pantalla a media compilación y volver continúa sin repetir trabajo
+
+**Fuera de alcance, anotado como deuda:** impedir que dos pestañas avancen la
+misma compilación a la vez. Necesita un operador simultáneo consigo mismo; se
+vuelve necesario al vender a una agencia con varias personas tocando lo mismo.

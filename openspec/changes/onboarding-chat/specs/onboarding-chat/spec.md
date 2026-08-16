@@ -40,6 +40,47 @@ El recorrido SHALL permitir dar de alta un proyecto y sus partes sin escribir SQ
 - **WHEN** se da de alta un proyecto con un nombre
 - **THEN** el sistema puede reconocerlo cuando un lead lo mencione
 
+### Requirement: La estructura se propone desde el material y el cliente la confirma
+
+El recorrido SHALL recibir el material antes de pedir la estructura, y SHALL presentar la estructura que el compilador dedujo del material para que el cliente la confirme o la corrija.
+
+El cliente NO SHALL tener que declarar su estructura antes de entregar material, salvo como alternativa explícita cuando no lo tenga.
+
+La estructura confirmada SHALL ser la que crea los proyectos y sus partes.
+
+#### Scenario: Estructura deducida del material
+
+- **WHEN** el compilador termina de leer el material
+- **THEN** el sistema presenta los nombres que encontró y cómo se agrupan
+- **AND** pide confirmarlo antes de generar contenido
+
+#### Scenario: El cliente confirma
+
+- **WHEN** el cliente confirma la estructura propuesta
+- **THEN** los proyectos y sus partes quedan dados de alta con esos nombres
+
+#### Scenario: El cliente la corrige
+
+- **WHEN** el cliente indica que sus opciones no se venden por separado
+- **THEN** el sistema las agrupa en un solo proyecto
+
+#### Scenario: Una parte que el cliente no esperaba
+
+- **WHEN** el material contiene una opción que el cliente no habría mencionado
+- **THEN** aparece en la propuesta y el cliente decide si la incluye
+- **AND** su contenido no se atribuye a otro proyecto sin avisar
+
+#### Scenario: Sin material
+
+- **WHEN** el cliente todavía no tiene material que entregar
+- **THEN** puede declarar su estructura a mano y continuar
+
+#### Scenario: La profundidad sale del material
+
+- **WHEN** el material distingue opciones dentro de un proyecto
+- **THEN** la propuesta las presenta como partes de ese proyecto
+- **AND** la pregunta sobre cómo ocurre una visita se hace sobre esos nombres concretos
+
 ### Requirement: Las preguntas hablan del negocio, no de la estructura
 
 Las decisiones que determinan la forma del catálogo SHALL preguntarse a través de cómo vende el cliente, y NO SHALL presentarse como decisiones de estructura.
@@ -115,6 +156,13 @@ Al entregar material, el sistema SHALL iniciar y hacer avanzar la compilación p
 
 - **WHEN** el sistema está procesando material
 - **THEN** el cliente ve que está trabajando y qué falta, sin conocer las etapas internas
+- **AND** sabe cuánto puede tardar y que no debe cerrar la pantalla
+
+#### Scenario: Vuelta después de cerrar
+
+- **WHEN** un cliente cierra la pantalla con el procesamiento a medias y vuelve más tarde
+- **THEN** el procesamiento continúa desde donde quedó, entre por donde entre
+- **AND** no repite el trabajo ya hecho
 
 #### Scenario: Fallo del proveedor
 

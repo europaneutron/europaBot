@@ -126,6 +126,38 @@ verificacion con proveedor real queda como paso de preproduccion. Las reglas, la
 integracion de datos, el procesamiento reanudable y la regresion del runtime si se
 verificaron localmente.
 
+### El material llega primero; la estructura se propone
+
+*Corregido tras la revisión del 2026-08-16.*
+
+La primera versión pedía al cliente declarar sus proyectos y sus opciones **antes** de subir nada, y después el compilador deducía la estructura del documento y esa lectura se descartaba. Era el único punto del sistema donde el humano iba primero.
+
+Todo lo demás funciona al revés y por buenas razones: los hechos se extraen y el humano los aprueba, las respuestas se redactan y el humano las aprueba. La estructura no es distinta.
+
+Pedirla en frío además obliga al cliente a adivinar categorías que son nuestras. *"¿Es un desarrollo, un producto, una empresa?"* no tiene respuesta buena porque es la pregunta equivocada: describe nuestro modelo, no su negocio.
+
+El material entra primero, el compilador lee, y lo que se le presenta al cliente son sus propios nombres:
+
+> Encontré esto: **Altavista**, con **Toscana**, **Milano** y **Verona**. ¿Es así como lo vendes?
+
+**La profundidad también la propone el documento.** Si el material distingue modelos, se proponen dos niveles; si no, uno. El cliente puede aplanarlo de un toque si vende todo junto. La pregunta sobre cómo ocurre una visita —que es la que fija la regla de `scope-tree`— se hace **después** de ver la propuesta, de modo que se contesta sobre nombres concretos y no sobre una abstracción.
+
+Esto cierra además un caso que no tenía salida: un modelo que aparece en el material y que el cliente no declaró. Antes sus hechos se atribuían al proyecto padre, junto a los de otro modelo, sin que nada lo señalara. Ahora está en la propuesta desde el principio.
+
+Y devuelve el sentido a la primera compuerta. `document-compiler` ya exigía confirmar la forma del árbol antes de generar contenido; al invertir el orden esa compuerta se había quedado vacía —`proposed_tree` se calculaba y no lo consumía nadie— y se aprobaba sola. Pasa a ser lo que crea los proyectos.
+
+*La declaración a mano se conserva como escotilla*, para cuando el material sea pobre, esté vacío o todavía no exista. Escotilla, no camino.
+
+### La espera se acompaña, no se automatiza
+
+El cliente no sabe cuánto tarda leer su material, y esa es justamente la razón para mostrárselo. Un indicador de avance con una instrucción honesta —cuánto puede tardar y que no cierre— es lo que convierte una pantalla congelada en una espera tolerable.
+
+El proceso avanza mientras el cliente está en pantalla, encadenando una etapa tras otra, y se reanuda desde donde quedó al volver, **entre desde donde entre**. Una compilación que solo puede continuarse desde una pantalla concreta deja al usuario sin salida, que es la misma clase de callejón que este cambio vino a corregir.
+
+*Alternativa descartada:* un trabajo programado que la empuje sin nadie mirando. Requiere infraestructura fuera de la plataforma actual y solo compra terminar antes para alguien que no está mirando; lo que sigue a compilar es que un humano revise. Se gana su lugar el día que haya que avisar por fuera de la aplicación.
+
+*Fuera de alcance, anotado como deuda:* impedir que dos pestañas abiertas avancen la misma compilación a la vez. Necesita un operador simultáneo consigo mismo, y hoy hay uno por cliente. Se vuelve necesario al vender a una agencia con varias personas.
+
 ### El usuario nunca ve el modelo del sistema
 
 Es el principio del que cuelga todo lo demás, y el que se incumplió en el panel del compilador.
