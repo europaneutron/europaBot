@@ -44,6 +44,14 @@ export interface BotConfig {
 }
 
 export class ConfigRepository {
+  async getVaultSecret(secretName: string): Promise<string | null> {
+    const { data, error } = await supabaseServer.rpc('read_vault_secret', {
+      secret_name: secretName,
+    });
+    if (error) throw error;
+    return data || null;
+  }
+
   /**
    * Leer varias claves sin caché.
    *

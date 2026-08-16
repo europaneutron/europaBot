@@ -18,37 +18,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerClient } from '@supabase/ssr';
-import { supabaseServer } from '@/services/supabase/server-client';
 import { intentDetectionService } from '@/core/intent-engine/intent-detection.service';
-
-async function getAuthenticatedAdmin(request: NextRequest) {
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll() {},
-      },
-    }
-  );
-
-  const { data: { user }, error } = await supabase.auth.getUser();
-  if (error || !user) return null;
-
-  const { data: admin } = await supabaseServer
-    .from('admin_users')
-    .select('id')
-    .eq('id', user.id)
-    .eq('is_active', true)
-    .single();
-
-  if (!admin) return null;
-  return user;
-}
+import { getAuthenticatedAdmin } from '@/lib/server/authenticated-admin';
 
 export async function POST(request: NextRequest) {
   const admin = await getAuthenticatedAdmin(request);

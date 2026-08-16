@@ -217,6 +217,53 @@ Las dos decisiones se sostienen entre sí: la procedencia por página solo sirve
 
 **Rollback:** revertir el código deja las tablas nuevas sin usar. El contenido aprobado ya vive en `intent_configurations` y `bot_responses`, que son las que lee el runtime, así que el bot sigue funcionando sin el compilador.
 
+## Verificaciones previas a la implementación
+
+### Camino compartido hacia el modelo
+
+`generate-patterns/route.ts` autenticaba la cookie con un cliente SSR, verificaba que el mismo `auth.uid()` existiera activo en `admin_users`, resolvía `openai_api_key` mediante `read_vault_secret` y leía `ai_model` desde `bot_config`. El compilador no abre un camino nuevo: la autenticación quedó centralizada en `src/lib/server/authenticated-admin.ts`, y Vault más la selección por papel quedaron en `src/services/ai/openai.service.ts`. La ruta de patrones usa ahora esos mismos servicios.
+
+Los tres papeles se resuelven así:
+
+- patrones: `ai_model`, conservando el valor previo;
+- extracción: `ai_extraction_model`;
+- redacción: `ai_writing_model`.
+
+### Entrada nativa de documentos
+
+Verificado el 2026-08-15 contra la documentación oficial de OpenAI: la API de Responses admite `input_file`, acepta un archivo subido, datos base64 o una URL, y los PDFs se procesan con su texto y las imágenes de cada página. La implementación usa una URL firmada de corta vida desde el bucket privado `compiler-materials`, no una URL pública ni texto aplanado.
+
+Referencias:
+
+- https://platform.openai.com/docs/quickstart
+- https://platform.openai.com/docs/api-reference/files
+- https://developers.openai.com/api/docs/models
+
+### Benchmark de modelos
+
+Pendiente de ejecución con un brochure PDF real y su lista de hechos revisada a mano. `scripts/benchmark-document-compiler.ts` deja la comparación reproducible y reporta tiempo, recall y afirmaciones sin respaldo para el modelo económico y el capaz. No se registra un ganador sin esa medición porque el repositorio solo contiene material de texto y no una verdad-terreno para los casos críticos de tabla e imagen.
+
+### Cambios relevantes de Supabase
+
+El changelog vigente anuncia que las tablas nuevas dejan de exponerse automáticamente al Data API. Por eso la migración 033 declara `GRANT` explícitos además de RLS. El material vive en un bucket privado y el backend genera URLs firmadas breves para revisión y compilación.
+
+Referencias:
+
+- https://supabase.com/changelog/45329-breaking-change-tables-not-exposed-to-data-and-graphql-api-automatically
+- https://supabase.com/docs/guides/database/postgres/row-level-security
+- https://supabase.com/docs/guides/storage/security/access-control
+
+## Verificación previa a producción
+
+Antes de aplicar 033 al esquema remoto:
+
+1. confirmar que las migraciones remotas terminan en 032 y no existe una 033 divergente;
+2. comprobar que `read_vault_secret('openai_api_key')` devuelve una llave vigente desde backend;
+3. confirmar acceso de la cuenta a los valores configurados en `ai_extraction_model` y `ai_writing_model`;
+4. revisar en Security Advisor que 033 no agrega hallazgos;
+5. verificar que el bucket `compiler-materials` permanece privado y limitado a 25 MB;
+6. ejecutar el benchmark y el escenario manual completo en local antes de `supabase db push`.
+
 ## Open Questions
 
 Ninguna. La elección concreta del modelo de extracción se resuelve midiendo, según la tarea 1.5, y no bloquea el diseño: los tres papeles quedan configurables por separado.

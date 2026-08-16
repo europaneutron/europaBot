@@ -1,0 +1,20 @@
+{
+  "capturedAt": "2026-08-15",
+  "runtime": {
+    "intentCatalog": [
+      "saludo",
+      "precio",
+      "ubicacion",
+      "modelo",
+      "creditos",
+      "seguridad",
+      "brochure",
+      "cita",
+      "asesor"
+    ],
+    "usesApprovedBotResponses": true,
+    "callsModelDuringMessage": false,
+    "readsCompilerMaterialDuringMessage": false
+  },
+  "assessment": "La línea base corresponde al diseño vigente: matcher determinista, respuestas activas persistidas y ninguna dependencia de IA en el camino del mensaje."
+}

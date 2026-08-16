@@ -5,37 +5,10 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerClient } from '@supabase/ssr';
-import { supabaseServer } from '@/services/supabase/server-client';
 import OpenAI from 'openai';
-
-async function getAuthenticatedAdmin(request: NextRequest) {
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll() {},
-      },
-    }
-  );
-
-  const { data: { user }, error } = await supabase.auth.getUser();
-  if (error || !user) return null;
-
-  const { data: admin } = await supabaseServer
-    .from('admin_users')
-    .select('id')
-    .eq('id', user.id)
-    .eq('is_active', true)
-    .single();
-
-  if (!admin) return null;
-  return user;
-}
+import { getAuthenticatedAdmin } from '@/lib/server/authenticated-admin';
+import { configRepository } from '@/data/repositories/config.repository';
+import { getAiModel, getOpenAIClient } from '@/services/ai/openai.service';
 
 export async function POST(request: NextRequest) {
   try {
@@ -54,32 +27,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Leer la API key del Vault
-    const { data: apiKey, error: vaultError } = await supabaseServer.rpc('read_vault_secret', {
-      secret_name: 'openai_api_key'
-    });
-
-    if (vaultError || !apiKey) {
-      return NextResponse.json(
-        { error: 'API key de OpenAI no configurada. Configura la clave en Configuracion > Inteligencia Artificial.' },
-        { status: 400 }
-      );
-    }
-
-    // Leer configuracion del modelo y contexto del negocio
-    const { data: configs } = await supabaseServer
-      .from('bot_config')
-      .select('config_key, config_value')
-      .in('config_key', ['ai_model', 'ai_business_context']);
-
-    const model = configs?.find(c => c.config_key === 'ai_model')?.config_value || 'gpt-4o-mini';
-    const businessContext = configs?.find(c => c.config_key === 'ai_business_context')?.config_value || '';
+    const [openai, model, businessContext] = await Promise.all([
+      getOpenAIClient(),
+      getAiModel('patterns'),
+      configRepository.get('ai_business_context', ''),
+    ]);
 
     // Construir prompt
     const systemPrompt = buildSystemPrompt(businessContext);
     const userPrompt = buildUserPrompt(display_name.trim(), description?.trim());
-
-    const openai = new OpenAI({ apiKey });
 
     const completion = await openai.chat.completions.create({
       model,

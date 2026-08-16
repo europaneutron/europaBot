@@ -274,7 +274,7 @@ export function AISection({ configs, onReload }: Props) {
         <CardContent>
           <form onSubmit={handleSaveConfig} className="space-y-6">
             <div className="space-y-2">
-              <Label htmlFor="ai_model">Modelo de OpenAI</Label>
+              <Label htmlFor="ai_model">Modelo para patrones</Label>
               <Input
                 id="ai_model"
                 name="ai_model"
@@ -283,8 +283,37 @@ export function AISection({ configs, onReload }: Props) {
                 disabled={saving}
               />
               <p className="text-xs text-muted-foreground">
-                gpt-4o-mini es rapido y economico. Usa gpt-4o para mayor calidad.
+                Se usa al generar patrones del matcher desde el editor de intenciones.
               </p>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="ai_extraction_model">Modelo para extracción</Label>
+                <Input
+                  id="ai_extraction_model"
+                  name="ai_extraction_model"
+                  defaultValue={getConfigValue('ai_extraction_model') || 'gpt-5.4'}
+                  placeholder="gpt-5.4"
+                  disabled={saving}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Lee documentos y fija los hechos que sostienen las respuestas.
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="ai_writing_model">Modelo para redacción</Label>
+                <Input
+                  id="ai_writing_model"
+                  name="ai_writing_model"
+                  defaultValue={getConfigValue('ai_writing_model') || 'gpt-5.4-mini'}
+                  placeholder="gpt-5.4-mini"
+                  disabled={saving}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Redacta propuestas a partir de hechos ya extraídos.
+                </p>
+              </div>
             </div>
 
             <div className="space-y-2">

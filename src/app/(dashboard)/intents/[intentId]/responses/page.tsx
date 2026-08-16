@@ -291,16 +291,37 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
                     <div className="flex-1 space-y-2">
                       <div className="flex items-center gap-2 flex-wrap">
                         <Badge variant="secondary">{response.response_key}</Badge>
+                        <Badge variant="outline">
+                          {response.origin === 'compiler' ? 'Propuesta compilada' : 'Escrita a mano'}
+                        </Badge>
                         <span className="text-sm text-muted-foreground">
                           Orden: {response.order_priority}
                         </span>
                         {!response.is_active && (
                           <Badge variant="outline">Inactiva</Badge>
                         )}
+                        {response.review_signals?.map(signal => (
+                          <Badge key={signal} variant="destructive">{signal}</Badge>
+                        ))}
                       </div>
                       <p className="whitespace-pre-wrap text-sm">
                         {describeResponse(response)}
                       </p>
+                      {response.response_fact_dependencies?.map((dependency, index) => {
+                        const fact = dependency.compiler_facts;
+                        if (!fact) return null;
+                        return (
+                          <a
+                            key={`${fact.material_id}-${fact.page_number}-${index}`}
+                            href={`/api/compiler/materials/${fact.material_id}#page=${fact.page_number}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="mr-3 inline-block text-xs text-primary hover:underline"
+                          >
+                            {fact.fact_key}: {fact.compiler_materials?.original_filename || 'material'}, página {fact.page_number}
+                          </a>
+                        );
+                      })}
                     </div>
                     <div className="flex gap-2">
                       <Button

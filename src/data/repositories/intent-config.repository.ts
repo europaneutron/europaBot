@@ -37,6 +37,9 @@ export interface BotResponse {
   variables: any;
   is_active: boolean;
   order_priority: number;
+  origin: 'manual' | 'compiler';
+  compiler_proposal_id: string | null;
+  review_signals: string[];
   created_at: string;
   updated_at: string;
 }
@@ -45,6 +48,11 @@ type CreateIntentConfiguration = Omit<
   IntentConfiguration,
   'id' | 'scope_id' | 'created_at' | 'updated_at'
 > & { scope_id?: string | null };
+
+type CreateBotResponse = Omit<
+  BotResponse,
+  'id' | 'created_at' | 'updated_at' | 'origin' | 'compiler_proposal_id' | 'review_signals'
+> & Partial<Pick<BotResponse, 'origin' | 'compiler_proposal_id'>>;
 
 export class IntentConfigRepository {
   /**
@@ -177,7 +185,7 @@ export class IntentConfigRepository {
   /**
    * Crear respuesta para una intención
    */
-  async createResponse(data: Omit<BotResponse, 'id' | 'created_at' | 'updated_at'>): Promise<BotResponse> {
+  async createResponse(data: CreateBotResponse): Promise<BotResponse> {
     const { data: response, error } = await supabaseServer
       .from('bot_responses')
       .insert(normalizeResponseWrite(data))

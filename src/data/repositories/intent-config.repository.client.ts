@@ -37,6 +37,17 @@ export interface BotResponse {
   variables: any;
   is_active: boolean;
   order_priority: number;
+  origin: 'manual' | 'compiler';
+  compiler_proposal_id: string | null;
+  review_signals: string[];
+  response_fact_dependencies?: Array<{
+    compiler_facts: {
+      material_id: string;
+      page_number: number;
+      fact_key: string;
+      compiler_materials: { original_filename: string } | null;
+    } | null;
+  }>;
   created_at: string;
   updated_at: string;
 }
@@ -45,6 +56,11 @@ type CreateIntentConfiguration = Omit<
   IntentConfiguration,
   'id' | 'scope_id' | 'created_at' | 'updated_at'
 > & { scope_id?: string | null };
+
+type CreateBotResponse = Omit<
+  BotResponse,
+  'id' | 'created_at' | 'updated_at' | 'origin' | 'compiler_proposal_id' | 'review_signals' | 'response_fact_dependencies'
+> & Partial<Pick<BotResponse, 'origin' | 'compiler_proposal_id'>>;
 
 export class IntentConfigRepositoryClient {
   /**
@@ -157,7 +173,7 @@ export class IntentConfigRepositoryClient {
   async getResponsesByIntentId(intentId: string): Promise<BotResponse[]> {
     const { data, error } = await supabase
       .from('bot_responses')
-      .select('*')
+      .select('*, response_fact_dependencies(compiler_facts(material_id, page_number, fact_key, compiler_materials(original_filename)))')
       .eq('intent_id', intentId)
       .order('order_priority', { ascending: true });
 
@@ -172,7 +188,7 @@ export class IntentConfigRepositoryClient {
   /**
    * Crear respuesta para una intención
    */
-  async createResponse(data: Omit<BotResponse, 'id' | 'created_at' | 'updated_at'>): Promise<BotResponse> {
+  async createResponse(data: CreateBotResponse): Promise<BotResponse> {
     const { data: response, error } = await supabase
       .from('bot_responses')
       .insert(normalizeResponseWrite(data))

@@ -10,7 +10,8 @@ import {
   Calendar, 
   Settings, 
   LogOut,
-  UserCog
+  UserCog,
+  FileText
 } from 'lucide-react';
 import {
   Tooltip,
@@ -33,6 +34,7 @@ const navItems: NavItem[] = [
   { href: '/conversations', icon: MessageSquare, label: 'Conversaciones' },
   { href: '/advisor-requests', icon: ClipboardList, label: 'Solicitudes Asesor' },
   { href: '/intents', icon: Target, label: 'Intenciones' },
+  { href: '/compiler', icon: FileText, label: 'Compilador' },
   { href: '/appointments', icon: Calendar, label: 'Citas' },
   { href: '/settings', icon: Settings, label: 'Configuración' },
   { href: '/profile', icon: UserCog, label: 'Mi Perfil' },
