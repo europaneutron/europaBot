@@ -81,6 +81,54 @@ La estructura confirmada SHALL ser la que crea los proyectos y sus partes.
 - **THEN** la propuesta las presenta como partes de ese proyecto
 - **AND** la pregunta sobre cómo ocurre una visita se hace sobre esos nombres concretos
 
+### Requirement: La identidad del negocio
+
+El recorrido SHALL recoger el nombre del negocio del cliente, proponiéndolo desde el material cuando pueda deducirlo, y SHALL distinguirlo de la palabra con la que el cliente nombra sus proyectos.
+
+El nombre del negocio SHALL quedar disponible como variable para los mensajes configurables.
+
+#### Scenario: Nombre propuesto desde el material
+
+- **WHEN** el material permite deducir el nombre del negocio
+- **THEN** el sistema lo propone y el cliente lo confirma o lo corrige
+
+#### Scenario: Nombre que el material no dice
+
+- **WHEN** el material solo menciona los proyectos y no el negocio que los vende
+- **THEN** el sistema lo pregunta
+
+#### Scenario: Negocio y proyecto son cosas distintas
+
+- **WHEN** el cliente tiene un solo proyecto
+- **THEN** el nombre del negocio y el del proyecto se conservan por separado
+
+#### Scenario: El bot se presenta
+
+- **WHEN** el bot saluda a un lead
+- **THEN** se presenta con el nombre del negocio y no con el de uno de sus proyectos
+
+### Requirement: El saludo se compone sin pisar el existente
+
+Cuando el cliente no tenga un saludo propio, el sistema SHALL componerlo con la identidad del negocio y los proyectos disponibles.
+
+Un saludo ya redactado NO SHALL modificarse sin que el cliente lo vea y lo confirme.
+
+#### Scenario: Cliente sin saludo propio
+
+- **WHEN** un cliente termina el recorrido y no tenía un saludo redactado
+- **THEN** su bot saluda con el nombre del negocio y lo que hay disponible
+
+#### Scenario: Cliente con saludo propio
+
+- **WHEN** un cliente ya tiene un saludo redactado
+- **THEN** el sistema no lo cambia por su cuenta
+- **AND** puede ofrecerle el compuesto mostrándoselo antes
+
+#### Scenario: Alta de un proyecto nuevo
+
+- **WHEN** se da de alta un proyecto y el saludo es compuesto
+- **THEN** aparece en el saludo sin editar ningún texto
+
 ### Requirement: Las preguntas hablan del negocio, no de la estructura
 
 Las decisiones que determinan la forma del catálogo SHALL preguntarse a través de cómo vende el cliente, y NO SHALL presentarse como decisiones de estructura.

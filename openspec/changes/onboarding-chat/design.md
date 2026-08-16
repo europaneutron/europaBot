@@ -148,6 +148,33 @@ Y devuelve el sentido a la primera compuerta. `document-compiler` ya exigía con
 
 *La declaración a mano se conserva como escotilla*, para cuando el material sea pobre, esté vacío o todavía no exista. Escotilla, no camino.
 
+### La raíz es el negocio, no un proyecto
+
+*Añadido tras la revisión del 2026-08-16.*
+
+El árbol tiene una raíz y hasta ahora nadie había dicho qué representa. La respuesta es el negocio del cliente —la inmobiliaria, la agencia, la empresa—, y de ella cuelgan sus proyectos. No es un nivel de profundidad que se elija: está siempre, y es **quien habla**.
+
+Que no estuviera dicho tiene una consecuencia visible hoy. La raíz se llama `Europa`, que es el nombre de un desarrollo: cuando solo había uno, ocupó el lugar del negocio. El saludo lo arrastra:
+
+> ¡Hola! Bienvenid@ a **Europa**, tu nuevo hogar.
+
+El día que existan dos desarrollos, el mensaje de mayor volumen del bot le da la bienvenida a uno de los dos. Es un dato falso, no una imprecisión de estilo.
+
+De ahí que la identidad del negocio sea un dato propio, distinto del vocabulario:
+
+- **Quién habla** — el nombre del negocio. Va en el saludo y en cómo se presenta el bot.
+- **Cómo llama a lo que vende** — la palabra del cliente. Va donde el mensaje la marque.
+
+Son dos cosas que se confundían en una sola porque con un solo desarrollo coinciden.
+
+El nombre del negocio es además **lo único que el material no puede decir**: un brochure dice *Residencial Altavista*, que es el proyecto, no la inmobiliaria que lo vende. El giro sí se infiere —el compilador ya lo deduce para proponer el preset—, así que la pregunta se hace sobre algo concreto y con una propuesta cuando el material dé pistas.
+
+### El saludo se compone; el que ya existe no se toca
+
+Con la identidad disponible, el saludo deja de ser texto escrito a mano y pasa a componerse: quién habla y qué hay disponible, ambos como variables.
+
+Pero un cliente que ya tiene su saludo redactado y aprobado **no puede verlo cambiar solo**. Es contenido suyo, y reescribirlo en una migración es exactamente lo que este proyecto se prohibió al retirar los CTA sembrados. La regla: el saludo compuesto es lo que recibe quien no tiene uno propio, y a quien ya lo tiene se le ofrece —mostrándoselo— durante el recorrido. Se cambia si lo confirma.
+
 ### La espera se acompaña, no se automatiza
 
 El cliente no sabe cuánto tarda leer su material, y esa es justamente la razón para mostrárselo. Un indicador de avance con una instrucción honesta —cuánto puede tardar y que no cierre— es lo que convierte una pantalla congelada en una espera tolerable.

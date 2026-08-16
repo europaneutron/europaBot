@@ -106,3 +106,19 @@ iba antes que el modelo. Ver la decisión en `design.md`.
 **Fuera de alcance, anotado como deuda:** impedir que dos pestañas avancen la
 misma compilación a la vez. Necesita un operador simultáneo consigo mismo; se
 vuelve necesario al vender a una agencia con varias personas tocando lo mismo.
+
+## 12. La identidad del negocio
+
+Decidido el 2026-08-16. La raíz del árbol es el negocio del cliente, no uno de
+sus proyectos, y eso no estaba dicho en ninguna parte. Hoy la raíz se llama
+`Europa` —un desarrollo— y el saludo arrastra ese nombre, así que en cuanto
+existan dos desarrollos el mensaje de mayor volumen del bot le da la bienvenida
+a uno de los dos.
+
+- [ ] 12.1 Recoger el nombre del negocio en el recorrido, proponiéndolo desde el material cuando se pueda deducir y preguntándolo cuando no. Es lo único que un brochure no dice: menciona el proyecto, no la inmobiliaria que lo vende
+- [ ] 12.2 Guardarlo junto al vocabulario y exponerlo como variable para los mensajes configurables. Son dos datos distintos que se confundían porque con un solo proyecto coinciden
+- [ ] 12.3 Nombrar la raíz con el negocio cuando el cliente lo confirme, en lugar de dejar el nombre de un proyecto ocupando su lugar
+- [ ] 12.4 Componer el saludo con la identidad y los proyectos disponibles para quien no tenga uno propio
+- [ ] 12.5 No modificar un saludo ya redactado sin mostrárselo al cliente y que lo confirme. Reescribir contenido aprobado en una migración es lo que este proyecto se prohibió al retirar los CTA sembrados
+- [ ] 12.6 Verificar que un cliente con saludo propio conserva su texto literal tras el recorrido, y que uno sin saludo recibe el compuesto
+- [ ] 12.7 Verificar que dar de alta un proyecto nuevo lo incorpora al saludo compuesto sin editar textos
