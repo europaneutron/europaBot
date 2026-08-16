@@ -37,6 +37,86 @@ const extractionSchema = z.object({
   })).default([]),
 });
 
+// La forma la garantiza el proveedor, no una comprobacion posterior.
+// Con json_object el modelo devuelve JSON valido pero de la forma que quiera:
+// la primera ejecucion real contra un PDF devolvio proposed_tree como objeto y
+// candidate_questions con otros campos, y zod tumbo la ejecucion entera sin
+// reintento. Con json_schema estricto esa clase de fallo desaparece en origen.
+const EXTRACTION_JSON_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['facts', 'candidate_questions', 'proposed_tree'],
+  properties: {
+    facts: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['material_id', 'key', 'subject', 'value', 'type', 'page', 'provenance_confidence'],
+        properties: {
+          material_id: { type: 'string' },
+          key: { type: 'string' },
+          subject: { type: ['string', 'null'] },
+          value: { type: 'string' },
+          type: { type: 'string', enum: ['text', 'money', 'date', 'contractual', 'number', 'location'] },
+          page: { type: ['integer', 'null'] },
+          provenance_confidence: { type: 'number' },
+        },
+      },
+    },
+    candidate_questions: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['intent_name', 'question', 'fact_keys'],
+        properties: {
+          intent_name: { type: 'string' },
+          question: { type: 'string' },
+          fact_keys: { type: 'array', items: { type: 'string' } },
+        },
+      },
+    },
+    proposed_tree: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['name', 'scope_type', 'parent_name'],
+        properties: {
+          name: { type: 'string' },
+          scope_type: { type: 'string' },
+          parent_name: { type: ['string', 'null'] },
+        },
+      },
+    },
+  },
+} as const;
+
+const WRITING_JSON_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['proposals'],
+  properties: {
+    proposals: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['intent_name', 'response', 'keywords', 'synonyms', 'typos', 'phrases'],
+        properties: {
+          intent_name: { type: 'string' },
+          response: { type: 'string' },
+          keywords: { type: 'array', items: { type: 'string' } },
+          synonyms: { type: 'array', items: { type: 'string' } },
+          typos: { type: 'array', items: { type: 'string' } },
+          phrases: { type: 'array', items: { type: 'string' } },
+        },
+      },
+    },
+  },
+} as const;
+
 const writingSchema = z.object({
   proposals: z.array(z.object({
     intent_name: z.string(),
@@ -116,7 +196,14 @@ export class DocumentCompilerService {
       model,
       input: [{ role: 'user', content }],
       store: false,
-      text: { format: { type: 'json_object' } },
+      text: {
+        format: {
+          type: 'json_schema',
+          name: 'compiler_extraction',
+          strict: true,
+          schema: EXTRACTION_JSON_SCHEMA as unknown as Record<string, unknown>,
+        },
+      },
     });
     const parsed = extractionSchema.parse(JSON.parse(response.output_text));
 
@@ -264,7 +351,14 @@ export class DocumentCompilerService {
       model,
       store: false,
       input: `Redacta respuestas breves para WhatsApp usando exclusivamente los hechos dados. No inventes, no agregues invitaciones a agendar y no uses emojis. Devuelve JSON con {"proposals":[{"intent_name":"...","response":"...","keywords":[],"synonyms":[],"typos":[],"phrases":[]}]}.\n\nCobertura: ${JSON.stringify(covered)}\n\nHechos: ${JSON.stringify(review.facts.map((fact: any) => ({ id: fact.id, key: fact.fact_key, subject: fact.subject, value: fact.fact_value })))}`,
-      text: { format: { type: 'json_object' } },
+      text: {
+        format: {
+          type: 'json_schema',
+          name: 'compiler_writing',
+          strict: true,
+          schema: WRITING_JSON_SCHEMA as unknown as Record<string, unknown>,
+        },
+      },
     });
     const generated = writingSchema.parse(JSON.parse(response.output_text));
     const generatedByIntent = new Map(generated.proposals.map(item => [item.intent_name, item]));

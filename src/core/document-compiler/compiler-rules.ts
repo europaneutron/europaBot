@@ -111,6 +111,41 @@ function stableJson(value: unknown): string {
  * nada que aclarar ahi. Marcarlas encendia la senal en casi toda propuesta de
  * precio, y una senal siempre encendida no ordena la revision: la anula.
  */
+// Tipos cuyo valor es unico por naturaleza: un desarrollo tiene un precio por
+// modelo, una fecha de entrega, una direccion. Un `text` con varios valores no
+// es un conflicto: es una lista.
+// `location` y `contractual` quedan fuera a proposito: el modelo etiqueta asi
+// tanto una direccion unica como una enumeracion de opciones de credito, y en
+// la primera ejecucion real contra un PDF marco "Infonavit, Fovissste y credito
+// bancario" como conflicto por esa via.
+const EXCLUSIVE_FACT_TYPES = new Set(['money', 'date', 'number']);
+const EXCLUSIVE_VALUE_PATTERNS = [
+  /^\s*(?:\$|mxn|usd)?\s*\d[\d.,]*\s*(?:%|m2|mxn|usd)?\s*$/i,
+  /\b\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4}\b/,
+  /\b\d{1,2}\s+de\s+(?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)\b/i,
+];
+
+/**
+ * Dos valores de la misma clave y el mismo sujeto solo se contradicen si se
+ * excluyen entre si.
+ *
+ * "Aceptamos Infonavit, Fovissste y credito bancario" son tres hechos de la
+ * misma clave y ninguno desmiente a los otros: es una enumeracion. Marcarla
+ * llenaba de señales las respuestas de financiamiento y amenidades, que es la
+ * misma forma de ruido que ya costo un hallazgo con los precios por modelo.
+ *
+ * La exclusividad se decide por la forma del valor primero y por el tipo
+ * declarado despues: equivocarse aqui solo desordena la revision, no expone al
+ * lead, asi que aceptar la etiqueta del modelo como refuerzo es razonable.
+ */
+function valuesAreExclusive(facts: ExtractedFact[]): boolean {
+  return facts.every(fact => {
+    const rendered = typeof fact.value === 'string' ? fact.value : JSON.stringify(fact.value ?? '');
+    return EXCLUSIVE_VALUE_PATTERNS.some(pattern => pattern.test(rendered))
+      || EXCLUSIVE_FACT_TYPES.has(fact.type);
+  });
+}
+
 export function consolidateFacts(facts: ExtractedFact[]): ExtractedFact[] {
   const bySubject = new Map<string, Map<string, ExtractedFact>>();
 
@@ -123,8 +158,9 @@ export function consolidateFacts(facts: ExtractedFact[]): ExtractedFact[] {
   }
 
   return Array.from(bySubject.values()).flatMap(values => {
-    const contradictory = values.size > 1;
-    return Array.from(values.values()).map(fact => ({ ...fact, contradictory }));
+    const rows = Array.from(values.values());
+    const contradictory = rows.length > 1 && valuesAreExclusive(rows);
+    return rows.map(fact => ({ ...fact, contradictory }));
   });
 }
 

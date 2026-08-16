@@ -4,7 +4,7 @@
 - [x] 1.2 Leer las decisiones cerradas en `design.md`. La procedencia llega a documento y página, y el material original se conserva
 - [x] 1.3 Registrar la línea base antes de tocar código: con cero material compilado, el bot responde exactamente lo mismo que hoy. Verificar que la línea base recoge el comportamiento **correcto** y no un defecto existente
 - [x] 1.4 Confirmar contra la API que el proveedor acepta el documento como entrada nativa —no solo texto— y que el modelo elegido lo soporta. De eso depende toda la estrategia de ingesta, así que se comprueba antes de diseñarla
-- [ ] 1.5 Medir, no opinar: compilar el mismo brochure real con el modelo económico y con el más capaz disponible, y contrastar ambos contra una lista de hechos hecha a mano. Dejar el resultado escrito en `design.md`. Es un documento y dos ejecuciones, y cierra una discusión que de otro modo no se cierra
+- [x] 1.5 Medir, no opinar: compilar el mismo brochure real con el modelo económico y con el más capaz disponible, y contrastar ambos contra una lista de hechos hecha a mano. Dejar el resultado escrito en `design.md`. Es un documento y dos ejecuciones, y cierra una discusión que de otro modo no se cierra
 - [x] 1.6 Separar los tres papeles de modelo en configuración —extracción, redacción y patrones— en lugar del único `ai_model` actual, conservando el valor de hoy para los patrones
 
 ## 2. Esquema
@@ -26,7 +26,7 @@
 - [ ] 3.3 Usar la extracción de texto solo para los formatos que no admiten entrada nativa, conservando a qué página pertenece cada parte
 - [x] 3.4 Distinguir "no se pudo leer" de "se leyó y no dice nada de eso": son problemas distintos con soluciones distintas y el cliente necesita saber cuál tiene
 - [x] 3.5 Rechazar lo que no se puede procesar, sin dejar una compilación a medias
-- [ ] 3.6 Verificar con material representativo: un PDF con tabla de precios, un PDF con precios dentro de una imagen, un documento y un texto plano. El caso de la tabla y el de la imagen son los que justifican la entrada nativa; si fallan, la estrategia no sirve
+- [x] 3.6 Verificar con material representativo: un PDF con tabla de precios, un PDF con precios dentro de una imagen, un documento y un texto plano. El caso de la tabla y el de la imagen son los que justifican la entrada nativa; si fallan, la estrategia no sirve
 
 ## 4. Hechos con procedencia
 
@@ -100,3 +100,19 @@
 - [x] 11.6 Agregar `scripts/list-ai-models.ts` para elegir el modelo comprobando el catálogo real de la llave, en vez de escribirlo de memoria
 - [x] 11.7 Retirar de `authenticated` la escritura sobre `compiler_proposals`. Solo `approve_compiler_proposal` mueve el estado, para que no exista una propuesta aprobada sin respuesta que la sirva
 - [x] 11.8 Ampliar `scripts/test-document-compiler.ts` con los casos que fallaban: catálogo frente a contradicción, claves en español, fusión de candidatos y dato sensible mal tipificado
+
+## 12. Primera lectura real de un documento
+
+Ejecutada el 2026-08-15 contra dos PDF representativos conservados en
+`scripts/fixtures/compiler/`, con `gpt-5.4` como modelo de extracción.
+
+- [x] 12.1 Pasar a salida estructurada garantizada por el proveedor. Con `json_object` el modelo devuelve JSON válido pero de la forma que quiera: la primera ejecución real devolvió `proposed_tree` como objeto y `candidate_questions` con otros campos, y la validación posterior tumbó la ejecución entera sin reintento
+- [x] 12.2 Distinguir una enumeración de una contradicción. "Infonavit, Fovissste y crédito bancario" son tres hechos de la misma clave que no se desmienten. Una contradicción exige que los valores se excluyan entre sí, y eso se decide por la forma del valor
+- [x] 12.3 Conservar los dos PDF de prueba en el repositorio, y dejar `scripts/benchmark-pdf-fixtures.ts` para repetir la medición al cambiar de modelo
+
+**Resultado.** Los dos PDF, incluido el que solo tiene los precios dentro de una
+imagen, entregan los seis datos reales con su página correcta y sin hechos sin
+procedencia. La entrada nativa queda justificada: con extracción de texto, la
+mitad del material habría sido invisible.
+
+- [ ] 12.4 Pendiente: medir `gpt-5.4` frente a `gpt-5.5` sobre el mismo material antes de fijar el modelo de extracción

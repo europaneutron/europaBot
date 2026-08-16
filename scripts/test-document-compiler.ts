@@ -99,6 +99,32 @@ assert(
   'el mismo sujeto con dos valores sí es una contradicción'
 );
 
+// Una enumeracion no es un conflicto: tres formas de financiamiento no se
+// desmienten entre si. Salio de la primera ejecucion real contra un PDF.
+const listFacts = ['Infonavit', 'Fovissste', 'Crédito bancario'].map(value => fact({
+  id: crypto.randomUUID(),
+  key: 'financiamiento_aceptado',
+  type: 'contractual',
+  value,
+  fingerprint: factFingerprint('financiamiento_aceptado', value),
+}));
+assert(
+  consolidateFacts(listFacts).every(row => !row.contradictory),
+  'una lista de opciones no se marca como contradicción'
+);
+
+const amenityFacts = ['Caseta de vigilancia 24 horas', 'Acceso controlado'].map(value => fact({
+  id: crypto.randomUUID(),
+  key: 'amenidad',
+  type: 'text',
+  value,
+  fingerprint: factFingerprint('amenidad', value),
+}));
+assert(
+  consolidateFacts(amenityFacts).every(row => !row.contradictory),
+  'varias amenidades no son una contradicción'
+);
+
 // El material y el prompt estan en espanol: esperar solo claves en ingles
 // convertia en hueco todo lo que el documento si responde.
 for (const key of ['price', 'precio', 'precio_desde', 'starting_price']) {
