@@ -84,7 +84,7 @@
 - [x] 10.1 Confirmar que sin material compilado el comportamiento observable del bot es idéntico a la línea base
 - [x] 10.2 Confirmar que responder un mensaje no hace ninguna llamada a un modelo de lenguaje ni toca el material del cliente
 - [x] 10.3 Verificar que el bot sigue respondiendo con contenido aprobado cuando el proveedor externo no está disponible
-- [ ] 10.4 Escenario extremo a extremo: subir material, revisar hechos, aprobar estructura, aprobar contenido, y que un lead reciba una respuesta compilada
+- [x] 10.4 Escenario extremo a extremo: subir material, revisar hechos, aprobar estructura, aprobar contenido, y que un lead reciba una respuesta compilada
 - [x] 10.5 Verificar que una compilación interrumpida se retoma sin repetir lo hecho y sin dejar contenido aprobado a medias
 - [x] 10.6 Verificar que cada prueba nueva **falla con el código anterior**, para que no consagre el comportamiento que se está corrigiendo
 - [x] 10.7 Confirmar `tsc --noEmit` limpio y sin emojis nuevos, conforme a `AGENTS.md`
@@ -116,3 +116,13 @@ procedencia. La entrada nativa queda justificada: con extracción de texto, la
 mitad del material habría sido invisible.
 
 - [ ] 12.4 Pendiente: medir `gpt-5.4` frente a `gpt-5.5` sobre el mismo material antes de fijar el modelo de extracción
+
+- [x] 12.5 Recorrido completo automatizado en `scripts/test-document-compiler-e2e.ts`: de un PDF real a una respuesta que recibe un lead por el matcher. Comprueba las dos compuertas, que lo propuesto no existe como respuesta hasta aprobarse, que la aprobada conserva sus hechos, y que el contenido compilado no invita a agendar por su cuenta
+
+**Hallazgo del recorrido:** la primera compuerta es más fuerte de lo que la spec
+pedía. El `CHECK` de `compiler_runs` impide siquiera mover la ejecución a una
+etapa de contenido sin el árbol aprobado, así que no depende de que el código se
+acuerde de comprobarlo. La prueba se escribió mal la primera vez por asumir que
+la única defensa era la del servicio.
+
+- [ ] 12.6 Pendiente, no automatizable desde aquí: revisión manual del panel `/compiler` en el navegador (tarea 7.5)
