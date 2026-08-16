@@ -11,6 +11,7 @@ import { whatsappSender } from '@/services/whatsapp/message-sender';
 import type { AppointmentFlow, TimeSlot, AppointmentFlowData } from '@/types/appointment.types';
 import { interpolateMessage } from '@/lib/interpolate-message';
 import { ROOT_SCOPE_ID } from '@/data/repositories/scope.repository';
+import { resolveConfiguredMessage } from '@/core/messaging/configured-message';
 
 export class AppointmentManager {
   /**
@@ -48,7 +49,7 @@ export class AppointmentManager {
     // Flujo normal: preguntar primero si quiere agendar (usado en auto-offer)
     await userRepository.updateAppointmentFlowState(userId, 'ask_confirmation');
 
-    const message = await configRepository.get(
+    const message = await resolveConfiguredMessage(
       'auto_offer_message',
       '¡Veo que estás muy interesado! 🎉 ¿Te gustaría agendar una visita para conocer el fraccionamiento en persona?'
     );
@@ -352,7 +353,7 @@ Puedes escribir:
     // Formatear mensaje de confirmación con variables
     const dateDisplay = this.formatDate(flowData.requested_date);
     const timeSlotConfig = await this.getTimeSlotDisplay(flowData.time_slot, originScopeId);
-    const address = await configRepository.get(
+    const address = await resolveConfiguredMessage(
       'appointment_address',
       'Calle Principal #123, Fraccionamiento Europa, Ciudad'
     );

@@ -14,6 +14,8 @@ import type { CandidateQuestion, ExtractedFact } from '@/data/models/document-co
 import { documentCompilerRepository } from '@/data/repositories/document-compiler.repository';
 import { getAiModel, getOpenAIClient } from '@/services/ai/openai.service';
 import { getCompilerMaterialModelSource } from '@/services/storage/compiler-material-storage';
+import { clientBrandRepository } from '@/data/repositories/client-brand.repository';
+import { toClientVocabulary, toneInstruction } from '@/core/onboarding/client-vocabulary';
 
 const extractionSchema = z.object({
   facts: z.array(z.object({
@@ -346,11 +348,19 @@ export class DocumentCompilerService {
       );
     }
 
-    const [openai, model] = await Promise.all([getOpenAIClient(), getAiModel('writing')]);
+    const [openai, model, brand] = await Promise.all([
+      getOpenAIClient(),
+      getAiModel('writing'),
+      clientBrandRepository.get(),
+    ]);
+    const vocabulary = toClientVocabulary(brand);
+    const brandInstruction = brand.is_configured
+      ? `${toneInstruction(brand.tone)} Llama a los proyectos "${vocabulary.plural}" y a uno solo "${vocabulary.singular}".`
+      : '';
     const response = await openai.responses.create({
       model,
       store: false,
-      input: `Redacta respuestas breves para WhatsApp usando exclusivamente los hechos dados. No inventes, no agregues invitaciones a agendar y no uses emojis. Devuelve JSON con {"proposals":[{"intent_name":"...","response":"...","keywords":[],"synonyms":[],"typos":[],"phrases":[]}]}.\n\nCobertura: ${JSON.stringify(covered)}\n\nHechos: ${JSON.stringify(review.facts.map((fact: any) => ({ id: fact.id, key: fact.fact_key, subject: fact.subject, value: fact.fact_value })))}`,
+      input: `Redacta respuestas breves para WhatsApp usando exclusivamente los hechos dados. No inventes, no agregues invitaciones a agendar y no uses emojis. ${brandInstruction} Devuelve JSON con {"proposals":[{"intent_name":"...","response":"...","keywords":[],"synonyms":[],"typos":[],"phrases":[]}]}.\n\nCobertura: ${JSON.stringify(covered)}\n\nHechos: ${JSON.stringify(review.facts.map((fact: any) => ({ id: fact.id, key: fact.fact_key, subject: fact.subject, value: fact.fact_value })))}`,
       text: {
         format: {
           type: 'json_schema',

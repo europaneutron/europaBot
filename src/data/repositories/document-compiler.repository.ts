@@ -23,6 +23,24 @@ export class DocumentCompilerRepository {
     return data || [];
   }
 
+  /**
+   * Ejecuciones que pueden avanzar solas.
+   *
+   * Deliberadamente excluye las que esperan una decision humana: una compuerta
+   * que un proceso automatico pudiera cruzar no seria una compuerta.
+   */
+  async listAdvanceableRuns(limit = 5) {
+    const { data, error } = await supabaseServer
+      .from('compiler_runs')
+      .select('id, current_stage, status')
+      .in('status', ['pending', 'running'])
+      .not('current_stage', 'in', '(tree,review,completed)')
+      .order('updated_at', { ascending: true })
+      .limit(limit);
+    if (error) throw error;
+    return data || [];
+  }
+
   async createMaterial(input: CreateMaterialInput) {
     const { data, error } = await supabaseServer
       .from('compiler_materials')
@@ -320,7 +338,10 @@ export class DocumentCompilerRepository {
       this.getRun(runId),
       supabaseServer.from('compiler_facts').select('*, compiler_materials(original_filename, storage_path)').eq('run_id', runId),
       supabaseServer.from('compiler_coverage').select('*').eq('run_id', runId).order('status', { ascending: false }),
-      supabaseServer.from('compiler_proposals').select('*, compiler_proposal_facts(fact_id)').eq('run_id', runId),
+      supabaseServer
+        .from('compiler_proposals')
+        .select('*, compiler_proposal_facts(fact_id), intent_configurations(display_name)')
+        .eq('run_id', runId),
     ]);
     if (factsResult.error) throw factsResult.error;
     if (coverageResult.error) throw coverageResult.error;

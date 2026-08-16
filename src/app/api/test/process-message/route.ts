@@ -102,7 +102,8 @@ export async function POST(request: NextRequest) {
             .limit(1)
             .single();
           
-          const appointmentOffer = await configRepository.get(
+          const { resolveConfiguredMessage } = await import('@/core/messaging/configured-message');
+          const appointmentOffer = await resolveConfiguredMessage(
             'auto_offer_message',
             '¡Veo que estás muy interesado! 🎉 ¿Te gustaría agendar una visita para conocer el fraccionamiento en persona?'
           );

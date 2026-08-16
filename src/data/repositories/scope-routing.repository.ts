@@ -9,6 +9,27 @@ export interface ScopeAlias {
 }
 
 export class ScopeRoutingRepository {
+  async createAliases(
+    scopeId: string,
+    aliases: Array<{ alias: string; normalizedAlias: string }>
+  ): Promise<ScopeAlias[]> {
+    if (aliases.length === 0) return [];
+
+    const { data, error } = await supabaseServer
+      .from('scope_aliases')
+      .upsert(
+        aliases.map(item => ({
+          scope_id: scopeId,
+          alias: item.alias,
+          normalized_alias: item.normalizedAlias,
+        })),
+        { onConflict: 'scope_id,normalized_alias' }
+      )
+      .select('id, scope_id, alias');
+    if (error) throw error;
+    return (data || []) as ScopeAlias[];
+  }
+
   async findActiveScopeByAd(adId: string): Promise<string | null> {
     const { data, error } = await supabaseServer
       .from('scope_ads')

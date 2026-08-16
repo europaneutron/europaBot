@@ -41,6 +41,91 @@ Lo que ya existe y este cambio consume:
 
 ## Decisions
 
+## Preparacion verificada antes de implementar
+
+### Linea base de comportamiento
+
+El 16 de agosto de 2026 se ejecuto `npx tsx scripts/test-scope-baseline.ts`
+contra `.env.development.local`. La deteccion y las respuestas existentes quedaron
+registradas como contrato de regresion en
+`openspec/changes/scope-tree/baseline.json`: `precio` devuelve dos respuestas,
+`ubicacion` devuelve dos y `saludo` devuelve una; tambien se conservaron los
+horarios y la configuracion efectiva del asesor. El cambio no debe modificar esas
+filas ni la resolucion que consume el runtime. El onboarding solo crea contenido
+nuevo y sustituye vocabulario al renderizar mensajes configurables.
+
+### Inspeccion inicial en navegador
+
+Se abrio `http://127.0.0.1:3000/compiler` a 1440 x 1100 antes de tocar codigo.
+La primera observacion fue un bloqueo anterior al panel: la ruta no esta incluida
+en el matcher del middleware y el layout protegido muestra indefinidamente su
+estado de carga cuando no existe sesion. La captura queda en
+`compiler-before.png`. Esto impide que un administrador no autenticado entienda
+nada y debe corregirse al incorporar las rutas nuevas al middleware.
+
+Una vez dentro, la pantalla mezcla tres trabajos sin jerarquia: recibir material,
+operar el proceso interno y revisar resultados. El usuario tiene que saber que
+primero elige un destino tecnico, despues avanza fases y finalmente revisa. La
+seccion lateral separa el dato de la respuesta que depende de el, por lo que obliga
+a cruzar visualmente dos listas.
+
+La verificacion posterior se hizo en Chrome con una sesion temporal y viewport de
+1440 x 1100. `onboarding-after.png` confirma que la primera decision se entiende
+sin contexto tecnico, muestra el avance y ofrece una recomendacion. Tras elegirla,
+el navegador avanzo al paso 2 sin recarga manual. `compiler-after.png` confirma que
+el panel vacio explica que falta y ofrece una sola accion util. La lectura del DOM
+no encontro ninguno de los terminos internos prohibidos; el texto capturado queda
+en `browser-verification.txt`.
+
+### Inventario de textos a sustituir
+
+| Superficie | Texto actual | Sustitucion o regla |
+|---|---|---|
+| Navegacion | `Compilador` | `Contenido` |
+| Encabezado | `Compilador de documentos` | `Contenido para tu bot` |
+| Material | `El original queda conservado`, `Conservar material` | Retirar la promesa de almacenamiento; usar `Agregar material` |
+| Destino | `Alcance`, `Selecciona un alcance` | No mostrar selector; resolver el proyecto desde el recorrido |
+| Proceso | `Compilacion por etapas`, `Cada etapa...`, selector de compilacion, `Ejecutar siguiente etapa`, `Confirmar estructura` | Retirar todos los controles; mostrar solo que se esta preparando contenido, que falta y como reintentar |
+| Estado | `current_stage`, `status` y el arbol JSON | Traducir a estados del cliente; nunca mostrar valores internos |
+| Revision | `Hechos y procedencia` | `De donde salio este dato`, junto a la respuesta correspondiente |
+| Revision | `Procedencia dudosa` | `No pudimos confirmar el origen` |
+| Revision | `Todavia no hay propuestas` | `Todavia no hay respuestas para revisar` |
+| Cobertura | `Huecos`, `Preguntas que faltan por compilar` | `Informacion que falta` y `Preguntas que el bot aun no cubre` |
+| Cobertura | `No hay preguntas pendientes para este alcance` | Usar el singular elegido, por ejemplo `...para este desarrollo` |
+| Intenciones | `Nombre interno`, `intent_name`, `checkpoint`, `confianza`, `patrones`, `keywords`, `typos` | Son detalles de construccion: retirarlos del camino normal o nombrarlos como preguntas, formas de preguntar y prioridad |
+| Intenciones | ejemplos `Precio de Casas`, `casas, terrenos o propiedades`, `precio_casas`, `modelos` | Renderizar ejemplos con el singular y plural elegidos |
+| Mensajes sembrados | `desarrollo` en `scope_disambiguation_message`, `scope_presentation_message` y respuestas de ubicacion/brochure | Usar una variable compartida de vocabulario |
+| Mensajes sembrados | `fraccionamiento` en oferta de cita, direccion, cita, notificacion y follow-up | Usar la misma variable compartida; no hacer reemplazos ad hoc por consumidor |
+| Mensajes sembrados | `Fraccionamiento Europa`, `casas` y `modelos` en textos iniciales | No reescribir contenido ya aprobado; parametrizar solo mensajes configurables y nuevos, preservando la linea base |
+
+La sustitucion de vocabulario se resuelve en una unica utilidad de dominio. Tanto
+la interfaz como los mensajes configurables reciben de ella el singular, plural y
+sus variantes con mayuscula. Los nombres internos de tablas y columnas no cambian.
+
+### Comprobaciones antes de produccion
+
+Antes de aplicar `037_onboarding_chat.sql` en el esquema remoto se debe verificar:
+
+- que el historial remoto termina en `036_ai_models_not_customer_editable.sql` y
+  no existe otra migracion numerada `037`;
+- que existe la raiz `00000000-0000-4000-8000-000000000001`, porque la fila de
+  marca la referencia de forma explicita;
+- que existen `admin_users`, `scopes` y `compiler_runs` con las claves foraneas
+  que consume la migracion;
+- que el proyecto remoto expone las tablas nuevas al Data API solo mediante los
+  grants declarados y que las politicas RLS limitan cada sesion a su administrador;
+- que el bucket privado `compiler-materials`, la funcion `read_vault_secret` y el
+  secreto `openai_api_key` siguen disponibles;
+- que `ai_extraction_model` y `ai_writing_model` apuntan a modelos disponibles
+  antes de probar un documento real;
+- que el `db push --dry-run` solo propone la migracion 037 y que la fila inicial
+  de marca queda con `is_configured = false`, para no modificar mensajes existentes.
+
+El stack local no tiene `openai_api_key` en Vault despues de `db reset`; por eso la
+verificacion con proveedor real queda como paso de preproduccion. Las reglas, la
+integracion de datos, el procesamiento reanudable y la regresion del runtime si se
+verificaron localmente.
+
 ### El usuario nunca ve el modelo del sistema
 
 Es el principio del que cuelga todo lo demás, y el que se incumplió en el panel del compilador.

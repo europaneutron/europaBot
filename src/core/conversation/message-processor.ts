@@ -25,6 +25,7 @@ import {
 import type { User, UserSession } from '@/data/models/user.model';
 import { scopeRoutingRepository } from '@/data/repositories/scope-routing.repository';
 import { interpolateMessage } from '@/lib/interpolate-message';
+import { resolveConfiguredMessage } from '@/core/messaging/configured-message';
 
 // Fuentes de foco que pueden reanudar una pregunta retenida: las tres nacen de
 // algo que el lead acaba de decir o traer. El foco heredado de la sesión no
@@ -352,12 +353,13 @@ export class MessageProcessor {
           detectionResult.intent.intent_name
         );
         const scopeList = await this.getAvailableScopeList();
-        const template = await configRepository.get(
+        const message = await resolveConfiguredMessage(
           'scope_disambiguation_message',
-          '¿De cuál desarrollo te gustaría recibir información?\n\n{alcances}'
+          '¿De cuál {project_singular} te gustaría recibir información?\n\n{alcances}',
+          { alcances: scopeList }
         );
         return {
-          responses: [interpolateMessage(template, { alcances: scopeList })],
+          responses: [message],
           shouldSend: true,
           wasDetected: true,
           isFallback: false,
@@ -509,11 +511,11 @@ export class MessageProcessor {
     if (intent.intent_name === 'saludo' && !hasFocus) {
       const scopes = await scopeRoutingRepository.getAvailableScopes();
       if (scopes.length > 1) {
-        const template = await configRepository.get(
+        responses.push(await resolveConfiguredMessage(
           'scope_presentation_message',
-          'Estos son los desarrollos disponibles:\n\n{alcances}\n\n¿Cuál te interesa?'
-        );
-        responses.push(interpolateMessage(template, { alcances: scopeList }));
+          '{project_plural_title} disponibles:\n\n{alcances}\n\n¿Cuál te interesa?',
+          { alcances: scopeList }
+        ));
       }
     }
 

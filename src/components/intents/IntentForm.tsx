@@ -15,6 +15,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Checkbox } from '@/components/ui/checkbox';
 import { ArrowLeft, Save, Loader2, Sparkles } from 'lucide-react';
 import Link from 'next/link';
+import useSWR from 'swr';
+
+const brandFetcher = async (url: string) => {
+  const response = await fetch(url);
+  if (!response.ok) return null;
+  return response.json();
+};
 
 interface IntentFormProps {
   mode: 'create' | 'edit';
@@ -40,6 +47,9 @@ interface FormData {
 
 export default function IntentForm({ mode, intentId }: IntentFormProps) {
   const router = useRouter();
+  const { data: brandData } = useSWR('/api/client-brand', brandFetcher);
+  const projectSingular = brandData?.vocabulary?.singular || 'desarrollo';
+  const projectPlural = brandData?.vocabulary?.plural || 'desarrollos';
   const [loading, setLoading] = useState(mode === 'edit');
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
@@ -287,7 +297,7 @@ export default function IntentForm({ mode, intentId }: IntentFormProps) {
         {/* Información Básica */}
         <Card>
           <CardHeader>
-            <CardTitle>Información Básica</CardTitle>
+              <CardTitle>Informacion basica</CardTitle>
             <CardDescription>
               Identifica la intención con un nombre claro y único
             </CardDescription>
@@ -295,7 +305,7 @@ export default function IntentForm({ mode, intentId }: IntentFormProps) {
           <CardContent className="space-y-4">
             {mode === 'edit' && (
               <div className="space-y-2">
-                <Label htmlFor="intent_name">Nombre interno (intent_name)</Label>
+                <Label htmlFor="intent_name">Identificador</Label>
                 <Input
                   id="intent_name"
                   value={formData.intent_name}
@@ -303,7 +313,7 @@ export default function IntentForm({ mode, intentId }: IntentFormProps) {
                   className="bg-muted cursor-not-allowed"
                 />
                 <p className="text-xs text-muted-foreground">
-                  No se puede modificar después de crear la intención
+                  Se mantiene igual para no perder las respuestas asociadas.
                 </p>
               </div>
             )}
@@ -314,7 +324,7 @@ export default function IntentForm({ mode, intentId }: IntentFormProps) {
                 id="display_name"
                 value={formData.display_name}
                 onChange={(e) => handleInputChange('display_name', e.target.value)}
-                placeholder="Ej: Precio de Casas"
+                placeholder={`Ej: Precio de ${projectPlural}`}
                 required
                 disabled={saving}
               />
@@ -326,7 +336,7 @@ export default function IntentForm({ mode, intentId }: IntentFormProps) {
                 id="description"
                 value={formData.description}
                 onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => handleInputChange('description', e.target.value)}
-                placeholder="Ej: Cuando el usuario pregunta por el precio o costo de casas, terrenos o propiedades"
+                placeholder={`Ej: Cuando el usuario pregunta por el precio o costo de ${projectPlural}`}
                 rows={2}
                 disabled={saving}
               />
@@ -337,12 +347,12 @@ export default function IntentForm({ mode, intentId }: IntentFormProps) {
 
             {mode === 'create' && (
               <div className="space-y-2">
-                <Label htmlFor="intent_name_create">Nombre interno (intent_name) *</Label>
+                <Label htmlFor="intent_name_create">Identificador *</Label>
                 <Input
                   id="intent_name_create"
                   value={formData.intent_name}
                   onChange={(e) => handleInputChange('intent_name', e.target.value.toLowerCase())}
-                  placeholder="precio_casas"
+                  placeholder={`precio_${projectPlural.replace(/\s+/g, '_')}`}
                   pattern="[a-z0-9_]+"
                   required
                   disabled={saving}
@@ -360,9 +370,9 @@ export default function IntentForm({ mode, intentId }: IntentFormProps) {
           <CardHeader>
             <div className="flex items-center justify-between">
               <div>
-                <CardTitle>Patrones de Reconocimiento</CardTitle>
+            <CardTitle>Formas de preguntar</CardTitle>
                 <CardDescription>
-                  Define las palabras y frases que activaran esta intencion
+                  Define como suelen pedir esta informacion tus clientes.
                 </CardDescription>
               </div>
               <Button
@@ -384,12 +394,12 @@ export default function IntentForm({ mode, intentId }: IntentFormProps) {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="keywords">Keywords * (separadas por coma)</Label>
+              <Label htmlFor="keywords">Palabras principales * (separadas por coma)</Label>
               <Textarea
                 id="keywords"
                 value={formData.keywords}
                 onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => handleInputChange('keywords', e.target.value)}
-                placeholder="precio, costo, cuanto cuesta, valor"
+                placeholder={`precio, costo, cuanto cuesta este ${projectSingular}, valor`}
                 rows={3}
                 required
                 disabled={saving}
@@ -412,7 +422,7 @@ export default function IntentForm({ mode, intentId }: IntentFormProps) {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="typos">Typos comunes (separados por coma)</Label>
+              <Label htmlFor="typos">Errores de escritura comunes (separados por coma)</Label>
               <Textarea
                 id="typos"
                 value={formData.typos}
@@ -429,7 +439,7 @@ export default function IntentForm({ mode, intentId }: IntentFormProps) {
                 id="phrases"
                 value={formData.phrases}
                 onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => handleInputChange('phrases', e.target.value)}
-                placeholder="cuanto cuesta una casa, cual es el precio, tienen financiamiento"
+                placeholder={`cuanto cuesta este ${projectSingular}, cual es el precio, tienen financiamiento`}
                 rows={3}
                 disabled={saving}
               />
@@ -440,7 +450,7 @@ export default function IntentForm({ mode, intentId }: IntentFormProps) {
         {/* Configuración Avanzada */}
         <Card>
           <CardHeader>
-            <CardTitle>Configuración Avanzada</CardTitle>
+            <CardTitle>Comportamiento</CardTitle>
             <CardDescription>
               Ajusta el comportamiento y prioridad de la intención
             </CardDescription>
@@ -448,7 +458,7 @@ export default function IntentForm({ mode, intentId }: IntentFormProps) {
           <CardContent className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="min_confidence">Confianza mínima (0.0 - 1.0)</Label>
+                <Label htmlFor="min_confidence">Coincidencia minima (0.0 - 1.0)</Label>
                 <Input
                   id="min_confidence"
                   type="number"
@@ -493,7 +503,7 @@ export default function IntentForm({ mode, intentId }: IntentFormProps) {
                   disabled={saving}
                 />
                 <Label htmlFor="is_checkpoint" className="text-sm font-normal cursor-pointer">
-                  Es checkpoint (suma al progreso del usuario)
+                  Esta pregunta cuenta para medir el interes del cliente.
                 </Label>
               </div>
 

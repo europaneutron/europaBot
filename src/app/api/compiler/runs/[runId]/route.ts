@@ -13,7 +13,7 @@ export async function GET(
     return NextResponse.json(await documentCompilerRepository.getReview(params.runId));
   } catch (error) {
     console.error('Error loading compiler review:', error);
-    return NextResponse.json({ error: 'No fue posible cargar la compilación' }, { status: 500 });
+    return NextResponse.json({ error: 'No fue posible cargar el resultado' }, { status: 500 });
   }
 }
 

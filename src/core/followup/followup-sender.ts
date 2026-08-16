@@ -19,6 +19,7 @@ import { supabaseServer } from '@/services/supabase/server-client';
 import { interpolateMessage } from '@/lib/interpolate-message';
 import { conversationRepository } from '@/data/repositories/conversation.repository';
 import { scopeRoutingService } from '@/core/conversation/scope-routing.service';
+import { resolveConfiguredTemplate } from '@/core/messaging/configured-message';
 
 const whatsappSender = new WhatsAppMessageSender();
 
@@ -66,7 +67,7 @@ export class FollowupSender {
     }
 
     // 4. Cargar plantilla desde configuración
-    const template = await configRepository.get('followup_template', '');
+    const template = await resolveConfiguredTemplate('followup_template', '');
 
     if (!template) {
       console.error('[FollowupSender] No se encontró plantilla en bot_config');

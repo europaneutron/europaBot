@@ -8,7 +8,7 @@ import {
   ClipboardList, 
   Calendar, 
   Settings,
-  UserCog
+  WandSparkles
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -22,9 +22,9 @@ const mobileNavItems: NavItem[] = [
   { href: '/dashboard', icon: Home, label: 'Inicio' },
   { href: '/conversations', icon: MessageSquare, label: 'Chats' },
   { href: '/advisor-requests', icon: ClipboardList, label: 'Solicitudes' },
+  { href: '/onboarding', icon: WandSparkles, label: 'Configurar' },
   { href: '/appointments', icon: Calendar, label: 'Citas' },
   { href: '/settings', icon: Settings, label: 'Config' },
-  { href: '/profile', icon: UserCog, label: 'Perfil' },
 ];
 
 export function MobileNav() {
