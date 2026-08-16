@@ -130,9 +130,25 @@ export class ConfigRepository {
    * Actualizar valor de configuración
    */
   async set(key: string, value: string): Promise<void> {
+    // `is_editable` describía una intención que nadie hacía cumplir: el
+    // dashboard decidía qué mostrar y cualquier otra ruta podía escribir lo
+    // que fuera. Los modelos de IA son el caso que lo hizo evidente —los elige
+    // el equipo del producto, no el cliente— y la comprobación vive aquí para
+    // que valga por igual venga de donde venga la escritura.
+    const { data: existing, error: readError } = await supabaseServer
+      .from('bot_config')
+      .select('is_editable')
+      .eq('config_key', key)
+      .maybeSingle();
+
+    if (readError) throw readError;
+    if (existing && existing.is_editable === false) {
+      throw new Error(`La configuración "${key}" no es editable desde la aplicación`);
+    }
+
     const { error } = await supabaseServer
       .from('bot_config')
-      .update({ 
+      .update({
         config_value: value,
         updated_at: new Date().toISOString()
       })

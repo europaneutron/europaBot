@@ -3,19 +3,28 @@ import { configRepository } from '@/data/repositories/config.repository';
 
 export type AiModelRole = 'patterns' | 'extraction' | 'writing';
 
-// El respaldo de los tres papeles es el único identificador verificado contra
-// la API en este proyecto. El modelo es un parámetro de texto en la petición,
-// pero no es texto libre: un nombre que no exista devuelve 404 al compilar, no
-// al guardarlo. Elegir uno más capaz para la extracción es deseable y es la
-// tarea 1.5, pero se hace comprobando el catálogo con `scripts/list-ai-models.ts`,
-// no escribiendo un nombre de memoria.
-const VERIFIED_FALLBACK_MODEL = 'gpt-4o-mini';
-
+// El modelo es un parámetro de texto en la petición, pero no es texto libre:
+// un nombre que no exista devuelve 404 al compilar, no al guardarlo. Estos
+// respaldos están comprobados contra el catálogo real de la cuenta con
+// `scripts/list-ai-models.ts`; cambiarlos exige volver a comprobarlos.
 const MODEL_CONFIG: Record<AiModelRole, { key: string; fallback: string }> = {
-  patterns: { key: 'ai_model', fallback: VERIFIED_FALLBACK_MODEL },
-  extraction: { key: 'ai_extraction_model', fallback: VERIFIED_FALLBACK_MODEL },
-  writing: { key: 'ai_writing_model', fallback: VERIFIED_FALLBACK_MODEL },
+  patterns: { key: 'ai_model', fallback: 'gpt-4o-mini' },
+  extraction: { key: 'ai_extraction_model', fallback: 'gpt-5.4' },
+  writing: { key: 'ai_writing_model', fallback: 'gpt-5.4-mini' },
 };
+
+/**
+ * Comprueba que un identificador exista en el catálogo de la cuenta.
+ *
+ * Se usa al guardar desde el dashboard: sin esto, un nombre mal escrito se
+ * guarda sin protestar y falla mucho después, dentro de una compilación, con
+ * el 404 enterrado en `last_error`.
+ */
+export async function listAvailableModels(): Promise<string[]> {
+  const openai = await getOpenAIClient();
+  const models = await openai.models.list();
+  return models.data.map(model => model.id);
+}
 
 export async function getOpenAIClient(): Promise<OpenAI> {
   const apiKey = await configRepository.getVaultSecret('openai_api_key');
