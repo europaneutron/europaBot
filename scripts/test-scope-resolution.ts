@@ -25,7 +25,14 @@ const scopes = [
 
 function createFakeClient(scopeRows: typeof scopes) {
   return {
-    from() {
+    from(table: string) {
+      if (table === 'scope_tree_version') {
+        return {
+          select() { return this; },
+          eq() { return this; },
+          single() { return Promise.resolve({ data: { version: 1 }, error: null }); },
+        };
+      }
       return {
         select() {
           return Promise.resolve({ data: scopeRows, error: null });
@@ -56,7 +63,14 @@ async function main(): Promise<void> {
   const mutableScopes = [{ ...scopes[0] }];
   let mutableLoadCount = 0;
   const mutableClient = {
-    from() {
+    from(table: string) {
+      if (table === 'scope_tree_version') {
+        return {
+          select() { return this; },
+          eq() { return this; },
+          single() { return Promise.resolve({ data: { version: 1 }, error: null }); },
+        };
+      }
       return {
         select() {
           mutableLoadCount += 1;
@@ -74,6 +88,12 @@ async function main(): Promise<void> {
   const newScopeOrder = await scopeRepository.getResolutionOrder(newlyCreatedScopeId, mutableClient);
   assert(newScopeOrder.includes(newlyCreatedScopeId), 'Un alcance ausente debe forzar una recarga');
   assert(mutableLoadCount === 2, 'Un alcance ausente debe recargar el árbol exactamente una vez');
+  await scopeRepository.getResolutionOrder(newlyCreatedScopeId, mutableClient);
+  await scopeRepository.getResolutionOrder(rootId, mutableClient);
+  assert(
+    mutableLoadCount === 2,
+    'Sin cambio de versión se comprueba la fila barata sin releer el árbol'
+  );
 
   const rows: TestRow[] = [
     { id: 'global', scope_id: null, key: 'global-only', value: 'global' },

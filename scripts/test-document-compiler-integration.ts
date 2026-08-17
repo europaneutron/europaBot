@@ -23,15 +23,22 @@ async function main() {
   let runId: string | null = null;
   let responseId: string | null = null;
   let interruptedRunId: string | null = null;
+  let intentId: string | null = null;
 
   try {
     const { data: intent, error: intentError } = await supabaseServer
       .from('intent_configurations')
+      .insert({
+        scope_id: scopeId,
+        intent_name: `compiler_integration_${suffix}`,
+        display_name: 'Compiler integration',
+        keywords: [`compiler${suffix}`],
+        is_active: true,
+      })
       .select('id')
-      .eq('scope_id', scopeId)
-      .eq('intent_name', 'precio')
       .single();
     if (intentError) throw intentError;
+    intentId = intent.id;
 
     const checkpoint = { extraction_response_id: `checkpoint-${suffix}` };
     const { data: interruptedRun, error: interruptedError } = await supabaseServer
@@ -187,6 +194,7 @@ async function main() {
       ...(suffixMaterials || []).map(row => row.id),
     ].filter(Boolean))) as string[];
     await purge('compiler_materials', 'id', materialIds);
+    if (intentId) await purge('intent_configurations', 'id', [intentId]);
 
     const { data: leftoverMaterials } = await supabaseServer.from('compiler_materials')
       .select('original_filename').like('original_filename', `%${suffix}%`);

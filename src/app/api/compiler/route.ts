@@ -18,11 +18,12 @@ const textInputSchema = z.object({
 export async function GET(request: NextRequest) {
   const admin = await getAuthenticatedAdmin(request);
   if (!admin) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
-  const [runs, brand] = await Promise.all([
+  const [runs, brand, collisions] = await Promise.all([
     documentCompilerRepository.listRuns(),
     clientBrandRepository.get(),
+    documentCompilerRepository.listResponseCollisions(),
   ]);
-  return NextResponse.json({ runs, vocabulary: toClientVocabulary(brand) });
+  return NextResponse.json({ runs, vocabulary: toClientVocabulary(brand), collisions });
 }
 
 export async function POST(request: NextRequest) {

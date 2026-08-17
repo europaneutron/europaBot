@@ -40,6 +40,9 @@ export interface BotResponse {
   origin: 'manual' | 'compiler';
   compiler_proposal_id: string | null;
   review_signals: string[];
+  edited_by_human: boolean;
+  superseded_by_response_id: string | null;
+  deactivated_at: string | null;
   response_fact_dependencies?: Array<{
     compiler_facts: {
       material_id: string;
@@ -59,10 +62,26 @@ type CreateIntentConfiguration = Omit<
 
 type CreateBotResponse = Omit<
   BotResponse,
-  'id' | 'created_at' | 'updated_at' | 'origin' | 'compiler_proposal_id' | 'review_signals' | 'response_fact_dependencies'
+  'id' | 'created_at' | 'updated_at' | 'origin' | 'compiler_proposal_id' |
+  'review_signals' | 'response_fact_dependencies' | 'edited_by_human' |
+  'superseded_by_response_id' | 'deactivated_at'
 > & Partial<Pick<BotResponse, 'origin' | 'compiler_proposal_id'>>;
 
 export class IntentConfigRepositoryClient {
+  private async assertActiveSlotAvailable(intentId: string, excludeId?: string): Promise<void> {
+    let query = supabase
+      .from('bot_responses')
+      .select('id', { count: 'exact', head: true })
+      .eq('intent_id', intentId)
+      .eq('is_active', true);
+    if (excludeId) query = query.neq('id', excludeId);
+    const { count, error } = await query;
+    if (error) throw error;
+    if ((count || 0) > 0) {
+      throw new Error('Esta pregunta ya tiene una respuesta activa en el alcance');
+    }
+  }
+
   /**
    * Obtener todas las intenciones
    */
@@ -189,6 +208,7 @@ export class IntentConfigRepositoryClient {
    * Crear respuesta para una intención
    */
   async createResponse(data: CreateBotResponse): Promise<BotResponse> {
+    if (data.is_active) await this.assertActiveSlotAvailable(data.intent_id);
     const { data: response, error } = await supabase
       .from('bot_responses')
       .insert(normalizeResponseWrite(data))
@@ -209,9 +229,27 @@ export class IntentConfigRepositoryClient {
    * Actualizar respuesta
    */
   async updateResponse(id: string, data: Partial<BotResponse>): Promise<void> {
+    if (data.is_active) {
+      let intentId = data.intent_id;
+      if (!intentId) {
+        const { data: current, error: currentError } = await supabase
+          .from('bot_responses')
+          .select('intent_id')
+          .eq('id', id)
+          .single();
+        if (currentError) throw currentError;
+        intentId = current.intent_id;
+      }
+      if (!intentId) throw new Error('La respuesta no tiene una intención asociada');
+      await this.assertActiveSlotAvailable(intentId, id);
+    }
     const { error } = await supabase
       .from('bot_responses')
-      .update({ ...normalizeResponseWrite(data), updated_at: new Date().toISOString() })
+      .update({
+        ...normalizeResponseWrite(data),
+        edited_by_human: true,
+        updated_at: new Date().toISOString(),
+      })
       .eq('id', id);
 
     if (error) {

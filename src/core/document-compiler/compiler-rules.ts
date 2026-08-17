@@ -4,6 +4,7 @@ import type {
   ExtractedFact,
   ReviewSignal,
 } from '@/data/models/document-compiler.model';
+import { isSellableScopeType } from '@/data/models/document-compiler.model';
 
 const SENSITIVE_FACT_TYPES = new Set(['money', 'date', 'contractual']);
 
@@ -31,6 +32,7 @@ export const REAL_ESTATE_PRESET: CandidateQuestion[] = [
   { intentName: 'modelo', question: '¿Qué modelos hay?', source: 'preset', factKeys: ['model', 'unit_type', 'modelo', 'tipo_unidad', 'prototipo'] },
   { intentName: 'creditos', question: '¿Qué financiamiento aceptan?', source: 'preset', factKeys: ['financing', 'credit', 'financiamiento', 'credito', 'hipoteca', 'enganche'] },
   { intentName: 'seguridad', question: '¿Qué seguridad ofrece?', source: 'preset', factKeys: ['security', 'seguridad', 'vigilancia'] },
+  { intentName: 'amenidades', question: '¿Qué amenidades tiene?', source: 'preset', factKeys: ['amenity', 'amenities', 'amenidad', 'amenidades', 'areas_comunes'] },
   { intentName: 'brochure', question: '¿Dónde puedo ver el brochure?', source: 'preset', factKeys: ['brochure', 'catalogo', 'folleto'] },
 ];
 
@@ -251,4 +253,142 @@ export function sharedFactsForAncestor(
       facts.some(fact => fact.key === candidate.key && fact.fingerprint === candidate.fingerprint)
     )
   );
+}
+
+export interface ScopedFactGroup {
+  scopeId: string;
+  facts: ExtractedFact[];
+}
+
+export interface ScopeNode {
+  id: string;
+  parent_id: string | null;
+  scope_type?: string | null;
+}
+
+function contentFingerprint(fact: ExtractedFact): string {
+  return `${normalizeFactKey(fact.key)}:${stableJson(fact.value)}`;
+}
+
+function ancestorChain(
+  scopeId: string,
+  parentById: Map<string, string | null>,
+  boundaryScopeId: string
+): string[] {
+  const chain: string[] = [];
+  const visited = new Set<string>();
+  let currentId: string | null = scopeId;
+  while (currentId) {
+    if (visited.has(currentId)) throw new Error('Scope hierarchy contains a cycle');
+    visited.add(currentId);
+    chain.push(currentId);
+    if (currentId === boundaryScopeId) break;
+    currentId = parentById.get(currentId) ?? null;
+  }
+  if (!chain.includes(boundaryScopeId)) {
+    throw new Error(`El hecho del alcance ${scopeId} no pertenece a la corrida ${boundaryScopeId}`);
+  }
+  return chain;
+}
+
+function lowestCommonAncestor(
+  scopeIds: string[],
+  parentById: Map<string, string | null>,
+  boundaryScopeId: string
+): string {
+  const chains = scopeIds.map(scopeId => ancestorChain(scopeId, parentById, boundaryScopeId));
+  return chains[0].find(scopeId => chains.every(chain => chain.includes(scopeId)))
+    || boundaryScopeId;
+}
+
+/**
+ * Un hecho solo sube al ancestro cuando el material lo dice de todos sus hijos
+ * vendibles, o cuando lo dice del ancestro mismo.
+ *
+ * Que dos hermanos coincidan no basta. Si Aura y Vento traen "cochera techada
+ * para 2 autos" y de Solara el material no dice nada sobre la cochera, subirlo
+ * al desarrollo hace que Solara herede una cochera que su material nunca le
+ * atribuyo. Un hermano que contradice se defiende solo, porque su valor propio
+ * gana al resolver; el que calla, no. Ante la duda cada hermano conserva lo
+ * suyo: repetir un dato es barato, afirmar lo que el material no dice no.
+ */
+function ancestorCoversEveryChild(
+  ancestorId: string,
+  sourceScopeIds: string[],
+  scopes: ScopeNode[],
+  parentById: Map<string, string | null>,
+  boundaryScopeId: string
+): boolean {
+  if (sourceScopeIds.includes(ancestorId)) return true;
+
+  const sellableChildren = scopes
+    .filter(scope => scope.parent_id === ancestorId && isSellableScopeType(scope.scope_type))
+    .map(scope => scope.id);
+  if (sellableChildren.length === 0) return true;
+
+  const covered = new Set(sourceScopeIds.map(scopeId => {
+    const chain = ancestorChain(scopeId, parentById, boundaryScopeId);
+    const position = chain.indexOf(ancestorId);
+    return position > 0 ? chain[position - 1] : ancestorId;
+  }));
+
+  return sellableChildren.every(childId => covered.has(childId));
+}
+
+/**
+ * Decide donde vive cada respuesta desde la atribucion de sus hechos.
+ *
+ * Valores distintos permanecen en cada alcance. El mismo hecho repetido en
+ * todos los hijos se escribe una sola vez en su ancestro comun. Se ignora
+ * `subject` al reconocer ese caso porque justamente cambia entre los hijos aun
+ * cuando el dato compartido sea identico.
+ */
+export function groupFactsByDestination(
+  facts: ExtractedFact[],
+  runScopeId: string,
+  scopes: ScopeNode[]
+): ScopedFactGroup[] {
+  const parentById = new Map(scopes.map(scope => [scope.id, scope.parent_id]));
+  const byContent = new Map<string, ExtractedFact[]>();
+  for (const fact of facts) {
+    const rows = byContent.get(contentFingerprint(fact)) || [];
+    rows.push(fact);
+    byContent.set(contentFingerprint(fact), rows);
+  }
+
+  const groups = new Map<string, Map<string, ExtractedFact>>();
+  const place = (destinationId: string, rows: ExtractedFact[]) => {
+    const destinationFacts = groups.get(destinationId) || new Map<string, ExtractedFact>();
+    for (const fact of rows) {
+      // Al subir un hecho compartido llega una copia por hermano. Se conserva
+      // una sola: de otro modo el redactor recibe el mismo dato repetido y lo
+      // escribe repetido.
+      const key = destinationId === fact.scopeId
+        ? (fact.id || fact.fingerprint)
+        : contentFingerprint(fact);
+      if (!destinationFacts.has(key)) destinationFacts.set(key, fact);
+    }
+    groups.set(destinationId, destinationFacts);
+  };
+
+  for (const matchingFacts of Array.from(byContent.values())) {
+    const sourceScopeIds = Array.from(new Set(matchingFacts.map(fact => fact.scopeId)));
+    if (sourceScopeIds.length === 1) {
+      place(sourceScopeIds[0], matchingFacts);
+      continue;
+    }
+
+    const ancestorId = lowestCommonAncestor(sourceScopeIds, parentById, runScopeId);
+    if (ancestorCoversEveryChild(ancestorId, sourceScopeIds, scopes, parentById, runScopeId)) {
+      place(ancestorId, matchingFacts);
+      continue;
+    }
+
+    for (const fact of matchingFacts) place(fact.scopeId, [fact]);
+  }
+
+  return Array.from(groups.entries()).map(([scopeId, rows]) => ({
+    scopeId,
+    facts: Array.from(rows.values()),
+  }));
 }

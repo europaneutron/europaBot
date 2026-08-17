@@ -46,6 +46,10 @@ export default function CompilerPage() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [replacementConfirmationId, setReplacementConfirmationId] = useState<string | null>(null);
+  const [pendingCollisionPlan, setCollisionPlan] = useState<
+    { intentId: string; strategy: 'keep' | 'combine'; keepResponseId?: string } | null
+  >(null);
 
   useEffect(() => {
     if (!onboarding?.run) return;
@@ -60,7 +64,7 @@ export default function CompilerPage() {
   const groups = useMemo(() => {
     const byIntent = new Map<string, any[]>();
     for (const proposal of review?.proposals || []) {
-      const key = proposal.intent_id;
+      const key = proposal.intent_configurations?.intent_name || proposal.intent_id;
       const rows = byIntent.get(key) || [];
       rows.push(proposal);
       byIntent.set(key, rows);
@@ -77,7 +81,11 @@ export default function CompilerPage() {
     [review]
   );
 
-  async function reviewProposal(proposal: any, action: 'approve' | 'reject') {
+  async function reviewProposal(
+    proposal: any,
+    action: 'approve' | 'reject',
+    confirmReplacement = false
+  ) {
     const originalFragment = proposal.message_text.fragments?.[0] || { type: 'text', delay: 0 };
     const text = drafts[proposal.id] ?? originalFragment.content ?? '';
     const messageText = {
@@ -91,6 +99,7 @@ export default function CompilerPage() {
         action,
         runId,
         messageText: action === 'approve' ? messageText : undefined,
+        confirmReplacement,
       }),
     });
     const body = await response.json();
@@ -102,10 +111,16 @@ export default function CompilerPage() {
   }
 
   async function handleReview(proposal: any, action: 'approve' | 'reject') {
+    const replacesContent = action === 'approve' && proposal.replacement_candidates?.length > 0;
+    if (replacesContent && replacementConfirmationId !== proposal.id) {
+      setReplacementConfirmationId(proposal.id);
+      return;
+    }
     setBusy(true);
     setMessage(null);
     try {
-      await reviewProposal(proposal, action);
+      await reviewProposal(proposal, action, replacesContent);
+      setReplacementConfirmationId(null);
       await refreshAll();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'No fue posible guardar la revisión');
@@ -124,6 +139,51 @@ export default function CompilerPage() {
       await refreshAll();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'No fue posible aprobar el grupo');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /**
+   * Que se conserva y que se retira, calculado desde el mismo plan que se
+   * enviara. Resolver una colision retira toda respuesta activa que no entre
+   * en el plan, y una lista de textos con un solo boton no deja ver cual se
+   * cae: el panel tiene que decirlo antes, no despues.
+   */
+  function collisionPlan(collision: any, strategy: 'keep' | 'combine', keepResponseId?: string) {
+    const keptIds = strategy === 'keep'
+      ? [keepResponseId || collision.recommended_response_id].filter(Boolean)
+      : collision.recommended_response_ids || [];
+    const retired = collision.responses.filter((row: any) => !keptIds.includes(row.id));
+    return { strategy, keepResponseId, keptIds, retired };
+  }
+
+  async function resolveCollision(
+    collision: any,
+    strategy: 'keep' | 'combine' = collision.recommended_strategy,
+    keepResponseId?: string
+  ) {
+    setBusy(true);
+    setMessage(null);
+    try {
+      const response = await fetch('/api/compiler/collisions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          intentId: collision.id,
+          strategy,
+          keepResponseId: strategy === 'keep'
+            ? keepResponseId || collision.recommended_response_id || undefined
+            : undefined,
+          responseIds: strategy === 'combine' ? collision.recommended_response_ids : undefined,
+        }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error);
+      setCollisionPlan(null);
+      await refreshAll();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'No fue posible resolver la colisión');
     } finally {
       setBusy(false);
     }
@@ -148,6 +208,106 @@ export default function CompilerPage() {
           <span>{processingError}</span>
           <Button size="sm" variant="outline" onClick={retryProcessing}>Reintentar</Button>
         </div>
+      ) : null}
+
+      {(dashboard?.collisions || []).length > 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Respuestas activas que compiten</CardTitle>
+            <CardDescription>
+              Revísalas juntas. Resolver la colisión deja una sola respuesta activa: antes de
+              confirmar verás cuál se conserva y cuál se retira.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {dashboard.collisions.map((collision: any) => {
+              const planned = pendingCollisionPlan && pendingCollisionPlan.intentId === collision.id
+                ? collisionPlan(collision, pendingCollisionPlan.strategy, pendingCollisionPlan.keepResponseId)
+                : null;
+              return (
+                <div key={collision.id} className="space-y-3 rounded-md border p-4">
+                  <div>
+                    <div className="font-medium">{collision.display_name}</div>
+                    <div className="text-sm text-muted-foreground">{collision.scopes?.name}</div>
+                  </div>
+                  {collision.responses.map((response: any) => {
+                    const retired = planned?.retired.some((row: any) => row.id === response.id);
+                    return (
+                      <div
+                        key={response.id}
+                        className={`space-y-2 rounded p-3 text-sm ${retired ? 'bg-amber-50 text-amber-950' : 'bg-muted'}`}
+                      >
+                        <div className="whitespace-pre-wrap">
+                          {response.response_type === 'fragmented'
+                            ? (response.message_text.fragments || []).map((fragment: any) => fragment.content).join('\n\n')
+                            : String(response.message_text ?? '')}
+                          {response.edited_by_human ? (
+                            <Badge className="ml-2" variant="secondary">Editada a mano</Badge>
+                          ) : null}
+                        </div>
+                        {planned ? (
+                          <div className="font-medium">
+                            {retired
+                              ? 'Se retira: deja de enviarse al lead'
+                              : planned.strategy === 'combine'
+                                ? 'Se conserva, como fragmento de la respuesta combinada'
+                                : 'Se conserva'}
+                          </div>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            disabled={busy}
+                            onClick={() => setCollisionPlan({
+                              intentId: collision.id,
+                              strategy: 'keep',
+                              keepResponseId: response.id,
+                            })}
+                          >
+                            Conservar solo esta
+                          </Button>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {planned ? (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button size="sm" disabled={busy} onClick={() =>
+                        resolveCollision(collision, planned.strategy, planned.keepResponseId)
+                      }>
+                        {planned.retired.length === 1
+                          ? 'Confirmar: se retira 1 respuesta'
+                          : `Confirmar: se retiran ${planned.retired.length} respuestas`}
+                      </Button>
+                      <Button size="sm" variant="ghost" disabled={busy} onClick={() => setCollisionPlan(null)}>
+                        Cancelar
+                      </Button>
+                    </div>
+                  ) : (
+                    <>
+                      <p className="text-sm text-muted-foreground">
+                        {collision.recommended_strategy === 'combine'
+                          ? 'Propuesta: conservar la respuesta principal más reciente y sus seguimientos como fragmentos.'
+                          : 'Propuesta: conservar la respuesta más reciente y archivar las demás.'}
+                      </p>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={busy}
+                        onClick={() => setCollisionPlan({
+                          intentId: collision.id,
+                          strategy: collision.recommended_strategy,
+                        })}
+                      >
+                        Ver qué cambia
+                      </Button>
+                    </>
+                  )}
+                </div>
+              );
+            })}
+          </CardContent>
+        </Card>
       ) : null}
 
       {!runId ? (
@@ -185,20 +345,20 @@ export default function CompilerPage() {
               const pending = group.filter(item => item.approval_status === 'pending');
               const title = group[0]?.intent_configurations?.display_name || 'Respuestas';
               return (
-                <Card key={group[0].intent_id}>
+                <Card key={group[0].intent_configurations?.intent_name || group[0].intent_id}>
                   <CardHeader>
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
                         <CardTitle>{title}</CardTitle>
                         <CardDescription>{group.length} {group.length === 1 ? 'respuesta' : 'respuestas'}</CardDescription>
                       </div>
-                      {pending.length > 0 ? (
+                      {pending.length > 0 && pending.every(item => item.replacement_candidates?.length === 0) ? (
                         <Button variant="outline" disabled={busy} onClick={() => approveGroup(group)}>
                           Aprobar {pending.length === 1 ? 'la respuesta' : `las ${pending.length}`}
                         </Button>
-                      ) : (
+                      ) : pending.length === 0 ? (
                         <span className="text-sm text-muted-foreground">Sin nada pendiente</span>
-                      )}
+                      ) : null}
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-4">
@@ -233,6 +393,9 @@ export default function CompilerPage() {
                               </Badge>
                             ))}
                           </div>
+                          <div className="text-sm font-medium text-muted-foreground">
+                            Alcance: {proposal.scopes?.name || 'Sin nombre'}
+                          </div>
                           <Textarea
                             value={drafts[proposal.id] ?? proposal.message_text.fragments?.[0]?.content ?? ''}
                             onChange={event => setDrafts(current => ({ ...current, [proposal.id]: event.target.value }))}
@@ -255,6 +418,23 @@ export default function CompilerPage() {
                               ))}
                             </div>
                           ) : null}
+                          {proposal.replacement_candidates?.length > 0 ? (
+                            <div className="space-y-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+                              <div className="font-medium">
+                                Esta aprobación sustituirá {proposal.replacement_candidates.length === 1
+                                  ? 'la respuesta activa'
+                                  : `${proposal.replacement_candidates.length} respuestas activas`}.
+                              </div>
+                              {proposal.replacement_candidates.map((response: any) => (
+                                <div key={response.id} className="whitespace-pre-wrap">
+                                  {response.response_type === 'fragmented'
+                                    ? (response.message_text.fragments || []).map((fragment: any) => fragment.content).join('\n\n')
+                                    : String(response.message_text ?? '')}
+                                  {response.edited_by_human ? ' (editada a mano)' : ''}
+                                </div>
+                              ))}
+                            </div>
+                          ) : null}
                           {/*
                             Una respuesta ya resuelta no lleva botones. Antes se
                             mostraban en gris: un boton que no responde y no dice
@@ -263,7 +443,9 @@ export default function CompilerPage() {
                           */}
                           {proposal.approval_status === 'pending' ? (
                             <div className="flex gap-2">
-                              <Button size="sm" onClick={() => handleReview(proposal, 'approve')} disabled={busy}>Aprobar</Button>
+                              <Button size="sm" onClick={() => handleReview(proposal, 'approve')} disabled={busy}>
+                                {replacementConfirmationId === proposal.id ? 'Confirmar sustitución' : 'Aprobar'}
+                              </Button>
                               <Button size="sm" variant="outline" onClick={() => handleReview(proposal, 'reject')} disabled={busy}>Rechazar</Button>
                             </div>
                           ) : (
@@ -289,10 +471,15 @@ export default function CompilerPage() {
             <Card>
               <CardHeader><CardTitle>Información que falta</CardTitle></CardHeader>
               <CardContent className="space-y-2">
-                {review.coverage.filter((item: any) => item.status !== 'covered').map((item: any) => (
-                  <div key={item.id} className="rounded-md border p-3 text-sm">{item.question}</div>
+                {review.coverage.filter((item: any) => item.status !== 'covered' || item.placement_error).map((item: any) => (
+                  <div key={item.id} className="rounded-md border p-3 text-sm">
+                    <div>{item.question}</div>
+                    {item.placement_error ? (
+                      <div className="mt-1 text-muted-foreground">{item.placement_error}</div>
+                    ) : null}
+                  </div>
                 ))}
-                {review.coverage.every((item: any) => item.status === 'covered') ? (
+                {review.coverage.every((item: any) => item.status === 'covered' && !item.placement_error) ? (
                   <p className="text-sm text-muted-foreground">El material cubre todas las preguntas previstas.</p>
                 ) : null}
               </CardContent>

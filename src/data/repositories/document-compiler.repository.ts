@@ -303,6 +303,14 @@ export class DocumentCompilerRepository {
     return data || [];
   }
 
+  async setCoveragePlacementError(coverageId: string, reason: string | null) {
+    const { error } = await supabaseServer
+      .from('compiler_coverage')
+      .update({ placement_error: reason })
+      .eq('id', coverageId);
+    if (error) throw error;
+  }
+
   async getVisibleIntents(scopeId: string) {
     const { data, error } = await supabaseServer
       .from('intent_configurations')
@@ -313,12 +321,30 @@ export class DocumentCompilerRepository {
     return scopeRepository.resolveRows(data || [], scopeId, row => row.intent_name);
   }
 
+  /**
+   * Incluye las apagadas a proposito. Una intencion que el compilador creo y
+   * que todavia nadie aprobo esta inactiva: si no se viera aqui, cada
+   * recompilacion la trataria como inexistente y perderia el rastro de la
+   * propuesta anterior, con ella la senal de "editada a mano".
+   */
+  async getAllIntents() {
+    const { data, error } = await supabaseServer
+      .from('intent_configurations')
+      .select('*');
+    if (error) throw error;
+    return data || [];
+  }
+
   async replaceProposals(
     runId: string,
     proposals: Array<{
       coverageId: string;
       scopeId: string;
-      intentId: string;
+      intentId: string | null;
+      intentName: string;
+      displayName: string;
+      minConfidence: number;
+      priority: number;
       responseKey: string;
       messageText: unknown;
       matcherPatterns: Record<string, string[]>;
@@ -326,39 +352,25 @@ export class DocumentCompilerRepository {
       factIds: string[];
     }>
   ) {
-    const { error: deleteError } = await supabaseServer
-      .from('compiler_proposals')
-      .delete()
-      .eq('run_id', runId)
-      .eq('approval_status', 'pending');
-    if (deleteError) throw deleteError;
-
-    const created = [];
-    for (const proposal of proposals) {
-      const { data, error } = await supabaseServer
-        .from('compiler_proposals')
-        .insert({
-          run_id: runId,
-          coverage_id: proposal.coverageId,
-          scope_id: proposal.scopeId,
-          intent_id: proposal.intentId,
-          response_key: proposal.responseKey,
-          message_text: proposal.messageText,
-          matcher_patterns: proposal.matcherPatterns,
-          review_signals: proposal.signals,
-        })
-        .select('*')
-        .single();
-      if (error) throw error;
-      if (proposal.factIds.length > 0) {
-        const { error: dependencyError } = await supabaseServer
-          .from('compiler_proposal_facts')
-          .insert(proposal.factIds.map(factId => ({ proposal_id: data.id, fact_id: factId })));
-        if (dependencyError) throw dependencyError;
-      }
-      created.push(data);
-    }
-    return created;
+    const { data, error } = await supabaseServer.rpc('replace_scoped_compiler_proposals', {
+      run_uuid: runId,
+      proposal_rows: proposals.map(proposal => ({
+        coverage_id: proposal.coverageId,
+        scope_id: proposal.scopeId,
+        intent_id: proposal.intentId,
+        intent_name: proposal.intentName,
+        display_name: proposal.displayName,
+        min_confidence: proposal.minConfidence,
+        priority: proposal.priority,
+        response_key: proposal.responseKey,
+        message_text: proposal.messageText,
+        matcher_patterns: proposal.matcherPatterns,
+        review_signals: proposal.signals,
+        fact_ids: proposal.factIds,
+      })),
+    });
+    if (error) throw error;
+    return data || [];
   }
 
   async getReview(runId: string) {
@@ -368,7 +380,7 @@ export class DocumentCompilerRepository {
       supabaseServer.from('compiler_coverage').select('*').eq('run_id', runId).order('status', { ascending: false }),
       supabaseServer
         .from('compiler_proposals')
-        .select('*, compiler_proposal_facts(fact_id), intent_configurations(display_name)')
+        .select('*, compiler_proposal_facts(fact_id), intent_configurations(display_name, intent_name), scopes(name)')
         .eq('run_id', runId),
     ]);
     if (factsResult.error) throw factsResult.error;
@@ -378,7 +390,31 @@ export class DocumentCompilerRepository {
     const proposals = (proposalsResult.data || []).sort((left, right) =>
       right.review_signals.length - left.review_signals.length
     );
-    return { run, facts: factsResult.data || [], coverage: coverageResult.data || [], proposals };
+    const intentIds = Array.from(new Set(proposals.map(proposal => proposal.intent_id)));
+    const replacementCandidates = intentIds.length === 0
+      ? []
+      : await this.getActiveResponsesForIntents(intentIds);
+    return {
+      run,
+      facts: factsResult.data || [],
+      coverage: coverageResult.data || [],
+      proposals: proposals.map(proposal => ({
+        ...proposal,
+        replacement_candidates: replacementCandidates.filter(row => row.intent_id === proposal.intent_id),
+      })),
+    };
+  }
+
+  private async getActiveResponsesForIntents(intentIds: string[]) {
+    const { data, error } = await supabaseServer
+      .from('bot_responses')
+      .select('id, intent_id, response_key, message_text, response_type, origin, edited_by_human, created_at')
+      .in('intent_id', intentIds)
+      .eq('is_active', true)
+      .order('order_priority')
+      .order('created_at');
+    if (error) throw error;
+    return data || [];
   }
 
   async approveTree(runId: string, adminId: string | null) {
@@ -393,12 +429,73 @@ export class DocumentCompilerRepository {
   async approveProposal(
     proposalId: string,
     adminId: string,
-    messageText?: unknown
+    messageText?: unknown,
+    confirmReplacement = false
   ) {
     const { data, error } = await supabaseServer.rpc('approve_compiler_proposal', {
       proposal_uuid: proposalId,
       admin_uuid: adminId,
       approved_message: messageText ?? null,
+      confirm_replacement: confirmReplacement,
+    });
+    if (error) throw error;
+    return data as string;
+  }
+
+  async listResponseCollisions() {
+    const { data: intents, error: intentError } = await supabaseServer
+      .from('intent_configurations')
+      .select('id, scope_id, intent_name, display_name, scopes(name)')
+      .eq('is_active', true);
+    if (intentError) throw intentError;
+    const { data: responses, error: responseError } = await supabaseServer
+      .from('bot_responses')
+      .select('id, intent_id, response_key, message_text, response_type, origin, edited_by_human, order_priority, created_at')
+      .eq('is_active', true)
+      .order('order_priority')
+      .order('created_at');
+    if (responseError) throw responseError;
+
+    const byIntent = new Map<string, any[]>();
+    for (const response of responses || []) {
+      const rows = byIntent.get(response.intent_id) || [];
+      rows.push(response);
+      byIntent.set(response.intent_id, rows);
+    }
+    return (intents || []).flatMap(intent => {
+      const rows = byIntent.get(intent.id) || [];
+      if (rows.length < 2) return [];
+      const supplementalKeys = new Set(['followup', 'maps', 'simulator']);
+      const supplemental = rows.filter(row => supplementalKeys.has(row.response_key));
+      const primary = rows
+        .filter(row => !supplementalKeys.has(row.response_key))
+        .sort((left, right) => Date.parse(right.created_at) - Date.parse(left.created_at))[0];
+      const recommendedRows = primary
+        ? [primary, ...supplemental].sort((left, right) => left.order_priority - right.order_priority)
+        : [];
+      return [{
+        ...intent,
+        responses: rows,
+        recommended_strategy: recommendedRows.length > 1 ? 'combine' : 'keep',
+        recommended_response_id: recommendedRows.length > 1 ? null : primary?.id || rows[0].id,
+        recommended_response_ids: recommendedRows.map(row => row.id),
+      }];
+    });
+  }
+
+  async resolveResponseCollision(
+    intentId: string,
+    adminId: string,
+    strategy: 'keep' | 'combine',
+    keepResponseId?: string,
+    combineResponseIds?: string[]
+  ) {
+    const { data, error } = await supabaseServer.rpc('resolve_response_collision', {
+      intent_uuid: intentId,
+      admin_uuid: adminId,
+      strategy,
+      keep_response_uuid: keepResponseId || null,
+      combine_response_uuids: combineResponseIds || null,
     });
     if (error) throw error;
     return data as string;

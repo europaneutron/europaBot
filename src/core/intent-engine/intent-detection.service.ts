@@ -13,6 +13,7 @@ type IntentCache = {
   intents: IntentConfiguration[];
   responseIntentIdsByName: Map<string, string[]>;
   updatedAt: number;
+  contentVersion: number;
 };
 
 export class IntentDetectionService {
@@ -37,7 +38,8 @@ export class IntentDetectionService {
    */
   async loadIntents(
     supabaseClient: any,
-    scopeId: string | null = ROOT_SCOPE_ID
+    scopeId: string | null = ROOT_SCOPE_ID,
+    contentVersion?: number
   ): Promise<IntentCache> {
     const { data, error } = await supabaseClient
       .from('intent_configurations')
@@ -99,6 +101,7 @@ export class IntentDetectionService {
       matcher: new FuzzyMatcher(visibleIntents),
       responseIntentIdsByName,
       updatedAt: Date.now(),
+      contentVersion: contentVersion ?? await scopeRepository.getContentVersion(supabaseClient),
     };
     if (visibleIntents.length > 0) {
       this.setCache(scopeId, cache);
@@ -118,8 +121,23 @@ export class IntentDetectionService {
   ): Promise<DetectionResult> {
     const cacheKey = scopeId ?? 'global';
     let cache = this.caches.get(cacheKey);
-    if (!cache || Date.now() - cache.updatedAt > this.CACHE_TTL_MS) {
-      cache = await this.loadIntents(supabaseClient, scopeId);
+    let contentVersion: number;
+    try {
+      contentVersion = await scopeRepository.getContentVersion(supabaseClient);
+    } catch (error) {
+      if (cache && Date.now() - cache.updatedAt <= this.CACHE_TTL_MS) {
+        contentVersion = cache.contentVersion;
+      } else {
+        console.error('Error checking content cache version; loading root fallback:', error);
+        contentVersion = -1;
+      }
+    }
+    if (
+      !cache ||
+      cache.contentVersion !== contentVersion ||
+      Date.now() - cache.updatedAt > this.CACHE_TTL_MS
+    ) {
+      cache = await this.loadIntents(supabaseClient, scopeId, contentVersion);
     } else {
       this.setCache(scopeId, cache);
     }

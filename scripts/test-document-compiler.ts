@@ -9,6 +9,7 @@ import {
   consolidateFacts,
   deriveCoverage,
   factFingerprint,
+  groupFactsByDestination,
   mergeCandidates,
   REAL_ESTATE_PRESET,
   reviewSignalsForFacts,
@@ -61,6 +62,75 @@ const childA = fact({ scopeId: 'child-a' });
 const childB = { ...childA, id: crypto.randomUUID(), scopeId: 'child-b' };
 const shared = sharedFactsForAncestor(new Map([['child-a', [childA]], ['child-b', [childB]]]));
 assert(shared.length === 1, 'identifica hechos idénticos compartidos por todos los hijos');
+
+const tree = [
+  { id: 'development', parent_id: 'root', scope_type: 'proyecto' },
+  { id: 'model-a', parent_id: 'development', scope_type: 'opcion' },
+  { id: 'model-b', parent_id: 'development', scope_type: 'opcion' },
+  { id: 'model-c', parent_id: 'development', scope_type: 'opcion' },
+];
+const pricesByModel = ['model-a', 'model-b', 'model-c'].map((scopeId, index) => fact({
+  id: `price-${index}`,
+  scopeId,
+  subject: scopeId,
+  value: 1_800_000 + index * 300_000,
+  fingerprint: factFingerprint('price_from', 1_800_000 + index * 300_000, scopeId),
+}));
+const priceGroups = groupFactsByDestination(pricesByModel, 'development', tree);
+assert(priceGroups.length === 3, 'tres precios distintos producen una respuesta por modelo');
+assert(
+  priceGroups.every(group => group.scopeId.startsWith('model-')),
+  'cada precio se escribe en el modelo al que fue atribuido'
+);
+
+const developmentLocation = fact({
+  id: 'location',
+  scopeId: 'development',
+  key: 'direccion',
+  value: 'Avenida Central 100',
+  type: 'location',
+  fingerprint: factFingerprint('direccion', 'Avenida Central 100'),
+});
+assert(
+  groupFactsByDestination([developmentLocation], 'development', tree)[0]?.scopeId === 'development',
+  'una dirección sin sujeto permanece en el desarrollo'
+);
+
+const sharedAmenities = ['model-a', 'model-b', 'model-c'].map((scopeId, index) => fact({
+  id: `amenity-${index}`,
+  scopeId,
+  key: 'amenidad',
+  subject: scopeId,
+  value: 'Casa club',
+  type: 'text',
+  fingerprint: factFingerprint('amenidad', 'Casa club', scopeId),
+}));
+const sharedGroups = groupFactsByDestination(sharedAmenities, 'development', tree);
+assert(
+  sharedGroups.length === 1 && sharedGroups[0].scopeId === 'development',
+  'un hecho idéntico de varios modelos se escribe una sola vez en el desarrollo'
+);
+assert(
+  sharedGroups[0].facts.length === 1,
+  'el hecho compartido llega una sola vez al redactor y no una copia por modelo'
+);
+
+// Dos hermanos coinciden y el tercero no habla del tema. Subirlo al desarrollo
+// haria que el tercero heredara algo que su material nunca le atribuyo.
+const partialAmenities = ['model-a', 'model-b'].map((scopeId, index) => fact({
+  id: `cochera-${index}`,
+  scopeId,
+  key: 'cochera',
+  subject: scopeId,
+  value: 'Cochera techada para 2 autos',
+  type: 'text',
+  fingerprint: factFingerprint('cochera', 'Cochera techada para 2 autos', scopeId),
+}));
+const partialGroups = groupFactsByDestination(partialAmenities, 'development', tree);
+assert(
+  partialGroups.length === 2 && partialGroups.every(group => group.scopeId.startsWith('model-')),
+  'un hecho que dos modelos comparten y el tercero calla no sube al desarrollo'
+);
 
 const changed = changedFactFingerprints([repeated], [fact({ value: 2_000_000 })]);
 assert(changed.has('price_from'), 'la recompilación compara hechos y detecta el cambio');

@@ -28,6 +28,7 @@ import { interpolateMessage } from '@/lib/interpolate-message';
 import { resolveConfiguredMessage } from '@/core/messaging/configured-message';
 import { clientBrandRepository } from '@/data/repositories/client-brand.repository';
 import { composeBusinessGreeting, toClientVocabulary } from '@/core/onboarding/client-vocabulary';
+import { withContentVersionScope } from '@/lib/server/content-version-scope';
 
 // Fuentes de foco que pueden reanudar una pregunta retenida: las tres nacen de
 // algo que el lead acaba de decir o traer. El foco heredado de la sesión no
@@ -62,6 +63,19 @@ export class MessageProcessor {
    * Procesar mensaje entrante
    */
   async processMessage(
+    phoneNumber: string,
+    messageText: string,
+    messageId: string,
+    userName?: string,
+    options: ProcessMessageOptions = {}
+  ): Promise<ProcessedResponse> {
+    // La version del arbol se fija aqui y vale para todo el mensaje.
+    return withContentVersionScope(() =>
+      this.processMessageInScope(phoneNumber, messageText, messageId, userName, options)
+    );
+  }
+
+  private async processMessageInScope(
     phoneNumber: string,
     messageText: string,
     messageId: string,

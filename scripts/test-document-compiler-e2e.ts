@@ -39,11 +39,25 @@ async function main() {
   let runId: string | null = null;
   let storagePath: string | null = null;
   let responseId: string | null = null;
+  let testScopeId: string | null = null;
 
   const previousTyping = (await supabaseServer.from('bot_config').select('config_value').eq('config_key', 'typing_indicator_enabled').single()).data?.config_value ?? 'true';
   await supabaseServer.from('bot_config').update({ config_value: 'false' }).eq('config_key', 'typing_indicator_enabled');
 
   try {
+    const { data: testScope, error: testScopeError } = await supabaseServer
+      .from('scopes')
+      .insert({
+        parent_id: ROOT_SCOPE_ID,
+        name: `Compiler E2E ${suffix}`,
+        slug: `compiler-e2e-${suffix}`,
+        scope_type: 'proyecto',
+      })
+      .select('id')
+      .single();
+    if (testScopeError) throw testScopeError;
+    testScopeId = testScope.id;
+
     const bytes = readFileSync(resolve(process.cwd(), 'scripts/fixtures/compiler/brochure-tabla.pdf'));
     storagePath = `e2e/${randomUUID()}.pdf`;
     const upload = await supabaseServer.storage.from('compiler-materials')
@@ -51,7 +65,7 @@ async function main() {
     if (upload.error) throw upload.error;
 
     const { data: material, error: materialError } = await supabaseServer.from('compiler_materials').insert({
-      scope_id: ROOT_SCOPE_ID,
+      scope_id: testScopeId,
       material_kind: 'pdf',
       original_filename: 'brochure-tabla.pdf',
       storage_path: storagePath,
@@ -63,7 +77,7 @@ async function main() {
     materialId = material.id;
 
     const { data: run, error: runError } = await supabaseServer.from('compiler_runs').insert({
-      scope_id: ROOT_SCOPE_ID,
+      scope_id: testScopeId,
       material_ids: [materialId],
       status: 'running',
       current_stage: 'extract_facts',
@@ -141,10 +155,20 @@ async function main() {
     // El lead recibe la respuesta compilada por el matcher, sin compilador de por medio.
     intentDetectionService.invalidateAll();
     const { data: intent } = await supabaseServer.from('intent_configurations')
-      .select('intent_name, keywords').eq('id', published!.intent_id).single();
-    const trigger = (intent?.keywords || [])[0] || intent?.intent_name || 'precio';
+      .select('intent_name, keywords, phrases, synonyms').eq('id', published!.intent_id).single();
+    const trigger = (intent?.phrases || [])[0]
+      || (intent?.keywords || [])[0]
+      || (intent?.synonyms || [])[0]
+      || intent?.intent_name
+      || 'precio';
 
-    const result = await messageProcessor.processMessage(phone, trigger, `e2e-${suffix}`, 'E2E');
+    const result = await messageProcessor.processMessage(
+      phone,
+      trigger,
+      `e2e-${suffix}`,
+      'E2E',
+      { scopeId: testScopeId!, suppressExternalMessages: true }
+    );
     assert(!result.isFallback, `un lead que pregunta "${trigger}" recibe respuesta, no fallback`);
     assert(result.responses.length > 0, 'la respuesta llega por el camino normal del bot');
     console.log(`   respuesta al lead: ${JSON.stringify(result.responses[0]).slice(0, 120)}`);
@@ -153,9 +177,16 @@ async function main() {
   } finally {
     await supabaseServer.from('users').delete().eq('phone_number', phone);
     if (responseId) await supabaseServer.from('bot_responses').delete().eq('id', responseId);
-    if (runId) await supabaseServer.from('compiler_runs').delete().eq('id', runId);
+    if (runId) {
+      await supabaseServer.from('compiler_proposals').delete().eq('run_id', runId);
+      await supabaseServer.from('compiler_runs').delete().eq('id', runId);
+    }
     if (materialId) await supabaseServer.from('compiler_materials').delete().eq('id', materialId);
     if (storagePath) await supabaseServer.storage.from('compiler-materials').remove([storagePath]);
+    if (testScopeId) {
+      await supabaseServer.from('intent_configurations').delete().eq('scope_id', testScopeId);
+      await supabaseServer.from('scopes').delete().eq('id', testScopeId);
+    }
     await supabaseServer.from('bot_config').update({ config_value: previousTyping }).eq('config_key', 'typing_indicator_enabled');
     intentDetectionService.invalidateAll();
   }

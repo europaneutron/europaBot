@@ -1,12 +1,11 @@
 import { supabaseServer } from '@/services/supabase/server-client';
+import { readContentVersionOnce } from '@/lib/server/content-version-scope';
 import type { Scope, ScopedRow } from '@/data/models/scope.model';
 
 const ROOT_SCOPE_ID = '00000000-0000-4000-8000-000000000001';
-const CACHE_TTL_MS = 5 * 60 * 1000;
-
 type ScopeCache = {
   scopes: Scope[];
-  loadedAt: number;
+  version: number;
 };
 
 let scopeCaches = new WeakMap<object, ScopeCache>();
@@ -14,7 +13,14 @@ let scopeCaches = new WeakMap<object, ScopeCache>();
 export class ScopeRepository {
   async getScopes(client: any = supabaseServer): Promise<Scope[]> {
     const cache = scopeCaches.get(client);
-    if (cache && Date.now() - cache.loadedAt <= CACHE_TTL_MS) {
+    let version: number;
+    try {
+      version = await this.getContentVersion(client);
+    } catch (error) {
+      if (cache) return cache.scopes;
+      throw error;
+    }
+    if (cache && cache.version === version) {
       return cache.scopes;
     }
 
@@ -28,8 +34,24 @@ export class ScopeRepository {
     }
 
     const scopes = (data || []) as Scope[];
-    scopeCaches.set(client, { scopes, loadedAt: Date.now() });
+    scopeCaches.set(client, { scopes, version });
     return scopes;
+  }
+
+  /**
+   * Una sola fila permite comprobar invalidacion entre procesos sin releer el
+   * arbol ni depender de que la instancia que escribio sea la que responda.
+   */
+  async getContentVersion(client: any = supabaseServer): Promise<number> {
+    return readContentVersionOnce(client, async () => {
+      const { data, error } = await client
+        .from('scope_tree_version')
+        .select('version')
+        .eq('singleton', true)
+        .single();
+      if (error) throw error;
+      return Number(data.version);
+    });
   }
 
   async isActiveScope(scopeId: string, client: any = supabaseServer): Promise<boolean> {

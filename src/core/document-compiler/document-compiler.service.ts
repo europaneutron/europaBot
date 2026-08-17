@@ -5,6 +5,7 @@ import {
   changedFactFingerprints,
   deriveCoverage,
   factFingerprint,
+  groupFactsByDestination,
   mergeCandidates,
   REAL_ESTATE_PRESET,
   reviewSignalsForFacts,
@@ -20,6 +21,7 @@ import { getAiModel, getOpenAIClient } from '@/services/ai/openai.service';
 import { getCompilerMaterialModelSource } from '@/services/storage/compiler-material-storage';
 import { clientBrandRepository } from '@/data/repositories/client-brand.repository';
 import { toClientVocabulary, toneInstruction } from '@/core/onboarding/client-vocabulary';
+import { scopeRepository } from '@/data/repositories/scope.repository';
 
 const extractionSchema = z.object({
   facts: z.array(z.object({
@@ -111,8 +113,9 @@ const WRITING_JSON_SCHEMA = {
       items: {
         type: 'object',
         additionalProperties: false,
-        required: ['intent_name', 'response', 'keywords', 'synonyms', 'typos', 'phrases'],
+        required: ['proposal_key', 'intent_name', 'response', 'keywords', 'synonyms', 'typos', 'phrases'],
         properties: {
+          proposal_key: { type: 'string' },
           intent_name: { type: 'string' },
           response: { type: 'string' },
           keywords: { type: 'array', items: { type: 'string' } },
@@ -127,6 +130,7 @@ const WRITING_JSON_SCHEMA = {
 
 const writingSchema = z.object({
   proposals: z.array(z.object({
+    proposal_key: z.string(),
     intent_name: z.string(),
     response: z.string().min(1),
     keywords: z.array(z.string()).default([]),
@@ -334,8 +338,10 @@ export class DocumentCompilerService {
     if (!run.tree_approved_at) throw new Error('La estructura debe aprobarse antes de generar contenido');
     const review = await documentCompilerRepository.getReview(run.id);
     let covered = review.coverage.filter((row: any) => row.status === 'covered');
-    const intents = await documentCompilerRepository.getVisibleIntents(run.scope_id);
-    const intentByName = new Map(intents.map((intent: any) => [intent.intent_name, intent]));
+    const [intents, scopes] = await Promise.all([
+      documentCompilerRepository.getAllIntents(),
+      scopeRepository.getScopes(),
+    ]);
     const facts = review.facts.map((row: any) => this.toFact(row));
     let changedKeys: Set<string> | null = null;
     let previousProposals: any[] = [];
@@ -355,6 +361,16 @@ export class DocumentCompilerService {
       );
     }
 
+    const writingTargets = covered.flatMap((coverage: any) => {
+      const supportingFacts = facts.filter(fact => coverage.fact_ids.includes(fact.id));
+      return groupFactsByDestination(supportingFacts, run.scope_id, scopes).map(group => ({
+        proposalKey: `${coverage.id}:${group.scopeId}`,
+        coverage,
+        scopeId: group.scopeId,
+        facts: group.facts,
+      }));
+    });
+
     const [openai, model, brand] = await Promise.all([
       getOpenAIClient(),
       getAiModel('writing'),
@@ -367,7 +383,7 @@ export class DocumentCompilerService {
     const response = await openai.responses.create({
       model,
       store: false,
-      input: `Redacta respuestas breves para WhatsApp usando exclusivamente los hechos dados. No inventes, no agregues invitaciones a agendar y no uses emojis. ${brandInstruction} Devuelve JSON con {"proposals":[{"intent_name":"...","response":"...","keywords":[],"synonyms":[],"typos":[],"phrases":[]}]}.\n\nCobertura: ${JSON.stringify(covered)}\n\nHechos: ${JSON.stringify(review.facts.map((fact: any) => ({ id: fact.id, key: fact.fact_key, subject: fact.subject, value: fact.fact_value })))}`,
+      input: `Redacta exactamente una respuesta breve de WhatsApp por cada objetivo usando exclusivamente sus hechos. Conserva proposal_key e intent_name literalmente. No combines objetivos, no inventes, no agregues invitaciones a agendar y no uses emojis. ${brandInstruction} Devuelve JSON con {"proposals":[{"proposal_key":"...","intent_name":"...","response":"...","keywords":[],"synonyms":[],"typos":[],"phrases":[]}]}.\n\nObjetivos: ${JSON.stringify(writingTargets.map(target => ({ proposal_key: target.proposalKey, intent_name: target.coverage.intent_name, question: target.coverage.question, scope_id: target.scopeId, facts: target.facts.map(fact => ({ id: fact.id, key: fact.key, subject: fact.subject, value: fact.value })) })))}`,
       text: {
         format: {
           type: 'json_schema',
@@ -378,33 +394,77 @@ export class DocumentCompilerService {
       },
     });
     const generated = writingSchema.parse(JSON.parse(response.output_text));
-    const generatedByIntent = new Map(generated.proposals.map(item => [item.intent_name, item]));
+    const generatedByKey = new Map(generated.proposals.map(item => [item.proposal_key, item]));
+    const proposals = [];
+    const placementErrors = new Map<string, string[]>();
 
-    const proposals = covered.flatMap((coverage: any) => {
-      const intent: any = intentByName.get(coverage.intent_name);
-      const proposal = generatedByIntent.get(coverage.intent_name);
-      if (!intent || !proposal) return [];
-      const supportingFacts = facts.filter(fact => coverage.fact_ids.includes(fact.id));
-      const previousProposal = previousProposals.find(item => item.intent_id === intent.id);
-      return [{
-        coverageId: coverage.id,
-        scopeId: run.scope_id,
-        intentId: intent.id,
-        responseKey: `compiler_${coverage.intent_name}`,
+    for (const target of writingTargets) {
+      const proposal = generatedByKey.get(target.proposalKey);
+      if (!proposal) {
+        const errors = placementErrors.get(target.coverage.id) || [];
+        errors.push(`No se generó contenido para el alcance ${target.scopeId}`);
+        placementErrors.set(target.coverage.id, errors);
+        continue;
+      }
+
+      const intentsWithName = intents.filter((intent: any) =>
+        intent.intent_name === target.coverage.intent_name
+      );
+      const exactIntent: any = intentsWithName.find((intent: any) =>
+        intent.scope_id === target.scopeId
+      );
+      // Solo una intencion encendida puede prestar sus ajustes por herencia:
+      // la que espera aprobacion todavia no rige en ningun alcance.
+      const [visibleIntent] = await scopeRepository.resolveRows(
+        intentsWithName.filter((intent: any) => intent.is_active),
+        target.scopeId,
+        (intent: any) => intent.intent_name
+      );
+      const template: any = exactIntent || visibleIntent;
+      const previousProposal = previousProposals.find(item => item.intent_id === exactIntent?.id);
+      const intentKeywords = String(target.coverage.intent_name)
+        .split(/[^a-zA-Z0-9áéíóúüñÁÉÍÓÚÜÑ]+/)
+        .map(value => value.toLowerCase())
+        .filter(value => value.length >= 4 && value !== 'consultar');
+
+      proposals.push({
+        coverageId: target.coverage.id,
+        scopeId: target.scopeId,
+        intentId: exactIntent?.id || null,
+        intentName: target.coverage.intent_name,
+        displayName: template?.display_name || target.coverage.question,
+        minConfidence: Number(template?.min_confidence ?? 0.6),
+        priority: Number(template?.priority ?? 0),
+        responseKey: `compiler_${target.coverage.intent_name}`,
         messageText: { fragments: [{ type: 'text' as const, content: proposal.response, delay: 0 }] },
         matcherPatterns: {
-          keywords: proposal.keywords,
-          synonyms: proposal.synonyms,
-          typos: proposal.typos,
-          phrases: proposal.phrases,
+          keywords: Array.from(new Set([
+            ...(template?.keywords || []),
+            ...proposal.keywords,
+            ...intentKeywords,
+          ])),
+          synonyms: Array.from(new Set([...(template?.synonyms || []), ...proposal.synonyms])),
+          typos: Array.from(new Set([...(template?.typos || []), ...proposal.typos])),
+          phrases: Array.from(new Set([
+            ...(template?.phrases || []),
+            ...proposal.phrases,
+            target.coverage.question,
+          ])),
         },
-        signals: reviewSignalsForFacts(supportingFacts, {
+        signals: reviewSignalsForFacts(target.facts, {
           changed: Boolean(changedKeys),
           humanEdited: previousProposal?.edited_by_human || false,
         }),
-        factIds: coverage.fact_ids,
-      }];
-    });
+        factIds: target.facts.flatMap(fact => fact.id ? [fact.id] : []),
+      });
+    }
+
+    await Promise.all(covered.map((coverage: any) =>
+      documentCompilerRepository.setCoveragePlacementError(
+        coverage.id,
+        placementErrors.get(coverage.id)?.join('. ') || null
+      )
+    ));
 
     await documentCompilerRepository.replaceProposals(run.id, proposals);
     return documentCompilerRepository.advanceRun(run.id, {

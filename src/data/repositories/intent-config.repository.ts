@@ -40,6 +40,9 @@ export interface BotResponse {
   origin: 'manual' | 'compiler';
   compiler_proposal_id: string | null;
   review_signals: string[];
+  edited_by_human: boolean;
+  superseded_by_response_id: string | null;
+  deactivated_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -51,7 +54,8 @@ type CreateIntentConfiguration = Omit<
 
 type CreateBotResponse = Omit<
   BotResponse,
-  'id' | 'created_at' | 'updated_at' | 'origin' | 'compiler_proposal_id' | 'review_signals'
+  'id' | 'created_at' | 'updated_at' | 'origin' | 'compiler_proposal_id' |
+  'review_signals' | 'edited_by_human' | 'superseded_by_response_id' | 'deactivated_at'
 > & Partial<Pick<BotResponse, 'origin' | 'compiler_proposal_id'>>;
 
 export class IntentConfigRepository {
@@ -186,6 +190,17 @@ export class IntentConfigRepository {
    * Crear respuesta para una intención
    */
   async createResponse(data: CreateBotResponse): Promise<BotResponse> {
+    if (data.is_active) {
+      const { count, error: countError } = await supabaseServer
+        .from('bot_responses')
+        .select('id', { count: 'exact', head: true })
+        .eq('intent_id', data.intent_id)
+        .eq('is_active', true);
+      if (countError) throw countError;
+      if ((count || 0) > 0) {
+        throw new Error('Esta pregunta ya tiene una respuesta activa en el alcance');
+      }
+    }
     const { data: response, error } = await supabaseServer
       .from('bot_responses')
       .insert(normalizeResponseWrite(data))
@@ -204,9 +219,35 @@ export class IntentConfigRepository {
    * Actualizar respuesta
    */
   async updateResponse(id: string, data: Partial<BotResponse>): Promise<void> {
+    if (data.is_active) {
+      let targetIntentId = data.intent_id;
+      if (!targetIntentId) {
+        const { data: current, error: currentError } = await supabaseServer
+          .from('bot_responses')
+          .select('intent_id')
+          .eq('id', id)
+          .single();
+        if (currentError) throw currentError;
+        targetIntentId = current.intent_id;
+      }
+      const { count, error: countError } = await supabaseServer
+        .from('bot_responses')
+        .select('id', { count: 'exact', head: true })
+        .eq('intent_id', targetIntentId)
+        .eq('is_active', true)
+        .neq('id', id);
+      if (countError) throw countError;
+      if ((count || 0) > 0) {
+        throw new Error('Resuelve primero la respuesta activa que ocupa esta pregunta y alcance');
+      }
+    }
     const { error } = await supabaseServer
       .from('bot_responses')
-      .update({ ...normalizeResponseWrite(data), updated_at: new Date().toISOString() })
+      .update({
+        ...normalizeResponseWrite(data),
+        edited_by_human: true,
+        updated_at: new Date().toISOString(),
+      })
       .eq('id', id);
 
     if (error) {
