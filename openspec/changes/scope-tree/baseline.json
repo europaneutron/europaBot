@@ -1,22 +1,6 @@
 {
   "rootScopeId": "00000000-0000-4000-8000-000000000001",
-  "cases": [
-    {
-      "message": "precio",
-      "intent": "precio",
-      "responseCount": 2
-    },
-    {
-      "message": "ubicacion",
-      "intent": "ubicacion",
-      "responseCount": 2
-    },
-    {
-      "message": "hola",
-      "intent": "saludo",
-      "responseCount": 1
-    }
-  ],
+  "_cases": "Retirado el 17 de agosto de 2026. Eran conteos congelados contra las filas sembradas en la raiz: 'precio' dos respuestas, 'ubicacion' dos, 'saludo' una. Protegian los datos de al lado en vez del comportamiento, asi que se ponian rojos cuando el contenido de la raiz cambiaba legitimamente, y volver a congelar la foto cada vez no protege nada. La prueba siembra ahora su propio alcance y afirma contra el.",
   "responseFormats": [
     "test_fragmented",
     "test_simple_media",

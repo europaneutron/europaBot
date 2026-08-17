@@ -57,12 +57,14 @@ async function main(): Promise<void> {
     stale: `rt${suffix}`,
     variables: `rv${suffix}`,
     nested: `rn${suffix}`,
+    composedGreeting: `rc${suffix}`,
   };
   const createdScopeIds: string[] = [];
   const createdIntentIds: string[] = [];
   const existingScopeStates: Array<{ id: string; is_active: boolean }> = [];
   let previousTypingValue = 'true';
   let previousAutoOfferValue = 'true';
+  let previousBrand: { business_name: string | null; use_composed_greeting: boolean } | null = null;
 
   const setConfig = async (key: string, value: string) => {
     const { error } = await supabaseServer
@@ -70,6 +72,14 @@ async function main(): Promise<void> {
       .update({ config_value: value })
       .eq('config_key', key);
     if (error) throw error;
+  };
+
+  const setBrandComposedGreeting = async (composed: boolean, businessName?: string) => {
+    const { clientBrandRepository } = await import('../src/data/repositories/client-brand.repository');
+    await clientBrandRepository.update({
+      useComposedGreeting: composed,
+      ...(businessName ? { businessName } : {}),
+    });
   };
 
   try {
@@ -91,6 +101,13 @@ async function main(): Promise<void> {
     previousAutoOfferValue = configRows?.find(row => row.config_key === 'appointment_auto_offer_enabled')?.config_value ?? 'true';
     await setConfig('typing_indicator_enabled', 'false');
     await setConfig('appointment_auto_offer_enabled', 'false');
+
+    const { clientBrandRepository } = await import('../src/data/repositories/client-brand.repository');
+    const brand = await clientBrandRepository.get();
+    previousBrand = {
+      business_name: brand.business_name,
+      use_composed_greeting: brand.use_composed_greeting,
+    };
 
     const { data: existingScopes, error: existingScopesError } = await supabaseServer
       .from('scopes')
@@ -316,6 +333,13 @@ async function main(): Promise<void> {
       .update({ message_text: `alpha-response-${suffix}`, variables: null })
       .eq('intent_id', alphaPriceIntent.id);
 
+    // El saludo tiene dos formas y la marca decide cual. Esta prueba fijaba
+    // solo los alcances y daba por buena la marca que hubiera en la base, asi
+    // que se ponia roja cuando otro cambiaba el saludo a compuesto: rojo por
+    // configuracion de al lado, no por comportamiento. Ahora fija cada una y
+    // comprueba las dos, que ademas es lo que faltaba: la compuesta no la
+    // verificaba nadie.
+    await setBrandComposedGreeting(false);
     const greeting = await messageProcessor.processMessage(
       phones.greeting,
       'hola',
@@ -327,6 +351,29 @@ async function main(): Promise<void> {
       greeting.responses.some(response => typeof response === 'string' && response.includes(`Alpha ${suffix}`) && response.includes(`Beta ${suffix}`)),
       'Greeting must compose the active scope names from data'
     );
+
+    await supabaseServer.from('users').delete().eq('phone_number', phones.composedGreeting);
+    await setBrandComposedGreeting(true, `Inmobiliaria ${suffix}`);
+    const composedGreeting = await messageProcessor.processMessage(
+      phones.composedGreeting,
+      'hola',
+      `composed-greeting-${suffix}`,
+      'Composed Greeting Test'
+    );
+    assert(
+      composedGreeting.responses.length === 1,
+      `Composed greeting must replace the presentation instead of appending it: ${JSON.stringify(composedGreeting.responses)}`
+    );
+    assert(
+      composedGreeting.responses.some(response =>
+        typeof response === 'string' &&
+        response.includes(`Inmobiliaria ${suffix}`) &&
+        response.includes(`Alpha ${suffix}`) &&
+        response.includes(`Beta ${suffix}`)
+      ),
+      'Composed greeting must name the business and its active scopes'
+    );
+    await setBrandComposedGreeting(false);
 
     const { data: expiryUser, error: expiryUserError } = await supabaseServer
       .from('users')
@@ -567,6 +614,13 @@ async function main(): Promise<void> {
   } finally {
     await setConfig('typing_indicator_enabled', previousTypingValue).catch(() => {});
     await setConfig('appointment_auto_offer_enabled', previousAutoOfferValue).catch(() => {});
+    if (previousBrand) {
+      const { clientBrandRepository } = await import('../src/data/repositories/client-brand.repository');
+      await clientBrandRepository.update({
+        useComposedGreeting: previousBrand.use_composed_greeting,
+        ...(previousBrand.business_name ? { businessName: previousBrand.business_name } : {}),
+      }).catch(() => {});
+    }
     await supabaseServer.from('users').delete().in('phone_number', Object.values(phones));
     if (createdIntentIds.length > 0) {
       await supabaseServer.from('intent_configurations').delete().in('id', createdIntentIds);
