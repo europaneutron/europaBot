@@ -60,13 +60,15 @@ export class AdvisorRepository {
       .from('advisor_requests')
       .select(`
         *,
-        user:users (
+        user:users!inner (
           phone_number,
           name,
           lead_score,
-          lead_status
+          lead_status,
+          is_simulated
         )
       `)
+      .eq('user.is_simulated', false)
       .eq('status', 'pending')
       .order('created_at', { ascending: false});
 

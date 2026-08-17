@@ -337,11 +337,13 @@ Puedes escribir:
     }
 
     // Notificar al agente
-    try {
-      await this.notifyAgent(appointment, user.phone_number, originScopeId);
-    } catch (error) {
-      console.error('❌ Error notificando al agente:', error);
-      // No bloqueamos el flujo si falla la notificación
+    if (!user.is_simulated) {
+      try {
+        await this.notifyAgent(appointment, user.phone_number, originScopeId);
+      } catch (error) {
+        console.error('❌ Error notificando al agente:', error);
+        // No bloqueamos el flujo si falla la notificación
+      }
     }
 
     // Limpiar estado del flujo

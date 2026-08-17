@@ -175,7 +175,8 @@ export class FollowupProcessor {
       .select('id, phone_number, name, last_interaction_at')
       .gte('last_interaction_at', windowStart.toISOString())
       .lte('last_interaction_at', windowEnd.toISOString())
-      .eq('followup_sent', false);
+      .eq('followup_sent', false)
+      .eq('is_simulated', false);
 
     if (error) {
       console.error('[FollowupProcessor] Error obteniendo conversaciones:', error);

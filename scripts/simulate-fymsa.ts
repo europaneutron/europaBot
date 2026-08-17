@@ -149,7 +149,8 @@ async function main() {
     ];
 
     console.log('\n================ CONVERSACION SIMULADA ================\n');
-    for (const [index, text] of turns.entries()) {
+    for (let index = 0; index < turns.length; index += 1) {
+      const text = turns[index];
       const result = await messageProcessor.processMessage(
         phone,
         text,

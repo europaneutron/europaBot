@@ -120,17 +120,19 @@ export class FallbackHandler {
       // El horario solo decora el mensaje de confirmación. Si falta, se avisa
       // igual al asesor: dejar la solicitud registrada sin notificar a nadie es
       // peor que confirmar sin mencionar un horario.
-      await this.notifyAdvisor({
-        requestId: advisorRequest.id,
-        userName: userName,
-        userPhone: user.phone_number,
-        leadScore: user.lead_score,
-        leadStatus: user.lead_status,
-        checkpointsCompleted: checkpointsCompleted,
-        fallbackCount: session.fallback_attempts,
-        lastMessage: messageText,
-        advisorPhone: agentConfig.advisor_phone,
-      });
+      if (!user.is_simulated) {
+        await this.notifyAdvisor({
+          requestId: advisorRequest.id,
+          userName: userName,
+          userPhone: user.phone_number,
+          leadScore: user.lead_score,
+          leadStatus: user.lead_status,
+          checkpointsCompleted: checkpointsCompleted,
+          fallbackCount: session.fallback_attempts,
+          lastMessage: messageText,
+          advisorPhone: agentConfig.advisor_phone,
+        });
+      }
 
       if (agentConfig.business_hours) {
         confirmationMessage = await configRepository.get(

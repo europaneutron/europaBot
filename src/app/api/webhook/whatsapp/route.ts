@@ -223,147 +223,34 @@ export async function POST(request: NextRequest) {
       const { userRepository } = await import('@/data/repositories/user.repository');
       const { configRepository } = await import('@/data/repositories/config.repository');
       
-      // Obtener estado actual del flujo
-      const flowState = await userRepository.getAppointmentFlowState(user.id);
-      
-      // Si el estado es pending_auto_offer
-      // Y el último mensaje del bot NO fue el auto-offer (para evitar duplicados)
-      if (flowState === 'pending_auto_offer') {
-          
-          // Verificar si el último mensaje enviado YA fue el auto-offer
-          const { data: lastMessage } = await supabaseServer
-            .from('conversations')
-            .select('message_text')
-            .eq('user_id', user.id)
-            .eq('direction', 'outbound')
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .single();
-          
-          const { resolveConfiguredMessage } = await import('@/core/messaging/configured-message');
-          const appointmentOffer = await resolveConfiguredMessage(
-            'auto_offer_message',
-            '¡Veo que estás muy interesado! 🎉 ¿Te gustaría agendar una visita para conocer el fraccionamiento en persona?'
-          );
-          
-          // Solo enviar si el último mensaje NO es el auto-offer
-          if (!lastMessage || !lastMessage.message_text.includes('¡Veo que estás muy interesado!')) {
-            console.log(`📤 Enviando auto-offer con botones después de confirmar estado en BD`);
-            
-            // Esperar 300ms para asegurar consistencia en BD
-            await new Promise(resolve => setTimeout(resolve, 300));
-            
-            // Enviar con botones interactivos
-            await whatsappSender.sendInteractiveButtons({
-              to: from,
-              bodyText: appointmentOffer,
-              buttons: [
-                { id: 'appointment_yes', title: 'Sí, me interesa' },
-                { id: 'appointment_no', title: 'No, gracias' }
-              ]
-            });
-            
-            await conversationRepository.saveOutgoingMessage(
-              user.id,
-              appointmentOffer,
-              false,
-              undefined,
-              response.scopeId
-            );
-          }
-        }
-        
-        // Si el estado es confirm_date, enviar confirmación con botones
-        if (flowState === 'confirm_date') {
-          
-          const { data: lastMessage } = await supabaseServer
-            .from('conversations')
-            .select('message_text')
-            .eq('user_id', user.id)
-            .eq('direction', 'outbound')
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .single();
-          
-          if (!lastMessage || !lastMessage.message_text.includes('¿Es correcto?')) {
-            console.log(`📤 Enviando confirmación de fecha con botones`);
-            
-            await new Promise(resolve => setTimeout(resolve, 300));
-            
-            const flowData = await userRepository.getAppointmentFlowData(user.id);
-            const requestedDate = flowData?.requested_date;
-            
-            if (requestedDate) {
-              const dateObj = new Date(requestedDate + 'T00:00:00');
-              const dateText = dateObj.toLocaleDateString('es-MX', { 
-                weekday: 'long', 
-                day: 'numeric', 
-                month: 'long' 
-              });
-              
-              const bodyText = `📅 Entendido, quieres visitarnos el *${dateText}*.\n\n¿Es correcto?`;
-              
-              await whatsappSender.sendInteractiveButtons({
-                to: from,
-                bodyText,
-                buttons: [
-                  { id: 'confirm_date', title: '✅ Sí, continuar' },
-                  { id: 'change_date', title: '❌ Cambiar fecha' }
-                ]
-              });
-              
-              await conversationRepository.saveOutgoingMessage(
-                user.id,
-                bodyText,
-                false,
-                undefined,
-                response.scopeId
-              );
-            }
-          }
-        }
-        
-        // Si el estado es ask_time, enviar pregunta con botones de horario
-        if (flowState === 'ask_time') {
-          
-          const { data: lastMessage } = await supabaseServer
-            .from('conversations')
-            .select('message_text')
-            .eq('user_id', user.id)
-            .eq('direction', 'outbound')
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .single();
-          
-          if (!lastMessage || !lastMessage.message_text.includes('¿En qué horario prefieres')) {
-            console.log(`📤 Enviando pregunta de horario con botones`);
-            
-            await new Promise(resolve => setTimeout(resolve, 300));
-            
-            const bodyText = '¿En qué horario prefieres visitarnos?';
-            
-            await whatsappSender.sendInteractiveButtons({
-              to: from,
-              bodyText,
-              buttons: [
-                { id: 'morning', title: 'Mañana 9-12' },
-                { id: 'afternoon', title: 'Tarde 12-15' },
-                { id: 'evening', title: 'Noche 15-18' }
-              ]
-            });
-            
-            await conversationRepository.saveOutgoingMessage(
-              user.id,
-              bodyText,
-              false,
-              undefined,
-              response.scopeId
-            );
-          }
-        }
-      }
+      // El mensaje con botones que toque a continuacion, compuesto en un solo
+      // lugar y compartido con el simulador. Ver appointment-flow-messages.ts:
+      // tenerlo aqui dentro obligaba a copiarlo para cualquier otro consumidor.
+      const { nextAppointmentFlowMessage } = await import('@/core/appointment/appointment-flow-messages');
+      const flowMessage = await nextAppointmentFlowMessage(user.id);
 
-    return NextResponse.json({ 
+      if (flowMessage) {
+        console.log('Enviando mensaje del flujo de cita con botones');
+        // Margen para que el estado ya este consolidado en la base.
+        await new Promise(resolve => setTimeout(resolve, 300));
+
+        await whatsappSender.sendInteractiveButtons({
+          to: from,
+          bodyText: flowMessage.bodyText,
+          buttons: flowMessage.buttons,
+        });
+
+        await conversationRepository.saveOutgoingMessage(
+          user.id,
+          flowMessage.bodyText,
+          false,
+          undefined,
+          response.scopeId
+        );
+      }
+    }
+
+    return NextResponse.json({
       status: 'received',
       processed: response.wasDetected 
     }, { status: 200 });

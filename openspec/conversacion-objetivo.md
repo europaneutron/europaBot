@@ -197,6 +197,13 @@ El límite lo impone WhatsApp:
 | 4 a 10 | mensaje de lista |
 | más de 10 | no se puede enumerar: estrechar antes por ciudad o rango de precio |
 
+**El camino ya existe entero.** `sendInteractiveButtons` manda botones a WhatsApp
+hoy, en el flujo de cita, y `extractMessage` entiende `button_reply` y
+`list_reply` convirtiendo el toque en el **identificador** del botón, no en su
+título. Es exactamente la propiedad que hace determinista la desambiguación sin
+LLM: en ese paso no hay coincidencia difusa ni ambigüedad posible. Lo que falta
+no es el transporte, es generar las opciones desde el catálogo.
+
 Solo botones **generados desde el catálogo**. Los botones redactados a mano son
 un grafo de conversación —destino, ciclos, destino borrado— y quedan para
 después.

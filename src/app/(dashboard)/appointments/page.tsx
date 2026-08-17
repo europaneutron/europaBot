@@ -42,12 +42,14 @@ async function getAppointments(): Promise<AppointmentWithUser[]> {
       status,
       agent_notified_at,
       created_at,
-      user:users!appointments_user_id_fkey (
+      user:users!appointments_user_id_fkey!inner (
         phone_number,
         name,
-        lead_score
+        lead_score,
+        is_simulated
       )
     `)
+    .eq('user.is_simulated', false)
     .order('created_at', { ascending: false });
 
   if (error) {

@@ -144,6 +144,7 @@ export const config = {
     '/compiler/:path*',
     '/onboarding',
     '/onboarding/:path*',
+    '/simulator',
     '/test-upload',
     '/test-upload/:path*',
   ],

@@ -10,6 +10,7 @@ export interface User {
   current_state: string;
   lead_score: number;
   lead_status: 'cold' | 'warm' | 'hot';
+  is_simulated: boolean;
   first_contact_at: Date;
   last_interaction_at: Date;
   preferred_language: string;

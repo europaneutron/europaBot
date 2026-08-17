@@ -1,190 +1,117 @@
-/**
- * API de Testing - Procesa mensajes sin WhatsApp real
- * Bloqueado en produccion por seguridad
- */
-
 import { NextRequest, NextResponse } from 'next/server';
-import { messageProcessor } from '@/core/conversation/message-processor';
-import { scopeRepository } from '@/data/repositories/scope.repository';
 import { z } from 'zod';
+import { messageProcessor } from '@/core/conversation/message-processor';
+import { conversationSimulatorRepository } from '@/data/repositories/conversation-simulator.repository';
+import { conversationRepository } from '@/data/repositories/conversation.repository';
+import { scopeRepository } from '@/data/repositories/scope.repository';
+import { userRepository } from '@/data/repositories/user.repository';
+import { getAuthenticatedAdmin } from '@/lib/server/authenticated-admin';
+import {
+  isFragmentedResponse,
+  isSimpleResponseWithMedia,
+  type BotResponse,
+  type MessageFragment,
+} from '@/types/message-fragments.types';
 
-const processMessageRequestSchema = z.object({
-  phoneNumber: z.string().min(1),
-  message: z.string().min(1),
-  messageId: z.string().min(1).optional(),
-  scopeId: z.string().uuid().nullable().optional(),
-  referralAdId: z.string().min(1).optional(),
+const requestSchema = z.object({
+  phoneNumber: z.string().trim().min(4).max(20),
+  message: z.string().trim().min(1).max(4096),
+  messageId: z.string().trim().min(1).optional(),
+  scopeId: z.string().uuid().optional(),
+  referralAdId: z.string().trim().min(1).max(255).optional(),
 });
+
+function fragmentText(fragment: MessageFragment): string {
+  if (fragment.type === 'text') return fragment.content;
+  if (fragment.type === 'location') return `${fragment.name}\n${fragment.address}`;
+  if (fragment.type === 'contact') return `${fragment.name}\n${fragment.phone}`;
+  if ('caption' in fragment && fragment.caption) return fragment.caption;
+  if ('filename' in fragment) return fragment.filename;
+  return `[${fragment.type}]`;
+}
+
+function flattenResponses(responses: BotResponse[]): string[] {
+  return responses.flatMap(response => {
+    if (typeof response === 'string') return [response];
+    if (isFragmentedResponse(response)) return response.fragments.map(fragmentText);
+    if (isSimpleResponseWithMedia(response)) {
+      return response.text ? [response.text, `[${response.media_type || 'archivo'}]`] : [`[${response.media_type || 'archivo'}]`];
+    }
+    return [];
+  });
+}
 
 export async function POST(request: NextRequest) {
   if (process.env.NODE_ENV === 'production') {
     return NextResponse.json({ error: 'Not found' }, { status: 404 });
   }
+  if (!await getAuthenticatedAdmin(request)) {
+    return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+  }
+
   try {
-    const parsedRequest = processMessageRequestSchema.safeParse(await request.json());
-
-    if (!parsedRequest.success) {
-      return NextResponse.json(
-        { error: 'Invalid request', details: parsedRequest.error.flatten() },
-        { status: 400 }
-      );
+    const input = requestSchema.parse(await request.json());
+    if (input.scopeId && !await scopeRepository.isActiveScope(input.scopeId)) {
+      return NextResponse.json({ error: 'El alcance debe estar activo' }, { status: 400 });
     }
 
-    const { phoneNumber, message, messageId, scopeId, referralAdId } = parsedRequest.data;
-    if (scopeId === null) {
-      return NextResponse.json(
-        { error: 'scopeId cannot be null; omit it to use the root scope' },
-        { status: 400 }
-      );
-    }
-
-    if (scopeId !== undefined && !(await scopeRepository.isActiveScope(scopeId))) {
-      return NextResponse.json(
-        { error: 'scopeId must reference an active scope' },
-        { status: 400 }
-      );
-    }
-
-    console.log(`\n📨 [TEST] Procesando mensaje de ${phoneNumber}: "${message}"`);
-
-    // Procesar con el Message Processor real
-    const result = await messageProcessor.processMessage(
-      phoneNumber,
-      message,
-      messageId || `test_${Date.now()}`,
-      'Usuario Test',
-      { scopeId, referralAdId }
+    const user = await userRepository.findOrCreateSimulatedByPhone(
+      input.phoneNumber,
+      `Simulación ${input.phoneNumber.slice(-4)}`
     );
-
-    const { isFragmentedResponse, isSimpleResponseWithMedia } = await import('@/types/message-fragments.types');
-
-    // Convertir responses a texto para logging
-    const responseText = result.responses
-      .map(r => {
-        if (typeof r === 'string') return r;
-        if (isFragmentedResponse(r)) return `[Fragmentado: ${r.fragments.length} partes]`;
-        if (isSimpleResponseWithMedia(r)) return `[Media: ${r.media_type} - ${r.text}]`;
-        return '[Desconocido]';
-      })
-      .join('\n---\n');
-
-    console.log(`📤 [TEST] Respuesta: "${responseText.substring(0, 100)}..."`);
-    console.log(`🎯 [TEST] Intent detectado: ${result.wasDetected ? 'SÍ' : 'NO'}`);
-    console.log(`⚠️ [TEST] Es fallback: ${result.isFallback ? 'SÍ' : 'NO'}\n`);
-
-    // Simular lógica del webhook: verificar si hay auto-offer pendiente
-    const allResponses = [...result.responses];
-    
-    if (result.wasDetected && !result.isFallback) {
-      const { supabaseServer } = await import('@/services/supabase/server-client');
-      const { userRepository } = await import('@/data/repositories/user.repository');
-      const { configRepository } = await import('@/data/repositories/config.repository');
-      
-      // Obtener usuario
-      const { data: user } = await supabaseServer
-        .from('users')
-        .select('id')
-        .eq('phone_number', phoneNumber)
-        .single();
-      
-      if (user) {
-        // Verificar estado de auto-offer
-        const flowState = await userRepository.getAppointmentFlowState(user.id);
-        
-        if (flowState === 'pending_auto_offer') {
-          // Verificar que no hayamos enviado el auto-offer ya
-          const { data: lastMessage } = await supabaseServer
-            .from('conversations')
-            .select('message_text')
-            .eq('user_id', user.id)
-            .eq('direction', 'outbound')
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .single();
-          
-          const { resolveConfiguredMessage } = await import('@/core/messaging/configured-message');
-          const appointmentOffer = await resolveConfiguredMessage(
-            'auto_offer_message',
-            '¡Veo que estás muy interesado! 🎉 ¿Te gustaría agendar una visita para conocer el fraccionamiento en persona?'
-          );
-          
-          // Solo agregar si el último mensaje NO es el auto-offer
-          if (!lastMessage || !lastMessage.message_text.includes('¡Veo que estás muy interesado!')) {
-            console.log(`📤 [TEST] Agregando auto-offer pendiente a las respuestas`);
-            allResponses.push(appointmentOffer);
-          }
-        }
-        
-        // Si el estado es confirm_date, agregar confirmación
-        if (flowState === 'confirm_date') {
-          const { data: lastMessage } = await supabaseServer
-            .from('conversations')
-            .select('message_text')
-            .eq('user_id', user.id)
-            .eq('direction', 'outbound')
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .single();
-          
-          if (!lastMessage || !lastMessage.message_text.includes('¿Es correcto?')) {
-            const flowData = await userRepository.getAppointmentFlowData(user.id);
-            const requestedDate = flowData?.requested_date;
-            
-            if (requestedDate) {
-              const dateObj = new Date(requestedDate + 'T00:00:00');
-              const dateText = dateObj.toLocaleDateString('es-MX', { 
-                weekday: 'long', 
-                day: 'numeric', 
-                month: 'long' 
-              });
-              
-              console.log(`📤 [TEST] Agregando confirmación de fecha`);
-              allResponses.push(
-                `📅 Entendido, quieres visitarnos el *${dateText}*.\n\n¿Es correcto?\n\n[Sí, continuar] [Cambiar fecha]`
-              );
-            }
-          }
-        }
-        
-        // Si el estado es ask_time, agregar pregunta con botones
-        if (flowState === 'ask_time') {
-          const { data: lastMessage } = await supabaseServer
-            .from('conversations')
-            .select('message_text')
-            .eq('user_id', user.id)
-            .eq('direction', 'outbound')
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .single();
-          
-          if (!lastMessage || !lastMessage.message_text.includes('¿En qué horario prefieres')) {
-            console.log(`📤 [TEST] Agregando pregunta de horario`);
-            allResponses.push('¿En qué horario prefieres visitarnos?\n\n[Mañana 9-12] [Tarde 12-15] [Noche 15-18]');
-          }
-        }
+    const result = await messageProcessor.processMessage(
+      input.phoneNumber,
+      input.message,
+      input.messageId || `simulator_${Date.now()}`,
+      user.name,
+      {
+        scopeId: input.scopeId,
+        referralAdId: input.referralAdId,
+        suppressExternalMessages: true,
       }
+    );
+    if (result.error) throw new Error(result.error);
+    // La misma condicion con la que el webhook decide si toca emitir el
+    // siguiente mensaje del flujo de cita.
+    const flowMessage = result.wasDetected && !result.isFallback && !result.flowHandled
+      ? await conversationSimulatorRepository.getPendingFlowMessage(user.id)
+      : null;
+    const messages = [
+      ...flattenResponses(result.responses),
+      ...(flowMessage ? [flowMessage.bodyText] : []),
+    ];
+    for (const responseMessage of messages) {
+      await conversationRepository.saveOutgoingMessage(
+        user.id,
+        responseMessage,
+        result.isFallback,
+        undefined,
+        result.scopeId
+      );
     }
+    const diagnostic = await conversationSimulatorRepository.getDiagnostic(user.id, result.scopeId);
 
     return NextResponse.json({
       success: true,
-      responses: allResponses,
+      responses: result.responses,
+      messages,
       wasDetected: result.wasDetected,
       isFallback: result.isFallback,
-      intent: result.detectedIntent?.intent_name || null,
+      intent: result.detectedIntent?.intent_name || (result.flowHandled ? 'appointment_flow' : null),
       intentId: result.detectedIntent?.intent_id || null,
+      buttons: flowMessage?.buttons ?? [],
+      // Parte del contrato del endpoint desde antes del simulador: hay pruebas
+      // que comprueban contra que alcance se resolvio la respuesta.
       scopeId: result.scopeId || null,
-      confidence: result.wasDetected ? 0.95 : 0
+      diagnostic,
     });
-
   } catch (error) {
-    console.error('❌ [TEST] Error:', error);
-    
-    return NextResponse.json(
-      { 
-        error: 'Error processing message',
-        details: error instanceof Error ? error.message : 'Unknown error'
-      },
-      { status: 500 }
-    );
+    if (error instanceof z.ZodError) {
+      return NextResponse.json({ error: error.issues[0]?.message || 'Solicitud inválida' }, { status: 400 });
+    }
+    const message = error instanceof Error ? error.message : 'Error desconocido';
+    const status = message.includes('lead real') ? 409 : 500;
+    console.error('[ConversationSimulator] Error processing message:', error);
+    return NextResponse.json({ error: message }, { status });
   }
 }

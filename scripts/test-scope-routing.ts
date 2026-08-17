@@ -538,6 +538,10 @@ async function main(): Promise<void> {
       [phones.apiAlpha, alphaId, `alpha-response-${suffix}`],
       [phones.apiBeta, betaId, `beta-response-${suffix}`],
     ] as const) {
+      // El endpoint exige sesion de administrador desde que lo usa el
+      // simulador, asi que sin cookies responde 401. Esa es la puerta; la
+      // resolucion por alcance se comprueba por el mismo camino que el
+      // endpoint recorre despues de abrirla.
       const endpointResponse = await processMessageEndpoint(new NextRequest(
         'http://localhost/api/test/process-message',
         {
@@ -546,10 +550,17 @@ async function main(): Promise<void> {
           body: JSON.stringify({ phoneNumber, message: keyword, scopeId: requestedScopeId }),
         }
       ));
-      const endpointBody = await endpointResponse.json();
-      assert(endpointResponse.status === 200, 'Test endpoint must accept an active scope');
-      assert(endpointBody.scopeId === requestedScopeId, 'Test endpoint must report the resolved scope');
-      assert(endpointBody.responses.includes(expectedResponse), 'Test endpoint must resolve each scope content');
+      assert(endpointResponse.status === 401, 'Test endpoint must reject requests without an admin session');
+
+      const processed = await messageProcessor.processMessage(
+        phoneNumber,
+        keyword,
+        `wamid.api-${suffix}-${phoneNumber}`,
+        undefined,
+        { scopeId: requestedScopeId, suppressExternalMessages: true }
+      );
+      assert(processed.scopeId === requestedScopeId, 'Requested scope must be the resolved scope');
+      assert(processed.responses.includes(expectedResponse), 'Each scope must resolve its own content');
     }
 
     console.log('Scope routing verification passed');

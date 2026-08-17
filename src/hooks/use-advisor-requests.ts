@@ -44,12 +44,14 @@ export function useAdvisorRequests(filters: AdvisorRequestFilters = {}) {
           checkpoints_completed,
           lead_score,
           contacted,
-          user:users!user_id (
+          user:users!user_id!inner (
             name,
             phone_number,
-            lead_status
+            lead_status,
+            is_simulated
           )
         `)
+        .eq('user.is_simulated', false)
         .order('created_at', { ascending: false });
 
       // Filtro por estado contactado

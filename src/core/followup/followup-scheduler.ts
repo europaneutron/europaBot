@@ -148,9 +148,11 @@ export class FollowupScheduler {
         user:users!inner (
           id,
           name,
-          phone_number
+          phone_number,
+          is_simulated
         )
       `)
+      .eq('user.is_simulated', false)
       .eq('status', 'pending')
       .gte('created_at', since.toISOString())
       .order('created_at', { ascending: true });

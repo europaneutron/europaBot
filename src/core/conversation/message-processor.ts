@@ -43,6 +43,7 @@ function isPendingQuestionFresh(session: UserSession | null): boolean {
 export interface ProcessMessageOptions {
   scopeId?: string;
   referralAdId?: string;
+  suppressExternalMessages?: boolean;
 }
 
 export interface ProcessedResponse {
@@ -53,6 +54,7 @@ export interface ProcessedResponse {
   flowHandled?: boolean; // Indica si ya se manejó un flow state (evita doble verificación en webhook)
   detectedIntent?: IntentMatch;
   scopeId?: string;
+  error?: string;
 }
 
 export class MessageProcessor {
@@ -69,7 +71,7 @@ export class MessageProcessor {
     try {
       // 0. Enviar indicador de "escribiendo..." si está habilitado
       const typingEnabled = await configRepository.getBoolean('typing_indicator_enabled', true);
-      if (typingEnabled) {
+      if (typingEnabled && !options.suppressExternalMessages) {
         // No await - ejecutar en paralelo para no bloquear
         whatsappSender.sendTypingIndicator(phoneNumber, messageId).catch(() => {});
       }
@@ -415,6 +417,7 @@ export class MessageProcessor {
         wasDetected: false,
         isFallback: true,
         scopeId: options.scopeId ?? ROOT_SCOPE_ID,
+        error: error instanceof Error ? error.message : 'Error desconocido',
       };
     }
   }

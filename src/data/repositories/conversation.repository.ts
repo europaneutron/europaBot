@@ -45,6 +45,25 @@ export class ConversationRepository {
   }
 
   /**
+   * El último mensaje que el bot le envió a este usuario, o null si no hay.
+   *
+   * Lo usa el flujo de cita para no repetir una pregunta que acaba de hacer.
+   */
+  async getLastOutgoingMessage(userId: string): Promise<string | null> {
+    const { data, error } = await supabaseServer
+      .from('conversations')
+      .select('message_text')
+      .eq('user_id', userId)
+      .eq('direction', 'outbound')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) throw error;
+    return data?.message_text ?? null;
+  }
+
+  /**
    * Guardar mensaje saliente (respuesta del bot)
    */
   async saveOutgoingMessage(

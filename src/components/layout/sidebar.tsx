@@ -12,7 +12,8 @@ import {
   LogOut,
   UserCog,
   FileText,
-  WandSparkles
+  WandSparkles,
+  MessagesSquare
 } from 'lucide-react';
 import {
   Tooltip,
@@ -37,6 +38,9 @@ const navItems: NavItem[] = [
   { href: '/intents', icon: Target, label: 'Intenciones' },
   { href: '/onboarding', icon: WandSparkles, label: 'Configurar bot' },
   { href: '/compiler', icon: FileText, label: 'Contenido' },
+  ...(process.env.NODE_ENV !== 'production'
+    ? [{ href: '/simulator', icon: MessagesSquare, label: 'Simulador' }]
+    : []),
   { href: '/appointments', icon: Calendar, label: 'Citas' },
   { href: '/settings', icon: Settings, label: 'Configuración' },
   { href: '/profile', icon: UserCog, label: 'Mi Perfil' },

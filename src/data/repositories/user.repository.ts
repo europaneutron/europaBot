@@ -63,6 +63,42 @@ export class UserRepository {
     return newUser;
   }
 
+  async findOrCreateSimulatedByPhone(phoneNumber: string, name?: string): Promise<User> {
+    const existing = await this.findByPhone(phoneNumber);
+    if (existing && !existing.is_simulated) {
+      throw new Error('El teléfono pertenece a un lead real y no puede usarse en el simulador');
+    }
+    if (existing) return existing;
+
+    const { data: newUser, error } = await supabaseServer
+      .from('users')
+      .insert({
+        phone_number: phoneNumber,
+        name: name || 'Lead simulado',
+        is_bot_active: true,
+        current_state: 'active',
+        lead_score: 0,
+        lead_status: 'cold',
+        is_simulated: true,
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+    await this.initializeUserData(newUser.id);
+    return newUser as User;
+  }
+
+  async isSimulated(userId: string): Promise<boolean> {
+    const { data, error } = await supabaseServer
+      .from('users')
+      .select('is_simulated')
+      .eq('id', userId)
+      .single();
+    if (error) throw error;
+    return data.is_simulated === true;
+  }
+
   /**
    * Inicializar session y progress de nuevo usuario
    */
@@ -441,6 +477,28 @@ export class UserRepository {
   }
 
   async resetProgressForTesting(userId: string): Promise<void> {
+    if (!await this.isSimulated(userId)) {
+      throw new Error('Solo se puede reiniciar un lead marcado como simulado');
+    }
+
+    const { error: followupError } = await supabaseServer
+      .from('scheduled_followups')
+      .delete()
+      .eq('user_id', userId);
+    if (followupError) throw followupError;
+
+    const { error: appointmentError } = await supabaseServer
+      .from('appointments')
+      .delete()
+      .eq('user_id', userId);
+    if (appointmentError) throw appointmentError;
+
+    const { error: advisorRequestError } = await supabaseServer
+      .from('advisor_requests')
+      .delete()
+      .eq('user_id', userId);
+    if (advisorRequestError) throw advisorRequestError;
+
     const { error: checkpointError } = await supabaseServer
       .from('user_checkpoints')
       .delete()

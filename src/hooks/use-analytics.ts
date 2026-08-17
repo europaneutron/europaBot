@@ -59,10 +59,10 @@ async function fetchMetrics(): Promise<AnalyticsMetrics> {
   today.setHours(0, 0, 0, 0);
 
   const [usersResult, conversationsResult, appointmentsResult, hotLeadsResult] = await Promise.all([
-    supabase.from('users').select('*', { count: 'exact', head: true }),
-    supabase.from('conversations').select('*', { count: 'exact', head: true }).gte('created_at', today.toISOString()),
-    supabase.from('appointments').select('*', { count: 'exact', head: true }).in('status', ['pending', 'confirmed']),
-    supabase.from('users').select('*', { count: 'exact', head: true }).eq('lead_status', 'hot'),
+    supabase.from('users').select('*', { count: 'exact', head: true }).eq('is_simulated', false),
+    supabase.from('conversations').select('users!inner(is_simulated)', { count: 'exact', head: true }).eq('users.is_simulated', false).gte('created_at', today.toISOString()),
+    supabase.from('appointments').select('users!inner(is_simulated)', { count: 'exact', head: true }).eq('users.is_simulated', false).in('status', ['pending', 'confirmed']),
+    supabase.from('users').select('*', { count: 'exact', head: true }).eq('is_simulated', false).eq('lead_status', 'hot'),
   ]);
 
   return {
@@ -80,7 +80,8 @@ async function fetchConversationsByDay(days: number): Promise<ConversationByDay[
 
   const { data: messages, error } = await supabase
     .from('conversations')
-    .select('created_at')
+    .select('created_at, users!inner(is_simulated)')
+    .eq('users.is_simulated', false)
     .gte('created_at', startDate.toISOString())
     .order('created_at', { ascending: true });
 
@@ -98,7 +99,8 @@ async function fetchConversationsByDay(days: number): Promise<ConversationByDay[
 async function fetchIntentDistribution(): Promise<IntentDistribution[]> {
   const { data: messages, error } = await supabase
     .from('conversations')
-    .select('detected_intent')
+    .select('detected_intent, users!inner(is_simulated)')
+    .eq('users.is_simulated', false)
     .eq('direction', 'inbound')
     .not('detected_intent', 'is', null);
 
@@ -128,14 +130,16 @@ async function fetchRecentConversations(limit: number): Promise<RecentConversati
       user_id,
       message_text,
       created_at,
-      users (
+      users!inner (
         id,
         phone_number,
         name,
         lead_status,
-        lead_score
+        lead_score,
+        is_simulated
       )
     `)
+    .eq('users.is_simulated', false)
     .order('created_at', { ascending: false })
     .limit(limit * 2);
 
@@ -172,11 +176,13 @@ async function fetchUpcomingAppointments(limit: number): Promise<UpcomingAppoint
       time_slot,
       status,
       user_id,
-      users!appointments_user_id_fkey (
+      users!appointments_user_id_fkey!inner (
         phone_number,
-        name
+        name,
+        is_simulated
       )
     `)
+    .eq('users.is_simulated', false)
     .in('status', ['pending', 'confirmed'])
     .gte('appointment_date', today)
     .order('appointment_date', { ascending: true })

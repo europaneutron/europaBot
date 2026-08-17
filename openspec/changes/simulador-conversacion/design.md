@@ -18,7 +18,7 @@ Lo que no existe es la pantalla. Hoy, para ver qué contesta el bot, hay que cor
 
 - Cambiar cualquier comportamiento del bot. Si el simulador enseña algo feo, el arreglo va en otra spec.
 - Reproducir la interfaz de WhatsApp. Basta que se lea como una conversación.
-- Simular botones ni listas interactivas: hoy el bot no los manda. Cuando los mande, se amplía.
+- Reproducir la latencia de WhatsApp ni las pausas entre fragmentos.
 - Ejecutar la conversación objetivo de forma automatizada. Eso ya lo hace `scripts/simulate-fymsa.ts`; aquí se recorre a mano, que es justamente el punto.
 
 ## Decisions
@@ -41,6 +41,22 @@ Esto exige revisar qué lecturas hoy contarían un lead simulado. Es trabajo de 
 
 El estado va como una nota adjunta al turno, no como un mensaje más. Si se intercala, la conversación deja de leerse como la leería un lead, y perder esa lectura es perder la mitad del valor: buena parte de lo que se detecta al usar el bot es que **suena mal**, no que esté técnicamente mal.
 
+### Los botones se muestran de verdad, porque el viaje de vuelta ya existe
+
+Corrección de un error de esta misma spec. La versión anterior decía "no simular botones ni listas: hoy el bot no los manda". **Es falso en los dos sentidos.** El flujo de cita usa `sendInteractiveButtons` contra la API de Meta, y `extractMessage` ya entiende `button_reply` y `list_reply`, convirtiendo el toque en el **identificador** del botón, no en su título.
+
+Como el camino existe entero, el simulador no imita nada: muestra los mismos botones y al tocarlos envía el mismo identificador que llegaría desde WhatsApp.
+
+El error tuvo consecuencia: la primera implementación se encontró con botones que la spec decía que no existían y los resolvió escribiendo los textos a mano en el repositorio del simulador. Ver la decisión siguiente.
+
+### Los mensajes del flujo de cita viven en un solo lugar
+
+Estaban dentro de la ruta del webhook, que es transporte, y ahí solo los alcanza el webhook. El primer consumidor nuevo tuvo que copiarlos, y las copias divergieron el mismo día: la del simulador perdió el emoji inicial, dibujó los botones como texto entre corchetes y no reprodujo la regla de no repetir la pregunta.
+
+Se extraen a `core/appointment/appointment-flow-messages.ts`, que compone el mensaje y sus botones sin enviarlos. El webhook los entrega por WhatsApp; el simulador los pinta. Una prueba cuenta las apariciones de los literales para que no vuelvan a duplicarse.
+
+De paso se corrige la regla de no repetir: comparaba contra un fragmento del texto por defecto, así que dejaba de funcionar en cuanto un cliente configuraba el mensaje, y el bot lo mandaba dos veces.
+
 ### La pantalla no inventa un formato de sesión propio
 
 El estado que muestra sale de donde ya vive: el resultado de `processMessage` y la sesión del usuario. Si mañana se añade un dato de ruteo, la pantalla lo enseña porque lo lee de la fuente, no porque alguien se acuerde de propagarlo.
@@ -53,7 +69,7 @@ Los endpoints de prueba ya se bloquean por `NODE_ENV`. La pantalla se bloquea ta
 
 - **El simulador ensucia la base de revisión.** Ya ocurrió esta semana por otra vía: una prueba de integración dejó una corrida en `waiting_content_approval` y el panel mostraba un archivo de prueba con un precio inventado en lugar del desarrollo recién dado de alta. → El marcado explícito del lead simulado y el reinicio en un clic; y las lecturas de operación se revisan una por una en esta spec.
 - **Se convierte en el único lugar donde se prueba, y deja de probarse lo demás.** → No sustituye a los scripts de `scripts/`; los complementa. El criterio de aceptación de las specs siguientes sigue siendo que `simulate-fymsa.ts` pase, y el simulador es cómo se mira lo que falla.
-- **Da falsa sensación de fidelidad.** El simulador no reproduce la latencia de WhatsApp, ni las pausas entre fragmentos, ni el orden real de entrega. → La pantalla dice qué no reproduce, en vez de dejar que se asuma.
+- **Da falsa sensación de fidelidad.** El simulador no reproduce la latencia de WhatsApp ni las pausas entre fragmentos. → La pantalla dice qué no reproduce, en vez de dejar que se asuma. Y donde antes fabricaba mensajes, ahora los lee del mismo módulo que el webhook.
 
 ## Migration Plan
 

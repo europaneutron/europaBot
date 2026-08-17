@@ -46,6 +46,7 @@ export function useConversations(
       let query = supabase
         .from('users')
         .select('*', { count: 'exact' })
+        .eq('is_simulated', false)
         .order('updated_at', { ascending: false })
         .range(offset, offset + pageSize - 1);
 
