@@ -294,7 +294,43 @@ existe.
 
 ---
 
-## 7. Cómo verificar
+## 7. El criterio es compilar, no sembrar
+
+El contenido de esta conversación tiene que salir de **compilar un documento**,
+no de insertarlo a mano. `scripts/seed-fymsa.ts` lo siembra y sirve para
+ejercitar el runtime mientras el compilador no sabe escribir por alcance, pero
+no demuestra nada sobre el compilador. Un cliente real no inserta filas.
+
+El material está en `scripts/fixtures/compiler/fymsa-europa.txt` y
+`fymsa-altabrisa.txt`, uno por desarrollo. El recorrido de aceptación es:
+
+```
+subir el material -> compilar -> aprobar -> conversar en el simulador
+```
+
+Y de ahí sale también el vocabulario del matcher. Hoy la intención sembrada
+`modelo` conoce `departamento, departamentos` y **no** conoce `casa, casas`,
+porque la sembró quien vendía departamentos: por eso "que casas manejan" cae al
+fallback. Añadir la palabra a mano no lo arregla —el próximo cliente vende
+bodegas—; el vocabulario tiene que salir del material, como sale el contenido.
+
+## 8. Hallazgos del primer recorrido manual
+
+Del 2026-08-17, recorriendo el simulador. Los tres primeros ya tienen spec; los
+dos últimos no la tenían.
+
+- **El foco es una puerta de un solo sentido.** Entra por mención y no sale.
+  Saludar con el foco en un modelo hace que el bot ofrezca los dos desarrollos
+  mientras sigue contestando desde uno de ellos.
+- **Un alcance a secas cae al fallback**, aunque el foco sí se mueva. Confirmado
+  en modelo (`Solara`) y en desarrollo (`Altabrisa`).
+- **El brochure promete un archivo que no llega**: `*Enviando archivo...*`.
+- **Pedir otro no existe.** `otro desarrollo?` y `Precio de otro modelo` caen al
+  fallback o —peor— repiten el alcance en foco. Regla nueva: pedir otro es
+  pedir los hermanos, y gana sobre el foco pegado igual que una mención.
+- **Saludar suelta el foco.** Un saludo es el lead empezando de nuevo.
+
+## 9. Cómo verificar
 
 ```bash
 npx tsx scripts/simulate-fymsa.ts

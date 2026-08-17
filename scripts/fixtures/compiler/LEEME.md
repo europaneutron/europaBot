@@ -3,6 +3,33 @@
 Textos para recorrer el onboarding sin depender de un PDF de cliente. Se pegan
 en el campo de texto del paso 1, o se guardan como `.txt` y se suben.
 
+## `fymsa-europa.txt` y `fymsa-altabrisa.txt` — el caso de aceptacion
+
+El material del que tiene que salir la conversacion de
+`openspec/conversacion-objetivo.md`, **compilando y no sembrando**. Esa es la
+diferencia que importa: `scripts/seed-fymsa.ts` inserta el contenido a mano y
+sirve para ejercitar el runtime, pero no demuestra nada sobre el compilador,
+que es justamente lo que falla. Un cliente real no inserta filas: sube un
+documento.
+
+Se compilan por separado, uno por desarrollo, como haria una inmobiliaria con
+dos catalogos.
+
+Lo que estos dos ejercitan y los otros no:
+
+| Que contienen | Que prueba |
+|---|---|
+| "Inmobiliaria FYMSA" en el encabezado y en "Quienes somos" | Que el negocio se distinga del desarrollo |
+| Precio, terreno y construccion por modelo | Contenido en el alcance del modelo, no en el del desarrollo |
+| Amenidades marcadas "para todo el desarrollo" | Que suban al desarrollo en vez de repetirse |
+| Direccion y horario, distintos en cada uno | Herencia hacia arriba, y que dos desarrollos no se pisen |
+| Europa dice **casas** y **lotes de terreno**; Altabrisa solo casas | Que el vocabulario del matcher salga del material y no de lo sembrado. Hoy la intencion sembrada conoce "departamentos" y no "casas", asi que "que casas manejan" cae al fallback |
+| Altabrisa dice explicitamente que no vende terrenos | Que no se invente lo que el material niega |
+| Cuenta, CLABE, comision y margen, solo en Europa | La marca de dato sensible |
+
+Lo que deliberadamente no dicen, para que salga como hueco de cobertura:
+mascotas, gastos de escrituracion y si hay casa muestra.
+
 ## `monteverde.txt` — el caso completo
 
 Un desarrollo con tres modelos. Cada bloque existe para ejercitar algo:

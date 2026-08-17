@@ -30,6 +30,7 @@ async function main() {
     import('../src/core/appointment/appointment-flow-messages'),
   ]);
   const suffix = Date.now().toString().slice(-8);
+  let restoreOfferMessage: string | null = null;
   const firstPhone = `52991${suffix}`;
   const secondPhone = `52992${suffix}`;
   const adId = `simulator-ad-${suffix}`;
@@ -133,6 +134,14 @@ async function main() {
     // en cuanto un cliente editaba el auto-offer dejaba de reconocerlo y el bot
     // lo mandaba dos veces.
     const customOffer = `Oferta configurada ${suffix}`;
+    // `bot_config` es configuracion compartida, no datos de esta prueba: lo que
+    // se escriba aqui sale por el bot hasta que alguien lo note. Paso: este
+    // mismo valor aparecio en el simulador durante un recorrido manual, con el
+    // sufijo de la prueba a la vista. Se guarda el original y se restaura en el
+    // finally, pase lo que pase.
+    const { data: previousOffer } = await supabaseServer
+      .from('bot_config').select('config_value').eq('config_key', 'auto_offer_message').maybeSingle();
+    restoreOfferMessage = previousOffer?.config_value ?? null;
     await supabaseServer.from('bot_config')
       .upsert({ config_key: 'auto_offer_message', config_value: customOffer }, { onConflict: 'config_key' });
     await userRepository.updateAppointmentFlowState(first.id, 'pending_auto_offer');
@@ -144,6 +153,13 @@ async function main() {
 
     console.log('Simulador verificado: marca explícita, aislamiento, reinicio sin seguimientos y mensajes de flujo sin duplicar');
   } finally {
+    if (restoreOfferMessage !== null) {
+      const { error } = await supabaseServer
+        .from('bot_config')
+        .update({ config_value: restoreOfferMessage })
+        .eq('config_key', 'auto_offer_message');
+      if (error) console.error('No se pudo restaurar auto_offer_message:', error.message);
+    }
     await supabaseServer.from('scope_ads').delete().eq('ad_id', adId);
     const { data: users } = await supabaseServer
       .from('users')
