@@ -6,7 +6,9 @@ config({ path: resolve(process.cwd(), '.env.development.local') });
 config({ path: resolve(process.cwd(), '.env.local') });
 
 import {
+  composeBusinessGreeting,
   normalizeScopeAlias,
+  renderClientBrand,
   renderClientVocabulary,
   toClientVocabulary,
   toneInstruction,
@@ -48,6 +50,19 @@ assert(
 assert(
   renderClientVocabulary('{project_singular_title}: {project_plural}', vocabulary) === 'Plaza: plazas',
   'las variables de interfaz y mensajes comparten la misma regla'
+);
+assert(
+  renderClientBrand('Habla {business_name} sobre {project_plural}.', {
+    business_name: 'Grupo Norte',
+    project_singular: 'plaza',
+    project_plural: 'plazas',
+  }) === 'Habla Grupo Norte sobre plazas.',
+  'la identidad y el vocabulario comparten la resolucion de mensajes'
+);
+assert(
+  composeBusinessGreeting('Grupo Norte', ['Altavista', 'Milano'], vocabulary)
+    .includes('Altavista y Milano'),
+  'el saludo compuesto incorpora los proyectos disponibles'
 );
 
 const sinConfigurar = toClientVocabulary({
@@ -92,11 +107,22 @@ for (const oldCopy of [
 assert(onboardingSource.includes('No estoy seguro'), 'el recorrido siempre ofrece una salida recomendada');
 assert(onboardingSource.includes('Paso {step} de 7'), 'el recorrido se limita a siete pasos');
 assert(onboardingSource.includes('agendar visitas'), 'el unico objetivo se afirma y no se pregunta');
+assert(
+  onboardingSource.indexOf('Comparte el material') < onboardingSource.indexOf('¿Cómo se llama tu primer'),
+  'el camino principal recibe el material antes de pedir nombres'
+);
+assert(onboardingSource.includes('Lo vendo todo junto'), 'la propuesta se puede simplificar con una accion');
+assert(onboardingSource.includes('Mantén esta pantalla abierta'), 'la espera explica cuanto puede tardar y que no se cierre');
+assert(!reviewSource.includes('Puedes volver más tarde'), 'la revision acompana el avance mientras esta abierta');
 
 const compilerServiceSource = readFileSync(
   resolve(process.cwd(), 'src/core/document-compiler/document-compiler.service.ts'),
   'utf8'
 );
 assert(compilerServiceSource.includes('toneInstruction'), 'el tono elegido llega a la redaccion');
+assert(
+  !readFileSync(resolve(process.cwd(), 'vercel.json'), 'utf8').includes('advance-compilations'),
+  'el avance ya no depende de un cron no desplegable'
+);
 
 console.log('Onboarding chat rules verified');

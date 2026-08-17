@@ -10,7 +10,11 @@ import {
   reviewSignalsForFacts,
   sharedFactsForAncestor,
 } from '@/core/document-compiler/compiler-rules';
-import type { CandidateQuestion, ExtractedFact } from '@/data/models/document-compiler.model';
+import {
+  SCOPE_TYPE_VALUES,
+  type CandidateQuestion,
+  type ExtractedFact,
+} from '@/data/models/document-compiler.model';
 import { documentCompilerRepository } from '@/data/repositories/document-compiler.repository';
 import { getAiModel, getOpenAIClient } from '@/services/ai/openai.service';
 import { getCompilerMaterialModelSource } from '@/services/storage/compiler-material-storage';
@@ -32,9 +36,10 @@ const extractionSchema = z.object({
     question: z.string().min(1),
     fact_keys: z.array(z.string().min(1)),
   })).default([]),
+  business_name: z.string().min(1).nullable().default(null),
   proposed_tree: z.array(z.object({
     name: z.string().min(1),
-    scope_type: z.string().min(1),
+    scope_type: z.enum(SCOPE_TYPE_VALUES),
     parent_name: z.string().nullable().default(null),
   })).default([]),
 });
@@ -47,7 +52,7 @@ const extractionSchema = z.object({
 const EXTRACTION_JSON_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['facts', 'candidate_questions', 'proposed_tree'],
+  required: ['facts', 'candidate_questions', 'business_name', 'proposed_tree'],
   properties: {
     facts: {
       type: 'array',
@@ -79,6 +84,7 @@ const EXTRACTION_JSON_SCHEMA = {
         },
       },
     },
+    business_name: { type: ['string', 'null'] },
     proposed_tree: {
       type: 'array',
       items: {
@@ -87,7 +93,7 @@ const EXTRACTION_JSON_SCHEMA = {
         required: ['name', 'scope_type', 'parent_name'],
         properties: {
           name: { type: 'string' },
-          scope_type: { type: 'string' },
+          scope_type: { type: 'string', enum: SCOPE_TYPE_VALUES as unknown as string[] },
           parent_name: { type: ['string', 'null'] },
         },
       },
@@ -249,6 +255,7 @@ export class DocumentCompilerService {
       current_stage: 'consolidate_facts',
       stage_checkpoint: {
         candidate_questions: parsed.candidate_questions,
+        business_name: parsed.business_name,
         proposed_tree: parsed.proposed_tree,
       },
       proposed_tree: parsed.proposed_tree,
@@ -423,11 +430,13 @@ export class DocumentCompilerService {
   }
 
   private extractionPrompt(materials: Array<{ id: string; filename: string }>): string {
-    return `Extrae hechos atómicos verificables de todo el material. Devuelve solo JSON con las claves facts, candidate_questions y proposed_tree. Cada hecho debe llevar material_id, key, subject, value, type (text, money, date, contractual, number o location), page y provenance_confidence.
+    return `Extrae hechos atómicos verificables de todo el material. Devuelve solo JSON con las claves facts, candidate_questions, business_name y proposed_tree. Cada hecho debe llevar material_id, key, subject, value, type (text, money, date, contractual, number o location), page y provenance_confidence.
 
 subject dice de qué habla el hecho: el modelo, la etapa o la unidad concreta a la que se refiere. Úsalo siempre que el mismo dato exista para varias cosas, de modo que tres modelos con tres precios sean tres hechos con la misma key y distinto subject. Deja subject en null solo cuando el hecho sea del desarrollo entero.
 
-Usa la misma key para el mismo tipo de dato en todo el material, y nómbrala en el idioma del documento. Descarta cualquier hecho cuya página no puedas atribuir. No resuelvas contradicciones ni elijas un valor: si el material afirma dos valores para el mismo subject, devuelve los dos. material_id debe ser uno de: ${JSON.stringify(materials)}. Las preguntas solo son candidatas; el preset nunca aporta hechos. proposed_tree describe únicamente estructura que el material sustenta.`;
+Usa la misma key para el mismo tipo de dato en todo el material, y nómbrala en el idioma del documento. Descarta cualquier hecho cuya página no puedas atribuir. No resuelvas contradicciones ni elijas un valor: si el material afirma dos valores para el mismo subject, devuelve los dos. material_id debe ser uno de: ${JSON.stringify(materials)}. Las preguntas solo son candidatas; el preset nunca aporta hechos. business_name es la empresa que vende, solo cuando el material la identifica de forma explícita; no uses ahí el nombre del proyecto.
+
+proposed_tree describe únicamente estructura que el material sustenta. Clasifica cada nodo con scope_type: usa proyecto para lo que se comercializa como un todo, opcion para cada variante que un comprador elige y adquiere por separado, amenidad para lo que se comparte y no se vende —alberca, casa club, áreas verdes—, etapa para una fase de construcción o entrega, y otro para lo que no encaje. La distinción que importa es si alguien puede comprar ese nodo por sí solo: si no, no es una opcion.`;
   }
 }
 

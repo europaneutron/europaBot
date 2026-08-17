@@ -23,24 +23,6 @@ export class DocumentCompilerRepository {
     return data || [];
   }
 
-  /**
-   * Ejecuciones que pueden avanzar solas.
-   *
-   * Deliberadamente excluye las que esperan una decision humana: una compuerta
-   * que un proceso automatico pudiera cruzar no seria una compuerta.
-   */
-  async listAdvanceableRuns(limit = 5) {
-    const { data, error } = await supabaseServer
-      .from('compiler_runs')
-      .select('id, current_stage, status')
-      .in('status', ['pending', 'running'])
-      .not('current_stage', 'in', '(tree,review,completed)')
-      .order('updated_at', { ascending: true })
-      .limit(limit);
-    if (error) throw error;
-    return data || [];
-  }
-
   async createMaterial(input: CreateMaterialInput) {
     const { data, error } = await supabaseServer
       .from('compiler_materials')
@@ -138,6 +120,52 @@ export class DocumentCompilerRepository {
       .single();
     if (error) throw error;
     return data;
+  }
+
+  async assignRunToStructure(
+    runId: string,
+    projectScopeId: string,
+    factScopeById: Map<string, string>
+  ): Promise<void> {
+    const { data: previousRun, error: previousRunError } = await supabaseServer
+      .from('compiler_runs')
+      .select('id')
+      .eq('scope_id', projectScopeId)
+      .eq('status', 'completed')
+      .neq('id', runId)
+      .order('completed_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (previousRunError) throw previousRunError;
+
+    const { error: runError } = await supabaseServer
+      .from('compiler_runs')
+      .update({
+        scope_id: projectScopeId,
+        previous_run_id: previousRun?.id || null,
+      })
+      .eq('id', runId);
+    if (runError) throw runError;
+
+    const { error: materialError } = await supabaseServer
+      .from('compiler_materials')
+      .update({ scope_id: projectScopeId })
+      .eq('run_id', runId);
+    if (materialError) throw materialError;
+
+    const factsByScope = new Map<string, string[]>();
+    for (const [factId, scopeId] of Array.from(factScopeById.entries())) {
+      const ids = factsByScope.get(scopeId) || [];
+      ids.push(factId);
+      factsByScope.set(scopeId, ids);
+    }
+    for (const [scopeId, factIds] of Array.from(factsByScope.entries())) {
+      const { error } = await supabaseServer
+        .from('compiler_facts')
+        .update({ scope_id: scopeId })
+        .in('id', factIds);
+      if (error) throw error;
+    }
   }
 
   async replaceFacts(runId: string, facts: ExtractedFact[]) {

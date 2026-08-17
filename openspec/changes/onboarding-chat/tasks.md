@@ -21,7 +21,7 @@
 - [x] 3.4 Usar los datos que el sistema ya conoce en las preguntas siguientes, en lugar de hablar en general
 - [x] 3.5 Afirmar el objetivo de conversión en lugar de preguntarlo: solo existe uno
 - [x] 3.6 Guardar el avance en cada paso, de modo que abandonar y volver no repita nada
-- [ ] 3.7 Verificar que el recorrido se completa respondiendo "no estoy seguro" en todas las preguntas, y que el bot resultante es razonable
+- [x] 3.7 Verificar que el recorrido se completa respondiendo "no estoy seguro" en todas las preguntas, y que el bot resultante es razonable
 
 ## 4. Alta del proyecto
 
@@ -86,22 +86,22 @@ Decidido el 2026-08-16. La estructura dejaba de proponerse desde el material par
 pedírsela al cliente en frío, y era el único punto del sistema donde el humano
 iba antes que el modelo. Ver la decisión en `design.md`.
 
-- [ ] 10.1 Mover la entrega de material al principio del recorrido, antes de pedir estructura
-- [ ] 10.2 Presentar la estructura deducida con los nombres del cliente, y pedir confirmarla o corregirla. Es la primera compuerta que `document-compiler` ya exigía y que había quedado vacía
-- [ ] 10.3 Consumir `proposed_tree` para crear los proyectos y sus partes. Hoy se calcula, se guarda y no lo lee nadie
-- [ ] 10.4 Permitir aplanar de un toque cuando el cliente no venda las opciones por separado
-- [ ] 10.5 Hacer la pregunta sobre cómo ocurre una visita **después** de la propuesta, sobre nombres concretos
-- [ ] 10.6 Conservar la declaración a mano como alternativa explícita para quien no tenga material, no como camino normal
-- [ ] 10.7 Retirar la aprobación automática del árbol de `onboarding.service.ts`
-- [ ] 10.8 Verificar el caso de una parte que el cliente no habría mencionado: aparece en la propuesta y su contenido no se atribuye a otro proyecto en silencio
+- [x] 10.1 Mover la entrega de material al principio del recorrido, antes de pedir estructura
+- [x] 10.2 Presentar la estructura deducida con los nombres del cliente, y pedir confirmarla o corregirla. Es la primera compuerta que `document-compiler` ya exigía y que había quedado vacía
+- [x] 10.3 Consumir `proposed_tree` para crear los proyectos y sus partes. Hoy se calcula, se guarda y no lo lee nadie
+- [x] 10.4 Permitir aplanar de un toque cuando el cliente no venda las opciones por separado
+- [x] 10.5 Hacer la pregunta sobre cómo ocurre una visita **después** de la propuesta, sobre nombres concretos
+- [x] 10.6 Conservar la declaración a mano como alternativa explícita para quien no tenga material, no como camino normal
+- [x] 10.7 Retirar la aprobación automática del árbol de `onboarding.service.ts`
+- [x] 10.8 Verificar el caso de una parte que el cliente no habría mencionado: aparece en la propuesta y su contenido no se atribuye a otro proyecto en silencio
 
 ## 11. La espera y el avance
 
-- [ ] 11.1 Indicador de avance dentro del propio recorrido, con cuánto puede tardar y la instrucción de no cerrar. Es lo mínimo: sin eso la pantalla parece congelada y nadie sabe si sigue viva
-- [ ] 11.2 Encadenar las etapas mientras el cliente espera, sin controles técnicos
-- [ ] 11.3 Reanudar desde donde quedó **entre por donde entre**, incluido el panel de revisión. Hoy solo empuja la pantalla del recorrido, así que volver por el panel deja la compilación varada
-- [ ] 11.4 Retirar `/api/cron/advance-compilations` y su entrada en `vercel.json`. No es desplegable en el plan actual y solo compraba terminar antes para alguien que no está mirando
-- [ ] 11.5 Verificar que cerrar la pantalla a media compilación y volver continúa sin repetir trabajo
+- [x] 11.1 Indicador de avance dentro del propio recorrido, con cuánto puede tardar y la instrucción de no cerrar. Es lo mínimo: sin eso la pantalla parece congelada y nadie sabe si sigue viva
+- [x] 11.2 Encadenar las etapas mientras el cliente espera, sin controles técnicos
+- [x] 11.3 Reanudar desde donde quedó **entre por donde entre**, incluido el panel de revisión. Hoy solo empuja la pantalla del recorrido, así que volver por el panel deja la compilación varada
+- [x] 11.4 Retirar `/api/cron/advance-compilations` y su entrada en `vercel.json`. No es desplegable en el plan actual y solo compraba terminar antes para alguien que no está mirando
+- [x] 11.5 Verificar que cerrar la pantalla a media compilación y volver continúa sin repetir trabajo
 
 **Fuera de alcance, anotado como deuda:** impedir que dos pestañas avancen la
 misma compilación a la vez. Necesita un operador simultáneo consigo mismo; se
@@ -115,10 +115,10 @@ sus proyectos, y eso no estaba dicho en ninguna parte. Hoy la raíz se llama
 existan dos desarrollos el mensaje de mayor volumen del bot le da la bienvenida
 a uno de los dos.
 
-- [ ] 12.1 Recoger el nombre del negocio en el recorrido, proponiéndolo desde el material cuando se pueda deducir y preguntándolo cuando no. Es lo único que un brochure no dice: menciona el proyecto, no la inmobiliaria que lo vende
-- [ ] 12.2 Guardarlo junto al vocabulario y exponerlo como variable para los mensajes configurables. Son dos datos distintos que se confundían porque con un solo proyecto coinciden
-- [ ] 12.3 Nombrar la raíz con el negocio cuando el cliente lo confirme, en lugar de dejar el nombre de un proyecto ocupando su lugar
-- [ ] 12.4 Componer el saludo con la identidad y los proyectos disponibles para quien no tenga uno propio
-- [ ] 12.5 No modificar un saludo ya redactado sin mostrárselo al cliente y que lo confirme. Reescribir contenido aprobado en una migración es lo que este proyecto se prohibió al retirar los CTA sembrados
-- [ ] 12.6 Verificar que un cliente con saludo propio conserva su texto literal tras el recorrido, y que uno sin saludo recibe el compuesto
-- [ ] 12.7 Verificar que dar de alta un proyecto nuevo lo incorpora al saludo compuesto sin editar textos
+- [x] 12.1 Recoger el nombre del negocio en el recorrido, proponiéndolo desde el material cuando se pueda deducir y preguntándolo cuando no. Es lo único que un brochure no dice: menciona el proyecto, no la inmobiliaria que lo vende
+- [x] 12.2 Guardarlo junto al vocabulario y exponerlo como variable para los mensajes configurables. Son dos datos distintos que se confundían porque con un solo proyecto coinciden
+- [x] 12.3 Nombrar la raíz con el negocio cuando el cliente lo confirme, en lugar de dejar el nombre de un proyecto ocupando su lugar
+- [x] 12.4 Componer el saludo con la identidad y los proyectos disponibles para quien no tenga uno propio
+- [x] 12.5 No modificar un saludo ya redactado sin mostrárselo al cliente y que lo confirme. Reescribir contenido aprobado en una migración es lo que este proyecto se prohibió al retirar los CTA sembrados
+- [x] 12.6 Verificar que un cliente con saludo propio conserva su texto literal tras el recorrido, y que uno sin saludo recibe el compuesto
+- [x] 12.7 Verificar que dar de alta un proyecto nuevo lo incorpora al saludo compuesto sin editar textos

@@ -26,6 +26,8 @@ import type { User, UserSession } from '@/data/models/user.model';
 import { scopeRoutingRepository } from '@/data/repositories/scope-routing.repository';
 import { interpolateMessage } from '@/lib/interpolate-message';
 import { resolveConfiguredMessage } from '@/core/messaging/configured-message';
+import { clientBrandRepository } from '@/data/repositories/client-brand.repository';
+import { composeBusinessGreeting, toClientVocabulary } from '@/core/onboarding/client-vocabulary';
 
 // Fuentes de foco que pueden reanudar una pregunta retenida: las tres nacen de
 // algo que el lead acaba de decir o traer. El foco heredado de la sesión no
@@ -504,19 +506,29 @@ export class MessageProcessor {
       // para asegurar que el estado ya está guardado en BD
     }
 
-    if (responses.length === 0) {
-      return ['Gracias por tu interés. ¿En qué más puedo ayudarte?'];
-    }
-
-    if (intent.intent_name === 'saludo' && !hasFocus) {
+    if (intent.intent_name === 'saludo') {
       const scopes = await scopeRoutingRepository.getAvailableScopes();
-      if (scopes.length > 1) {
+      const brand = await clientBrandRepository.get();
+      if (brand.use_composed_greeting && brand.business_name) {
+        const projectNames = scopes
+          .filter(scope => scope.id !== ROOT_SCOPE_ID)
+          .map(scope => scope.name);
+        responses.splice(0, responses.length, composeBusinessGreeting(
+          brand.business_name,
+          projectNames,
+          toClientVocabulary(brand)
+        ));
+      } else if (!hasFocus && scopes.length > 1) {
         responses.push(await resolveConfiguredMessage(
           'scope_presentation_message',
           '{project_plural_title} disponibles:\n\n{alcances}\n\n¿Cuál te interesa?',
           { alcances: scopeList }
         ));
       }
+    }
+
+    if (responses.length === 0) {
+      return ['Gracias por tu interés. ¿En qué más puedo ayudarte?'];
     }
 
     return responses;

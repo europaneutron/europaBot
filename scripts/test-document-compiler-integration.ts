@@ -143,10 +143,62 @@ async function main() {
     assert(approved.origin === 'compiler', 'la aprobación publica una respuesta con origen compilador');
     assert(approved.response_fact_dependencies.length === 1, 'la respuesta aprobada conserva su dependencia del hecho');
   } finally {
-    if (responseId) await supabaseServer.from('bot_responses').delete().eq('id', responseId);
-    if (runId) await supabaseServer.from('compiler_runs').delete().eq('id', runId);
-    if (interruptedRunId) await supabaseServer.from('compiler_runs').delete().eq('id', interruptedRunId);
-    if (materialId) await supabaseServer.from('compiler_materials').delete().eq('id', materialId);
+    // El orden importa, y el error tambien.
+    //
+    // Borrar un material arrastra sus hechos, pero `compiler_proposal_facts`
+    // los referencia con RESTRICT: mientras exista una propuesta que se apoya
+    // en un hecho, el material no se deja borrar. La limpieza original pedia
+    // el borrado y tiraba el error a la basura, asi que fallaba en silencio y
+    // cada ejecucion dejaba una corrida mas. Una de ellas quedo esperando
+    // aprobacion de contenido, y como el panel muestra primero esa, el cliente
+    // veia un archivo de prueba con un precio inventado en lugar del
+    // desarrollo que acababa de dar de alta.
+    //
+    // Primero las corridas --que arrastran propuestas y hechos--, despues los
+    // materiales.
+    const purge = async (table: string, column: string, values: string[]) => {
+      if (values.length === 0) return;
+      const { error } = await supabaseServer.from(table).delete().in(column, values);
+      if (error) throw new Error(`No se pudo limpiar ${table}: ${error.message}`);
+    };
+
+    if (responseId) await purge('bot_responses', 'id', [responseId]);
+
+    const { data: suffixProposals } = await supabaseServer.from('compiler_proposals')
+      .select('run_id').like('response_key', `%${suffix}%`);
+    const { data: suffixMaterials } = await supabaseServer.from('compiler_materials')
+      .select('id, run_id').like('original_filename', `%${suffix}%`);
+    const runIds = Array.from(new Set([
+      runId,
+      interruptedRunId,
+      ...(suffixProposals || []).map(row => row.run_id),
+      ...(suffixMaterials || []).map(row => row.run_id),
+    ].filter(Boolean))) as string[];
+    // Las propuestas antes que la corrida. `compiler_proposal_facts.fact_id` es
+    // RESTRICT, y RESTRICT se comprueba en el acto: al borrar la corrida,
+    // Postgres arrastra sus hechos sin garantizar que ya haya arrastrado las
+    // propuestas que se apoyan en ellos, y la comprobacion salta aunque todo
+    // pertenezca a la misma corrida.
+    await purge('compiler_proposals', 'run_id', runIds);
+    await purge('compiler_runs', 'id', runIds);
+
+    const materialIds = Array.from(new Set([
+      materialId,
+      ...(suffixMaterials || []).map(row => row.id),
+    ].filter(Boolean))) as string[];
+    await purge('compiler_materials', 'id', materialIds);
+
+    const { data: leftoverMaterials } = await supabaseServer.from('compiler_materials')
+      .select('original_filename').like('original_filename', `%${suffix}%`);
+    const { data: leftoverProposals } = await supabaseServer.from('compiler_proposals')
+      .select('response_key').like('response_key', `%${suffix}%`);
+    const leftovers = [
+      ...(leftoverMaterials || []).map(row => `material ${row.original_filename}`),
+      ...(leftoverProposals || []).map(row => `propuesta ${row.response_key}`),
+    ];
+    if (leftovers.length > 0) {
+      throw new Error(`La prueba dejo datos en la base: ${leftovers.join(', ')}`);
+    }
   }
 }
 

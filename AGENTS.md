@@ -143,6 +143,10 @@ Para probar el pipeline de conversación completo sin WhatsApp, existe el endpoi
 `POST /api/test/process-message`, que ejecuta el procesador de mensajes y devuelve la
 respuesta sin enviarla.
 
+**`openspec/conversacion-objetivo.md` define qué tiene que poder conversar el bot**, y es
+criterio de aceptación de las specs pendientes: se lee antes de escribir una y sus turnos
+tienen que pasar antes de darla por terminada. `scripts/simulate-fymsa.ts` los ejecuta.
+
 Todo script debe cargar primero `.env.development.local` y solo después `.env.local` como
 respaldo. `dotenv` no sobreescribe variables ya definidas, así que el primero gana y el
 script apunta al stack local. Un script que cargue únicamente `.env.local` se ejecuta contra

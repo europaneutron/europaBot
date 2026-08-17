@@ -1,6 +1,6 @@
 import { configRepository } from '@/data/repositories/config.repository';
 import { clientBrandRepository } from '@/data/repositories/client-brand.repository';
-import { renderClientVocabulary, toClientVocabulary } from '@/core/onboarding/client-vocabulary';
+import { renderClientBrand } from '@/core/onboarding/client-vocabulary';
 import { interpolateMessage, type MessageVariables } from '@/lib/interpolate-message';
 
 /**
@@ -41,5 +41,5 @@ export async function resolveConfiguredTemplate(
     clientBrandRepository.get(),
   ]);
 
-  return renderClientVocabulary(template, toClientVocabulary(brand));
+  return renderClientBrand(template, brand);
 }

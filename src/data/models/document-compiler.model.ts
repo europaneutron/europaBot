@@ -51,3 +51,67 @@ export interface CompilerProposal {
   edited_by_human: boolean;
   created_at: string;
 }
+
+/**
+ * Vocabulario cerrado para la estructura que el modelo propone.
+ *
+ * Antes `scope_type` era texto libre, y el modelo devolvia lo que le pareciera:
+ * `section` y `product` para una factura, `desarrollo`, `modelo`, `etapa`,
+ * `amenidad` y `unidad_conjunto` para un brochure. Como el recorrido ofrecia
+ * como "opciones que se venden por separado" a todos los hijos del proyecto sin
+ * mirar el tipo, la Casa club y el Circuito de trote de un fraccionamiento
+ * llegaban a la pantalla como si fueran casas en venta, y de aceptarlos habrian
+ * quedado como alcances con alias propios: un lead que escribe "casa club" se
+ * habria enrutado a un producto inexistente.
+ *
+ * Lo que decide si algo se vende por separado es una clasificacion, y una
+ * clasificacion se pide con un vocabulario cerrado, igual que ya se hacia con
+ * el tipo de los hechos.
+ */
+export const SCOPE_TYPE_VALUES = [
+  'proyecto',
+  'opcion',
+  'amenidad',
+  'etapa',
+  'otro',
+] as const;
+
+export type ProposedScopeType = typeof SCOPE_TYPE_VALUES[number];
+
+/**
+ * Tipos que en corridas anteriores significaban "esto se vende por separado".
+ * Se mantienen para no reinterpretar arboles ya guardados.
+ */
+const LEGACY_SELLABLE_TYPES = new Set([
+  'opcion',
+  'model',
+  'modelo',
+  'product',
+  'producto',
+  'prototipo',
+  'unidad',
+]);
+
+const KNOWN_NON_SELLABLE_TYPES = new Set([
+  'amenidad',
+  'amenity',
+  'etapa',
+  'stage',
+  'seccion',
+  'section',
+  'servicio',
+  'proyecto',
+  'desarrollo',
+  'negocio',
+]);
+
+/**
+ * Ante un tipo desconocido devuelve `true`: es preferible mostrar de mas y que
+ * la persona lo borre, a esconder una opcion real que si se vende.
+ */
+export function isSellableScopeType(value: string | null | undefined): boolean {
+  const normalized = (value || '').trim().toLowerCase();
+  if (!normalized) return true;
+  if (LEGACY_SELLABLE_TYPES.has(normalized)) return true;
+  return !KNOWN_NON_SELLABLE_TYPES.has(normalized);
+}

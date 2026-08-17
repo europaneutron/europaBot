@@ -73,6 +73,14 @@ export function renderClientVocabulary(
     .replaceAll('{project_plural_title}', vocabulary.pluralTitle);
 }
 
+export function renderClientBrand(
+  text: string,
+  config: Partial<ClientBrandConfig>
+): string {
+  return renderClientVocabulary(text, toClientVocabulary(config))
+    .replaceAll('{business_name}', config.business_name?.trim() || '');
+}
+
 export function normalizeScopeAlias(value: string): string {
   return value
     .normalize('NFD')
@@ -117,4 +125,25 @@ export function toneSamples(projectName: string, factValue?: string): Array<{
       message: `${name} ofrece opciones desde ${value}. Puedo compartirle sus características y disponibilidad.`,
     },
   ];
+}
+
+export function composeBusinessGreeting(
+  businessName: string,
+  projectNames: string[],
+  vocabulary: ClientVocabulary
+): string {
+  const identity = businessName.trim() || 'nuestro equipo';
+  const names = Array.from(new Map(
+    projectNames
+      .map(name => name.trim())
+      .filter(Boolean)
+      .map(name => [name.toLocaleLowerCase('es-MX'), name])
+  ).values());
+  const availability = names.length === 0
+    ? `Puedo ayudarte a conocer ${vocabulary.plural}.`
+    : names.length === 1
+      ? `Puedo ayudarte con ${names[0]}.`
+      : `Puedo ayudarte con ${names.slice(0, -1).join(', ')} y ${names.at(-1)}.`;
+
+  return `Hola. Soy el asistente virtual de ${identity}. ${availability}\n\nPuedo responder tus preguntas y ayudarte a agendar una visita. ¿En qué puedo ayudarte?`;
 }

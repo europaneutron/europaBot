@@ -79,6 +79,35 @@ export class ScopeRepository {
   }
 
   /**
+   * Solo para deshacer un alta que fallo a medias. Las claves foraneas hacia
+   * `scopes` son RESTRICT, asi que si algo ya cuelga del alcance el borrado
+   * falla en vez de arrastrarlo: eso es lo correcto, y por eso este metodo no
+   * sirve para retirar un alcance en uso. Para eso esta `is_active`.
+   */
+  async deleteEmpty(scopeId: string, client: any = supabaseServer): Promise<void> {
+    const { error } = await client.from('scopes').delete().eq('id', scopeId);
+    if (error) throw error;
+    this.invalidateCache(client);
+  }
+
+  async rename(
+    scopeId: string,
+    name: string,
+    client: any = supabaseServer
+  ): Promise<Scope> {
+    const { data, error } = await client
+      .from('scopes')
+      .update({ name })
+      .eq('id', scopeId)
+      .select('*')
+      .single();
+
+    if (error) throw error;
+    this.invalidateCache(client);
+    return data as Scope;
+  }
+
+  /**
    * Un alcance es alcanzable cuando su propia fila está activa y todos sus
    * ancestros también lo están.
    *

@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import useSWR from 'swr';
 import { FileText } from 'lucide-react';
@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
+import { useOnboardingProcessing } from '@/hooks/use-onboarding-processing';
 
 const SIGNAL_LABELS: Record<string, string> = {
   unsupported: 'Falta respaldo',
@@ -27,6 +28,8 @@ async function fetcher(url: string) {
 
 export default function CompilerPage() {
   const { data: dashboard, mutate: refreshDashboard } = useSWR('/api/compiler', fetcher);
+  const { data: onboarding, mutate: refreshOnboarding } = useSWR('/api/onboarding', fetcher);
+  const { processing, processingError, retryProcessing } = useOnboardingProcessing(onboarding, refreshOnboarding);
   const visibleRun = dashboard?.runs?.find(
     (item: any) => item.status === 'waiting_content_approval'
   ) || dashboard?.runs?.[0];
@@ -43,6 +46,16 @@ export default function CompilerPage() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (!onboarding?.run) return;
+    void Promise.all([refreshDashboard(), refreshReview()]);
+  }, [
+    onboarding?.run?.current_stage,
+    onboarding?.run?.status,
+    refreshDashboard,
+    refreshReview,
+  ]);
 
   const groups = useMemo(() => {
     const byIntent = new Map<string, any[]>();
@@ -130,6 +143,12 @@ export default function CompilerPage() {
       </header>
 
       {message ? <div className="rounded-md border bg-muted p-3 text-sm">{message}</div> : null}
+      {processingError ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border bg-muted p-3 text-sm">
+          <span>{processingError}</span>
+          <Button size="sm" variant="outline" onClick={retryProcessing}>Reintentar</Button>
+        </div>
+      ) : null}
 
       {!runId ? (
         <Card>
@@ -148,7 +167,9 @@ export default function CompilerPage() {
             <CardDescription>
               {run.status === 'failed'
                 ? 'Vuelve al recorrido para intentarlo de nuevo; tus respuestas siguen guardadas.'
-                : 'Estamos leyendo el material y organizando las respuestas. Puedes volver más tarde.'}
+                : processing
+                  ? 'Estamos leyendo el material y organizando las respuestas. Mantén esta pantalla abierta.'
+                  : 'Hay una decisión pendiente en el recorrido antes de continuar.'}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -171,9 +192,13 @@ export default function CompilerPage() {
                         <CardTitle>{title}</CardTitle>
                         <CardDescription>{group.length} {group.length === 1 ? 'respuesta' : 'respuestas'}</CardDescription>
                       </div>
-                      <Button variant="outline" disabled={busy || pending.length === 0} onClick={() => approveGroup(group)}>
-                        Aprobar grupo ({pending.length})
-                      </Button>
+                      {pending.length > 0 ? (
+                        <Button variant="outline" disabled={busy} onClick={() => approveGroup(group)}>
+                          Aprobar {pending.length === 1 ? 'la respuesta' : `las ${pending.length}`}
+                        </Button>
+                      ) : (
+                        <span className="text-sm text-muted-foreground">Sin nada pendiente</span>
+                      )}
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-4">
@@ -189,8 +214,21 @@ export default function CompilerPage() {
                                 ? 'Por revisar'
                                 : proposal.approval_status === 'approved' ? 'Aprobada' : 'Rechazada'}
                             </Badge>
+                            {/*
+                              Una senal es un aviso de "mira esto antes de
+                              aprobar". Sobre una respuesta ya aprobada dice lo
+                              contrario de lo que la insignia de al lado afirma,
+                              asi que ahi se cuenta en pasado.
+                              */}
                             {proposal.review_signals.map((signal: string) => (
-                              <Badge key={signal} variant={signal === 'contradiction' ? 'destructive' : 'secondary'}>
+                              <Badge
+                                key={signal}
+                                variant={
+                                  proposal.approval_status !== 'pending' ? 'outline'
+                                    : signal === 'contradiction' ? 'destructive' : 'secondary'
+                                }
+                              >
+                                {proposal.approval_status !== 'pending' ? 'Se aprobó con aviso: ' : ''}
                                 {SIGNAL_LABELS[signal] || 'Requiere atención'}
                               </Badge>
                             ))}
@@ -217,10 +255,24 @@ export default function CompilerPage() {
                               ))}
                             </div>
                           ) : null}
-                          <div className="flex gap-2">
-                            <Button size="sm" onClick={() => handleReview(proposal, 'approve')} disabled={busy || proposal.approval_status !== 'pending'}>Aprobar</Button>
-                            <Button size="sm" variant="outline" onClick={() => handleReview(proposal, 'reject')} disabled={busy || proposal.approval_status !== 'pending'}>Rechazar</Button>
-                          </div>
+                          {/*
+                            Una respuesta ya resuelta no lleva botones. Antes se
+                            mostraban en gris: un boton que no responde y no dice
+                            por que se lee como una pantalla rota, no como una
+                            decision que ya se tomo.
+                          */}
+                          {proposal.approval_status === 'pending' ? (
+                            <div className="flex gap-2">
+                              <Button size="sm" onClick={() => handleReview(proposal, 'approve')} disabled={busy}>Aprobar</Button>
+                              <Button size="sm" variant="outline" onClick={() => handleReview(proposal, 'reject')} disabled={busy}>Rechazar</Button>
+                            </div>
+                          ) : (
+                            <p className="text-sm text-muted-foreground">
+                              {proposal.approval_status === 'approved'
+                                ? 'Ya la aprobaste: el bot la está usando. Para cambiarla, edítala desde el contenido del bot.'
+                                : 'La rechazaste: el bot no la usa.'}
+                            </p>
+                          )}
                         </article>
                       );
                     })}

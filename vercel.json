@@ -7,10 +7,6 @@
     {
       "path": "/api/cron/schedule-followups",
       "schedule": "0 2 * * *"
-    },
-    {
-      "path": "/api/cron/advance-compilations",
-      "schedule": "*/5 * * * *"
     }
   ]
 }

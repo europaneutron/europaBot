@@ -14,16 +14,22 @@ export class ClientBrandRepository {
   }
 
   async update(values: {
+    businessName?: string;
     projectSingular?: string;
     projectPlural?: string;
     tone?: BrandTone;
     configured?: boolean;
+    useComposedGreeting?: boolean;
   }): Promise<ClientBrandConfig> {
     const row: Record<string, unknown> = {};
+    if (values.businessName !== undefined) row.business_name = values.businessName;
     if (values.projectSingular !== undefined) row.project_singular = values.projectSingular;
     if (values.projectPlural !== undefined) row.project_plural = values.projectPlural;
     if (values.tone !== undefined) row.tone = values.tone;
     if (values.configured !== undefined) row.is_configured = values.configured;
+    if (values.useComposedGreeting !== undefined) {
+      row.use_composed_greeting = values.useComposedGreeting;
+    }
 
     const { data, error } = await supabaseServer
       .from('client_brand_config')

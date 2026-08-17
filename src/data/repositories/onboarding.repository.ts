@@ -86,17 +86,6 @@ export class OnboardingRepository {
     return data as OnboardingSession;
   }
 
-  async listPendingRunIds(limit = 10): Promise<string[]> {
-    const { data, error } = await supabaseServer
-      .from('onboarding_sessions')
-      .select('run_id')
-      .eq('status', 'in_progress')
-      .not('run_id', 'is', null)
-      .order('updated_at', { ascending: true })
-      .limit(limit);
-    if (error) throw error;
-    return (data || []).flatMap(row => row.run_id ? [row.run_id] : []);
-  }
 }
 
 export const onboardingRepository = new OnboardingRepository();
