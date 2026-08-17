@@ -62,6 +62,18 @@ Al aplicar el cambio habrá pares de pregunta y alcance con varias respuestas ac
 
 No. Retirar de más deja al bot mudo en esa pregunta; retirar de menos deja el defecto. Y sobre todo: **reescribir contenido aprobado en una migración es lo que este proyecto se prohibió** al retirar los CTA sembrados de la 030. Se presentan juntas, con una propuesta de cuál conservar, y una persona confirma.
 
+### La caché del árbol se invalida por versión, no por tiempo
+
+`scope.repository.ts` sirve el árbol desde una caché en memoria con cinco minutos de vida, por proceso. `invalidateCache` solo alcanza al proceso que escribió, así que en un despliegue con varias instancias las demás siguen con el árbol viejo hasta que caduca por reloj.
+
+Se detectó usándolo: tras sembrar el catálogo desde un script, el bot siguió ofreciendo los desarrollos anteriores. En local es una molestia; en producción es un reporte imposible de diagnosticar —"di de alta Altabrisa y el bot dice que no existe"— que para cuando alguien lo revisa ya funciona. Y el caso inverso es peor: un desarrollo agotado se sigue ofreciendo durante cinco minutos.
+
+Alternativa descartada: bajar el TTL a treinta segundos. Es una línea y reduce la ventana, pero no la elimina, y paga más lecturas para seguir sin garantía.
+
+La caché guarda además la versión del árbol con la que se llenó, y antes de usarla comprueba esa versión con una lectura barata. Coincide: sirve lo cacheado. No coincide: relee. La versión cambia al tocar el árbol.
+
+Entra en este cambio y no en otro porque es aquí donde el árbol pasa a escribirse a menudo: cada aprobación de contenido puede crear una intención en un alcance. Sin esto, cada aprobación tendría su propia ventana de cinco minutos contestando lo anterior.
+
 ### Los seguimientos se convierten conservando el texto literal
 
 `main` + `followup` pasan a ser dos fragmentos de una respuesta. La conversión copia el texto tal cual y conserva el orden; no es una oportunidad para mejorar la redacción. Si el texto es malo —y hay varios que lo son—, eso es de la spec de higiene, donde se ve y se aprueba.

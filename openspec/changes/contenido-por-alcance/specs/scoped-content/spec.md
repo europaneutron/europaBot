@@ -136,3 +136,31 @@ Los turnos de `openspec/conversacion-objetivo.md` que hoy pasan sembrando el con
 
 - **WHEN** un lead pregunta el precio en cualquier alcance
 - **THEN** recibe una sola respuesta, no dos versiones seguidas
+
+### Requirement: Un cambio en el árbol surte efecto en todas las instancias
+
+El árbol de alcances se sirve desde una caché en memoria de cada proceso. Un cambio en el árbol —alta, baja, renombrado o activación— SHALL reflejarse en todos los procesos que atienden conversaciones sin esperar a que la caché caduque por tiempo.
+
+La comprobación SHALL ser más barata que releer el árbol completo, para que el coste de mantener la caché siga siendo menor que el de no tenerla.
+
+#### Scenario: Un alcance nuevo se ofrece de inmediato
+
+- **WHEN** se crea un desarrollo desde una instancia
+- **AND** un lead escribe a una instancia distinta
+- **THEN** el desarrollo nuevo aparece entre los que el bot ofrece
+
+#### Scenario: Un alcance retirado deja de ofrecerse de inmediato
+
+- **WHEN** se desactiva un desarrollo agotado
+- **THEN** el bot deja de ofrecerlo, sin ventana en la que lo siga proponiendo
+
+#### Scenario: El contenido aprobado responde de inmediato
+
+- **WHEN** se aprueba una respuesta compilada que crea una intención en un alcance
+- **AND** un lead pregunta lo mismo enseguida
+- **THEN** recibe la respuesta recién aprobada, no la anterior
+
+#### Scenario: Sin cambios, no se relee el árbol
+
+- **WHEN** llegan mensajes seguidos y el árbol no ha cambiado
+- **THEN** no se vuelve a leer el árbol completo en cada mensaje

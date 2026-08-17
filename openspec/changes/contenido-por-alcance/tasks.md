@@ -43,21 +43,30 @@
 - [ ] 6.2 Conservar el texto literal y el orden. La redacción no se mejora aquí: eso es de la spec de higiene
 - [ ] 6.3 Verificar que el lead sigue recibiendo los mismos mensajes en el mismo orden
 
-## 7. Atomicidad
+## 7. La caché del árbol
 
-- [ ] 7.1 Lo que se cree en un mismo intento se deshace si el intento falla. Un fallo a media lista no puede dejar intenciones ni respuestas colgando
-- [ ] 7.2 Verificar reintentando una compilación que falla a la mitad: no quedan restos ni duplicados
+- [ ] 7.1 Invalidar por versión y no solo por tiempo: la caché guarda con qué versión se llenó y la comprueba antes de servir
+- [ ] 7.2 La comprobación tiene que costar menos que releer el árbol; si no, la caché deja de tener sentido
+- [ ] 7.3 La versión cambia al crear, retirar, renombrar o reactivar un alcance, y al crear una intención de alcance
+- [ ] 7.4 Verificar con dos procesos: uno crea el alcance, el otro responde a un lead y ya lo ofrece
+- [ ] 7.5 Verificar el caso inverso, que es el que más duele: desactivar un desarrollo deja de ofrecerlo de inmediato
+- [ ] 7.6 Verificar que sin cambios no se relee el árbol completo en cada mensaje
 
-## 8. Verificación
+## 8. Atomicidad
 
-- [ ] 8.1 Recorrido completo: material de un desarrollo con tres modelos, compilar, aprobar, y preguntar el precio con el foco en cada uno de los tres
-- [ ] 8.2 Verificar que con el foco en un modelo, la ubicación se hereda del desarrollo
-- [ ] 8.3 **Recorrer la conversación objetivo en el simulador**, en el navegador, y anotar turno por turno. Ninguna spec de esta serie se da por terminada leyendo código
-- [ ] 8.4 Verificar que cada prueba nueva **falla con el código anterior**
-- [ ] 8.5 Confirmar que ninguna prueba deja datos en la base, y que si los deja, la prueba falla en vez de callarse
-- [ ] 8.6 Confirmar `tsc --noEmit` limpio y sin emojis, conforme a `AGENTS.md`
-- [ ] 8.7 Dejar anotado qué debe verificarse en el esquema remoto antes de aplicar en producción, y qué colisiones habrá que resolver a mano en esa base
+- [ ] 8.1 Lo que se cree en un mismo intento se deshace si el intento falla. Un fallo a media lista no puede dejar intenciones ni respuestas colgando
+- [ ] 8.2 Verificar reintentando una compilación que falla a la mitad: no quedan restos ni duplicados
 
-## 9. Fuera de alcance, anotado
+## 9. Verificación
+
+- [ ] 9.1 Recorrido completo: material de un desarrollo con tres modelos, compilar, aprobar, y preguntar el precio con el foco en cada uno de los tres
+- [ ] 9.2 Verificar que con el foco en un modelo, la ubicación se hereda del desarrollo
+- [ ] 9.3 **Recorrer la conversación objetivo en el simulador**, en el navegador, y anotar turno por turno. Ninguna spec de esta serie se da por terminada leyendo código
+- [ ] 9.4 Verificar que cada prueba nueva **falla con el código anterior**
+- [ ] 9.5 Confirmar que ninguna prueba deja datos en la base, y que si los deja, la prueba falla en vez de callarse
+- [ ] 9.6 Confirmar `tsc --noEmit` limpio y sin emojis, conforme a `AGENTS.md`
+- [ ] 9.7 Dejar anotado qué debe verificarse en el esquema remoto antes de aplicar en producción, y qué colisiones habrá que resolver a mano en esa base
+
+## 10. Fuera de alcance, anotado
 
 Van en las specs siguientes y **no** se adelantan aquí: la segunda pregunta de desambiguación y las reglas de oferta; la tabla del catálogo y las variables dentro de la prosa; y la limpieza de las plantillas sembradas con marcadores sin llenar.
