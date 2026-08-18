@@ -96,6 +96,38 @@ El alcance raiz SHALL conservarse siempre: es el negocio, no un desarrollo.
 - **WHEN** el material no describe el negocio sino solo sus desarrollos
 - **THEN** el alcance raiz sigue existiendo tras la sustitucion
 
+### Requirement: Lo que ningun material describe se repone al publicar
+
+Saludar, despedirse y agendar no son contenido del cliente y ningun material los describe como preguntas. Publicar SHALL dejarlos en pie igualmente, reponiendo su vocabulario base despues de retirar lo anterior.
+
+No SHALL resolverse conservando lo que habia: conservar preguntas por el hecho de que el material no las menciona deja vivas respuestas de la epoca anterior, que es la mezcla que este cambio elimina. Se retira todo y se repone lo que el material no puede describir.
+
+El texto de esas tres lo produce el sistema —el saludo se compone con el nombre del negocio y sus alcances, el mensaje de cita lo devuelve el modulo de agendamiento— asi que lo que se repone es el vocabulario con el que el bot las reconoce.
+
+#### Scenario: El bot sigue saludando
+
+- **WHEN** se publica una corrida que sustituye
+- **AND** un lead escribe "hola"
+- **THEN** el bot lo reconoce como saludo y responde con el saludo del negocio
+
+#### Scenario: El bot sigue pudiendo agendar
+
+- **WHEN** se publica una corrida que sustituye
+- **AND** un lead escribe "quiero agendar una visita"
+- **THEN** arranca el flujo de agendamiento
+
+#### Scenario: Nada anterior sobrevive por no estar mencionado
+
+- **WHEN** existe una respuesta anterior de una pregunta que el material nuevo no menciona
+- **AND** se publica una corrida que sustituye
+- **THEN** esa respuesta queda retirada igual que las demas
+
+#### Scenario: La despedida se repone con su texto base
+
+- **WHEN** se publica una corrida que sustituye
+- **AND** un lead se despide
+- **THEN** recibe el texto base de despedida, no el que hubiera antes
+
 ### Requirement: Un lead con el foco en algo que dejo de existir
 
 Cuando la sustitucion retira el alcance sobre el que un lead tenia el foco, la conversacion siguiente SHALL resolverse sin error y sin responder desde el alcance retirado.

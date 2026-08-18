@@ -103,6 +103,16 @@ El material dice "Residencial Europa, tambien conocido como Europa". La estructu
 2. El codigo nuevo convive con las corridas anteriores: las que ya existen quedan en `replace`, y las que ya publicaron no se tocan.
 3. Reversion: volver a la version anterior del panel y de la funcion de aprobacion. Lo retirado sigue en la base con su motivo, asi que reactivarlo es una consulta.
 
+### Lo que ningun material describe se repone, no se protege
+
+La pregunta abierta de la primera version era que hacer con una pregunta que el material nuevo no cubre. El primer intento fue conservarla, y estaba mal: dejaba vivas respuestas de la epoca anterior solo porque nadie las nombraba, que es la mezcla que este cambio existe para eliminar.
+
+Se retira todo, y `publish_compiler_run` repone despues el vocabulario base de `saludo`, `cita` y `despedida`. Son las unicas tres que ningun material describe y que ningun preset produce, y las dos primeras estan cableadas por su nombre en el runtime.
+
+Solo se repone el vocabulario, no el texto: el saludo lo compone el runtime con el nombre del negocio y sus alcances, y el mensaje de cita lo devuelve el modulo de agendamiento —al detectar `cita` el runtime ni siquiera lee sus respuestas—. La despedida es la unica que lleva un texto base.
+
+Alternativa descartada: una lista de intenciones protegidas que la sustitucion no toca. Deja contenido anterior en pie, y hay que acordarse de ampliarla cada vez que se cablee otra.
+
 ## Open Questions
 
-- Si una corrida en modo sustituir no cubre una pregunta que hoy tiene respuesta —el material no habla de mascotas y antes habia una respuesta escrita a mano—, esa respuesta se retira igual, porque el material es el bot. Queda anotado por si al recorrerlo el cliente prefiere lo contrario.
+- Ninguna pendiente.

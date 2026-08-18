@@ -267,19 +267,43 @@ async function main() {
     const { data: scopesAfterReplace } = await supabaseServer.from('scopes')
       .select('id, is_active').in('id', [projectId, retiredModelId, newModelId]);
     const activeById = new Map(scopesAfterReplace?.map(scope => [scope.id, scope.is_active]));
-    const { data: survivors } = await supabaseServer.from('bot_responses')
-      .select('intent_name, is_active')
-      .in('id', [greeting.responseId, appointment.responseId, farewell.responseId]);
+    const { data: retiredAnyway } = await supabaseServer.from('bot_responses')
+      .select('is_active')
+      .in('id', [greeting.responseId, farewell.responseId]);
     assert(
-      survivors?.every(row => row.is_active),
-      'una pregunta de la que el material no habla conserva su respuesta'
+      retiredAnyway?.every(row => !row.is_active),
+      'sustituir no deja viva ninguna respuesta anterior, ni la que el material no menciona'
     );
-    const { data: survivingIntents } = await supabaseServer.from('intent_configurations')
-      .select('intent_name, is_active')
-      .in('id', [greeting.intentId, appointment.intentId, farewell.intentId]);
+
+    // Lo que importa no es que sobreviva una fila, sino que el bot siga
+    // sabiendo hacer las dos cosas que ningun material describe.
+    const { intentDetectionService } = await import('../src/core/intent-engine/intent-detection.service');
+    intentDetectionService.invalidateAll();
+    const greetingDetection = await intentDetectionService.detect('hola', supabaseServer, projectId);
     assert(
-      survivingIntents?.every(row => row.is_active),
-      'saludo, cita y despedida siguen activas tras sustituir'
+      greetingDetection.intent?.intent_name === 'saludo',
+      'tras sustituir el bot sigue reconociendo un saludo'
+    );
+    const appointmentDetection = await intentDetectionService.detect(
+      'quiero agendar una visita', supabaseServer, projectId
+    );
+    assert(
+      appointmentDetection.intent?.intent_name === 'cita',
+      'tras sustituir el bot sigue pudiendo agendar una visita'
+    );
+    const farewellDetection = await intentDetectionService.detect('gracias', supabaseServer, projectId);
+    assert(
+      farewellDetection.intent?.intent_name === 'despedida',
+      'tras sustituir el bot sigue sabiendo despedirse'
+    );
+    const { conversationRepository } = await import('../src/data/repositories/conversation.repository');
+    const farewellResponses = await conversationRepository.getBotResponses(
+      (farewellDetection.intent as any).response_intent_ids || farewellDetection.intent!.intent_id
+    );
+    assert(
+      farewellResponses.length === 1 &&
+      !JSON.stringify(farewellResponses[0]).includes('Contenido anterior'),
+      'la despedida se repone con su texto base, no con el anterior'
     );
 
     assert(activeById.get(projectId) === true, 'la raíz de la corrida nunca se retira');
