@@ -1,5 +1,5 @@
 import { supabaseServer } from '@/services/supabase/server-client';
-import type { ExtractedFact, ReviewSignal } from '@/data/models/document-compiler.model';
+import type { ExtractedFact, MatcherPatterns, ReviewSignal } from '@/data/models/document-compiler.model';
 
 export interface CreateMaterialInput {
   scopeId: string;
@@ -247,9 +247,8 @@ export class DocumentCompilerRepository {
       supabaseServer.from('compiler_facts').select('*').eq('run_id', previousRunId),
       supabaseServer
         .from('compiler_proposals')
-        .select('intent_id, edited_by_human, approved_response_id')
-        .eq('run_id', previousRunId)
-        .eq('approval_status', 'approved'),
+        .select('intent_id, edited_by_human, approved_response_id, approval_status, is_publishable, review_details')
+        .eq('run_id', previousRunId),
     ]);
     if (factsResult.error) throw factsResult.error;
     if (proposalsResult.error) throw proposalsResult.error;
@@ -383,8 +382,10 @@ export class DocumentCompilerRepository {
       priority: number;
       responseKey: string;
       messageText: unknown;
-      matcherPatterns: Record<string, string[]>;
+      matcherPatterns: MatcherPatterns;
       signals: ReviewSignal[];
+      isPublishable?: boolean;
+      reviewDetails?: Record<string, unknown>;
       factIds: string[];
     }>
   ) {
@@ -402,6 +403,8 @@ export class DocumentCompilerRepository {
         message_text: proposal.messageText,
         matcher_patterns: proposal.matcherPatterns,
         review_signals: proposal.signals,
+        is_publishable: proposal.isPublishable ?? true,
+        review_details: proposal.reviewDetails || {},
         fact_ids: proposal.factIds,
       })),
     });
@@ -450,7 +453,9 @@ export class DocumentCompilerRepository {
     if (intentsResult.error) throw intentsResult.error;
     if (responsesResult.error) throw responsesResult.error;
 
-    const pending = proposals.filter(item => item.approval_status === 'pending');
+    const pending = proposals.filter(item =>
+      item.approval_status === 'pending' && item.is_publishable !== false
+    );
     const affected = new Set(affectedIds);
     const kept = new Set<string>([run.scope_id]);
     const byId = new Map(scopes.map(scope => [scope.id, scope]));

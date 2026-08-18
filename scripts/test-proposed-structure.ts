@@ -34,10 +34,18 @@ async function main() {
   let runId: string | null = null;
   let materialId: string | null = null;
   let sessionId: string | null = null;
+  let addRunId: string | null = null;
+  let addSessionId: string | null = null;
 
   const { data: admin } = await supabaseServer.from('admin_users')
     .select('id').eq('is_active', true).limit(1).single();
   if (!admin) throw new Error('No hay administrador activo');
+
+  // La raiz y la marca son unicas: la prueba las toca y las devuelve.
+  const { data: rootBefore } = await supabaseServer.from('scopes')
+    .select('name').eq('id', ROOT_SCOPE_ID).single();
+  const { data: brandBefore } = await supabaseServer.from('client_brand_config')
+    .select('*').limit(1).single();
 
   try {
     const proposedTree = [
@@ -71,6 +79,7 @@ async function main() {
       status: 'waiting_tree_approval',
       proposed_tree: proposedTree,
       replacement_mode: 'replace',
+      stage_checkpoint: { business_name: `Inmobiliaria ${suffix}` },
     }).select('*').single();
     if (runError) throw runError;
     runId = run.id;
@@ -107,7 +116,9 @@ async function main() {
     });
 
     const { data: created } = await supabaseServer.from('scopes')
-      .select('id, name, scope_type, parent_id').like('name', `%${suffix}%`);
+      .select('id, name, scope_type, parent_id')
+      .like('name', `%${suffix}%`)
+      .neq('id', ROOT_SCOPE_ID);
     scopeIds.push(...(created || []).map(scope => scope.id));
     const names = (created || []).map(scope => scope.name);
 
@@ -138,7 +149,73 @@ async function main() {
         .some((alias: string) => alias.toLowerCase() === 'altabrisa'),
       'el alias del segundo desarrollo se conserva al renombrarlo'
     );
+
+    // El negocio se llama como dice el material, no como el primer cliente que
+    // uso el bot: la raiz venia sembrada con `Europa` y nadie la renombraba.
+    const { data: rootAfter } = await supabaseServer.from('scopes')
+      .select('name').eq('id', ROOT_SCOPE_ID).single();
+    assert(
+      rootAfter?.name === `Inmobiliaria ${suffix}`,
+      'la raíz toma el nombre del negocio que trae el material'
+    );
+    const { data: brandAfter } = await supabaseServer.from('client_brand_config')
+      .select('business_name, use_composed_greeting').limit(1).single();
+    assert(
+      brandAfter?.business_name === `Inmobiliaria ${suffix}`,
+      'el saludo compuesto ya tiene con qué nombrar al negocio'
+    );
+    assert(
+      brandAfter?.use_composed_greeting === true,
+      'el saludo compuesto queda encendido al adoptar el nombre'
+    );
+
+    // Anadir un desarrollo no es rebautizar el negocio.
+    const { data: addRun, error: addRunError } = await supabaseServer.from('compiler_runs').insert({
+      scope_id: ROOT_SCOPE_ID,
+      material_ids: [material.id],
+      current_stage: 'tree',
+      status: 'waiting_tree_approval',
+      proposed_tree: [{ name: `Anexo ${suffix}`, scope_type: 'proyecto', parent_name: null, aliases: [] }],
+      replacement_mode: 'add',
+      stage_checkpoint: { business_name: `Otra Razon Social ${suffix}` },
+    }).select('*').single();
+    if (addRunError) throw addRunError;
+    addRunId = addRun.id;
+    // Solo puede haber una sesion activa por administrador.
+    await supabaseServer.from('onboarding_sessions')
+      .update({ status: 'abandoned' }).eq('id', sessionId);
+    const { data: addSession, error: addSessionError } = await supabaseServer
+      .from('onboarding_sessions').insert({
+        admin_id: admin.id, run_id: addRun.id, current_step: 2, status: 'in_progress',
+      }).select('id').single();
+    if (addSessionError) throw addSessionError;
+    addSessionId = addSession.id;
+    await onboardingService.confirmProposedStructure(admin.id, {
+      projectName: `Anexo ${suffix}`,
+      partNames: [],
+      flatten: false,
+      projects: [{ name: `Anexo ${suffix}`, partNames: [] }],
+    });
+    const { data: addedScopes } = await supabaseServer.from('scopes')
+      .select('id').like('name', `Anexo ${suffix}`);
+    scopeIds.push(...(addedScopes || []).map(scope => scope.id));
+    const { data: rootAfterAdd } = await supabaseServer.from('scopes')
+      .select('name').eq('id', ROOT_SCOPE_ID).single();
+    assert(
+      rootAfterAdd?.name === `Inmobiliaria ${suffix}`,
+      'añadir un desarrollo no rebautiza el negocio'
+    );
   } finally {
+    await supabaseServer.from('scopes')
+      .update({ name: rootBefore?.name }).eq('id', ROOT_SCOPE_ID);
+    if (brandBefore) {
+      await supabaseServer.from('client_brand_config')
+        .update({
+          business_name: brandBefore.business_name,
+          use_composed_greeting: brandBefore.use_composed_greeting,
+        })
+        .eq('root_scope_id', brandBefore.root_scope_id);
+    }
     if (scopeIds.length > 0) {
       await supabaseServer.from('scope_aliases').delete().in('scope_id', scopeIds);
       const { data: rows } = await supabaseServer.from('scopes')
@@ -150,11 +227,15 @@ async function main() {
         await supabaseServer.from('scopes').delete().eq('id', scope.id);
       }
     }
+    if (addSessionId) await supabaseServer.from('onboarding_sessions').delete().eq('id', addSessionId);
     if (sessionId) await supabaseServer.from('onboarding_sessions').delete().eq('id', sessionId);
+    if (addRunId) await supabaseServer.from('compiler_runs').delete().eq('id', addRunId);
     if (runId) await supabaseServer.from('compiler_runs').delete().eq('id', runId);
     if (materialId) await supabaseServer.from('compiler_materials').delete().eq('id', materialId);
     const { count } = await supabaseServer.from('scopes')
-      .select('id', { count: 'exact', head: true }).like('name', `%${suffix}%`);
+      .select('id', { count: 'exact', head: true })
+      .like('name', `%${suffix}%`)
+      .neq('id', ROOT_SCOPE_ID);
     if ((count || 0) > 0) throw new Error(`La prueba dejó ${count} alcances sin borrar`);
   }
 }

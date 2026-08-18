@@ -17,6 +17,8 @@ const SIGNAL_LABELS: Record<string, string> = {
   sensitive_data: 'Revisar antes de publicar',
   changed: 'Cambió desde la última revisión',
   human_edited: 'Editada a mano',
+  poor_vocabulary: 'Vocabulario bloqueado',
+  vocabulary_regression: 'Pierde formas de preguntar',
 };
 
 async function fetcher(url: string) {
@@ -114,7 +116,9 @@ export default function CompilerPage() {
       });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error);
-      setMessage('La corrida se publicó completa.');
+      const published = body.result?.published_responses || 0;
+      const blocked = body.result?.blocked_responses || 0;
+      setMessage(`${published} ${published === 1 ? 'respuesta publicada' : 'respuestas publicadas'}${blocked ? `; ${blocked} ${blocked === 1 ? 'quedó bloqueada' : 'quedaron bloqueadas'} por vocabulario` : ''}.`);
       await refreshAll();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'No fue posible publicar la corrida');
@@ -126,7 +130,9 @@ export default function CompilerPage() {
   const run = review?.run;
   const impact = review?.publication_impact;
   const projectLabel = dashboard?.vocabulary?.singular || 'desarrollo';
-  const pendingCount = (review?.proposals || []).filter((item: any) => item.approval_status === 'pending').length;
+  const pendingProposals = (review?.proposals || []).filter((item: any) => item.approval_status === 'pending');
+  const publishableCount = pendingProposals.filter((item: any) => item.is_publishable !== false).length;
+  const blockedCount = pendingProposals.length - publishableCount;
 
   return (
     <div className="mx-auto max-w-7xl space-y-6 p-4 md:p-8">
@@ -179,9 +185,14 @@ export default function CompilerPage() {
                 Dejarán de ofrecerse: {impact.retired_scopes.map((scope: any) => scope.name).join(', ')}.
               </div>
             ) : null}
-            <Button disabled={busy || pendingCount === 0} onClick={publishRun}>
-              Publicar corrida completa ({pendingCount} {pendingCount === 1 ? 'respuesta' : 'respuestas'})
+            <Button disabled={busy || pendingProposals.length === 0} onClick={publishRun}>
+              Publicar {publishableCount} {publishableCount === 1 ? 'respuesta' : 'respuestas'}
             </Button>
+            {blockedCount > 0 ? (
+              <p className="text-sm text-muted-foreground">
+                {blockedCount} {blockedCount === 1 ? 'propuesta quedará fuera' : 'propuestas quedarán fuera'} porque su vocabulario no reconoce la pregunta.
+              </p>
+            ) : null}
           </CardContent>
         </Card>
       ) : null}
@@ -205,8 +216,10 @@ export default function CompilerPage() {
                       return (
                         <article key={proposal.id} className="space-y-3 rounded-md border p-4">
                           <div className="flex flex-wrap items-center gap-2">
-                            <Badge variant={proposal.approval_status === 'pending' ? 'default' : 'outline'}>
-                              {proposal.approval_status === 'pending' ? 'Incluida' : proposal.approval_status === 'approved' ? 'Publicada' : 'Rechazada'}
+                            <Badge variant={proposal.is_publishable === false ? 'destructive' : proposal.approval_status === 'pending' ? 'default' : 'outline'}>
+                              {proposal.is_publishable === false
+                                ? 'Bloqueada'
+                                : proposal.approval_status === 'pending' ? 'Incluida' : proposal.approval_status === 'approved' ? 'Publicada' : 'Rechazada'}
                             </Badge>
                             {proposal.review_signals.map((signal: string) => (
                               <Badge key={signal} variant={signal === 'contradiction' ? 'destructive' : 'secondary'}>
@@ -215,10 +228,22 @@ export default function CompilerPage() {
                             ))}
                           </div>
                           <div className="text-sm font-medium text-muted-foreground">Alcance: {proposal.scopes?.name || 'Sin nombre'}</div>
+                          {proposal.review_details?.vocabulary?.missed?.length > 0 ? (
+                            <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm">
+                              <div className="font-medium">El vocabulario no reconoce estas formas:</div>
+                              <div className="mt-1 text-muted-foreground">{proposal.review_details.vocabulary.missed.join('; ')}</div>
+                            </div>
+                          ) : null}
+                          {proposal.review_details?.regression?.missed?.length > 0 ? (
+                            <div className="rounded-md bg-muted p-3 text-sm">
+                              <div className="font-medium">Formas que dejaría de reconocer:</div>
+                              <div className="mt-1 text-muted-foreground">{proposal.review_details.regression.missed.join('; ')}</div>
+                            </div>
+                          ) : null}
                           <Textarea
                             value={drafts[proposal.id] ?? proposal.message_text.fragments?.[0]?.content ?? ''}
                             onChange={event => setDrafts(current => ({ ...current, [proposal.id]: event.target.value }))}
-                            disabled={proposal.approval_status !== 'pending'}
+                            disabled={proposal.approval_status !== 'pending' || proposal.is_publishable === false}
                           />
                           {sources.length > 0 ? (
                             <div className="space-y-2 rounded-md bg-muted p-3 text-sm">
@@ -231,7 +256,7 @@ export default function CompilerPage() {
                               ))}
                             </div>
                           ) : null}
-                          {proposal.approval_status === 'pending' ? (
+                          {proposal.approval_status === 'pending' && proposal.is_publishable !== false ? (
                             <div className="flex gap-2">
                               <Button size="sm" disabled={busy} onClick={() => reviewProposal(proposal, 'save')}>Guardar edición</Button>
                               <Button size="sm" variant="outline" disabled={busy} onClick={() => reviewProposal(proposal, 'reject')}>Rechazar</Button>

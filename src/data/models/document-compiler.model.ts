@@ -14,7 +14,21 @@ export type ReviewSignal =
   | 'uncertain_provenance'
   | 'sensitive_data'
   | 'changed'
-  | 'human_edited';
+  | 'human_edited'
+  | 'poor_vocabulary'
+  | 'vocabulary_regression';
+
+export interface MatcherPatterns {
+  keywords: string[];
+  synonyms: string[];
+  typos: string[];
+  phrases: string[];
+}
+
+export interface VocabularyReachResult {
+  reached: string[];
+  missed: string[];
+}
 
 export interface ExtractedFact {
   id?: string;

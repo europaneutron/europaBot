@@ -2,9 +2,12 @@ import { createHash } from 'node:crypto';
 import type {
   CandidateQuestion,
   ExtractedFact,
+  MatcherPatterns,
   ReviewSignal,
+  VocabularyReachResult,
 } from '@/data/models/document-compiler.model';
 import { isSellableScopeType } from '@/data/models/document-compiler.model';
+import { FuzzyMatcher } from '@/core/intent-engine/fuzzy-matcher';
 
 const SENSITIVE_FACT_TYPES = new Set(['money', 'date', 'contractual']);
 
@@ -29,7 +32,7 @@ const SENSITIVE_VALUE_PATTERNS = [
 export const REAL_ESTATE_PRESET: CandidateQuestion[] = [
   { intentName: 'precio', question: '¿Cuál es el precio?', source: 'preset', factKeys: ['price', 'price_from', 'precio', 'precio_desde', 'costo', 'valor'] },
   { intentName: 'ubicacion', question: '¿Dónde se ubica?', source: 'preset', factKeys: ['location', 'address', 'ubicacion', 'direccion', 'zona'] },
-  { intentName: 'modelo', question: '¿Qué modelos hay?', source: 'preset', factKeys: ['model', 'unit_type', 'modelo', 'tipo_unidad', 'prototipo'] },
+  { intentName: 'modelo', question: '¿Qué modelos hay?', source: 'preset', factKeys: ['model', 'unit_type', 'modelo', 'tipo_unidad', 'prototipo', 'producto_ofrecido'] },
   { intentName: 'creditos', question: '¿Qué financiamiento aceptan?', source: 'preset', factKeys: ['financing', 'credit', 'financiamiento', 'credito', 'hipoteca', 'enganche'] },
   { intentName: 'seguridad', question: '¿Qué seguridad ofrece?', source: 'preset', factKeys: ['security', 'seguridad', 'vigilancia'] },
   { intentName: 'amenidades', question: '¿Qué amenidades tiene?', source: 'preset', factKeys: ['amenity', 'amenities', 'amenidad', 'amenidades', 'areas_comunes'] },
@@ -49,7 +52,7 @@ export function normalizeFactKey(key: string): string {
     .replace(/^_+|_+$/g, '');
 }
 
-function keyMatchesAlias(factKey: string, alias: string): boolean {
+export function keyMatchesAlias(factKey: string, alias: string): boolean {
   const normalizedKey = normalizeFactKey(factKey);
   const normalizedAlias = normalizeFactKey(alias);
   if (!normalizedKey || !normalizedAlias) return false;
@@ -57,6 +60,88 @@ function keyMatchesAlias(factKey: string, alias: string): boolean {
     || normalizedKey.startsWith(`${normalizedAlias}_`)
     || normalizedKey.endsWith(`_${normalizedAlias}`)
     || normalizedKey.includes(`_${normalizedAlias}_`);
+}
+
+const QUESTION_STOP_WORDS = new Set([
+  'a', 'al', 'de', 'del', 'el', 'en', 'es', 'hay', 'la', 'las', 'lo', 'los',
+  'para', 'por', 'que', 'se', 'son', 'tiene', 'un', 'una', 'y',
+]);
+
+const GENERIC_SCOPE_PREFIXES = new Set([
+  'bodega', 'consultorio', 'desarrollo', 'fraccionamiento', 'local', 'lote',
+  'modelo', 'paquete', 'plan', 'residencial', 'tipo', 'unidad',
+]);
+
+/**
+ * El nombre completo queda como alias principal, pero el lead suele omitir el
+ * descriptor del producto. La regla usa descriptores estructurales, no
+ * vocabulario inmobiliario: tambien cubre Bodega Atlas y Consultorio Norte.
+ */
+export function shortScopeAlias(name: string): string | null {
+  const words = name.trim().split(/\s+/);
+  if (words.length < 2 || !GENERIC_SCOPE_PREFIXES.has(normalizeFactKey(words[0]))) return null;
+  const alias = words.slice(1).join(' ').trim();
+  return alias.length >= 2 ? alias : null;
+}
+
+/**
+ * El nombre sale de los hechos --dos redacciones sobre los mismos hechos tienen
+ * que producir el mismo nombre-- pero tiene que poder leerse.
+ *
+ * Juntar todas las palabras y ordenarlas alfabeticamente cumplia la estabilidad
+ * y perdia el idioma: cinco hechos de horario producian
+ * `atencion_domingo_horario_lunes_s_6b885bae`. Las palabras que estan en todos
+ * los hechos son justo el asunto que comparten, y respetar el orden en que
+ * aparecen las devuelve a la lengua del material: `horario_atencion_sitio`.
+ */
+function customIntentName(candidate: CandidateQuestion): string {
+  // Las claves se ordenan antes de leerlas: el nombre no puede depender de en
+  // que orden devolvio el modelo los hechos.
+  const keyWords = Array.from(new Set(candidate.factKeys.map(normalizeFactKey)))
+    .sort()
+    .map(key => Array.from(new Set(
+      key.split('_').filter(
+        word => word.length > 1 && !QUESTION_STOP_WORDS.has(word)
+      )
+    )));
+  const ordered = Array.from(new Set(keyWords.flat()));
+  const shared = ordered.filter(word => keyWords.every(words => words.includes(word)));
+  // Sin palabra comun no hay asunto compartido que nombrar; el orden de
+  // aparicion sigue siendo estable porque los hechos llegan ordenados.
+  const factWords = shared.length > 0 ? shared : ordered;
+  if (factWords.length > 0) return boundedIntentName(factWords.slice(0, 4).join('_'));
+
+  const questionWords = normalizeFactKey(candidate.question)
+    .split('_')
+    .filter(word => word.length > 1 && !QUESTION_STOP_WORDS.has(word));
+  return boundedIntentName(questionWords.slice(0, 4).join('_') || 'pregunta_material');
+}
+
+function boundedIntentName(value: string): string {
+  // response_key antepone `compiler_` y ambas columnas admiten 50 caracteres.
+  if (value.length <= 41) return value;
+  const suffix = createHash('sha256').update(value).digest('hex').slice(0, 8);
+  return `${value.slice(0, 32).replace(/_+$/g, '')}_${suffix}`;
+}
+
+function stableCandidate(candidate: CandidateQuestion): CandidateQuestion {
+  const normalizedIntent = normalizeFactKey(candidate.intentName);
+  const exact = REAL_ESTATE_PRESET.find(item => item.intentName === normalizedIntent);
+  const byFacts = REAL_ESTATE_PRESET.find(item =>
+    candidate.factKeys.some(key => item.factKeys.some(alias => keyMatchesAlias(key, alias)))
+  );
+  const preset = exact || byFacts;
+  if (preset) {
+    return {
+      ...preset,
+      source: 'material',
+      factKeys: Array.from(new Set([...preset.factKeys, ...candidate.factKeys])),
+    };
+  }
+  return {
+    ...candidate,
+    intentName: customIntentName(candidate),
+  };
 }
 
 /**
@@ -73,7 +158,7 @@ export function mergeCandidates(
 ): CandidateQuestion[] {
   const byIntent = new Map<string, CandidateQuestion>();
 
-  for (const candidate of [...preset, ...material]) {
+  for (const candidate of [...preset, ...material.map(stableCandidate)]) {
     const existing = byIntent.get(candidate.intentName);
     if (!existing) {
       byIntent.set(candidate.intentName, { ...candidate, factKeys: [...candidate.factKeys] });
@@ -86,6 +171,86 @@ export function mergeCandidates(
   }
 
   return Array.from(byIntent.values());
+}
+
+function matcherForPatterns(patterns: MatcherPatterns): FuzzyMatcher {
+  return new FuzzyMatcher([{
+    id: 'compiler-vocabulary-check',
+    scope_id: null,
+    intent_name: 'compiler_vocabulary_check',
+    display_name: 'Comprobacion de vocabulario',
+    ...patterns,
+    min_confidence: 0.6,
+    priority: 0,
+    response_type: 'fragmented',
+    is_active: true,
+    is_checkpoint: false,
+    is_strong_signal: false,
+  }]);
+}
+
+/**
+ * Comprueba vocabulario con el mismo matcher que atiende mensajes reales.
+ * Devuelve el detalle para que una propuesta bloqueada sea explicable.
+ */
+export function vocabularyReachesQuestion(
+  patterns: MatcherPatterns,
+  question: string,
+  paraphrases: string[]
+): VocabularyReachResult {
+  const matcher = matcherForPatterns(patterns);
+  const probes = Array.from(new Set([question, ...paraphrases].map(value => value.trim()).filter(Boolean)));
+  const reached: string[] = [];
+  const missed: string[] = [];
+  for (const probe of probes) {
+    if (matcher.detectIntent(probe).detected) reached.push(probe);
+    else missed.push(probe);
+  }
+  return { reached, missed };
+}
+
+export function vocabularyRegression(
+  patterns: MatcherPatterns,
+  previous: MatcherPatterns
+): VocabularyReachResult {
+  const previousForms = Array.from(new Set([
+    ...previous.keywords,
+    ...previous.synonyms,
+    ...previous.typos,
+    ...previous.phrases,
+  ].map(value => value.trim()).filter(Boolean)));
+  return vocabularyReachesQuestion(patterns, '', previousForms);
+}
+
+/**
+ * Convierte nombres de producto presentes en las claves del material en
+ * preguntas corrientes. La plantilla es generica; el sustantivo siempre sale
+ * del documento, por lo que funciona igual para casas, bodegas o consultorios.
+ */
+export function catalogTermsFromFacts(facts: ExtractedFact[]): string[] {
+  const terms = new Set<string>();
+
+  for (const fact of facts) {
+    const key = normalizeFactKey(fact.key);
+    const match = key.match(/^(?:cantidad|numero)_de_(.+)$/)
+      || key.match(/^(?:cantidad|numero)_(.+)$/)
+      || key.match(/^venta_de_(.+)$/);
+    if (match?.[1]) terms.add(match[1].replaceAll('_', ' '));
+
+    if (key === 'producto_ofrecido' && typeof fact.value === 'string') {
+      const term = normalizeFactKey(fact.value).replaceAll('_', ' ');
+      if (term) terms.add(term);
+    }
+  }
+
+  return Array.from(terms);
+}
+
+export function catalogLeadPhrases(facts: ExtractedFact[]): string[] {
+  return catalogTermsFromFacts(facts).flatMap(term => [
+    `que ${term} manejan`,
+    `que ${term} hay`,
+  ]);
 }
 
 export function factFingerprint(key: string, value: unknown, subject?: string | null): string {

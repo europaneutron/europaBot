@@ -221,6 +221,23 @@ async function main() {
       mode: 'replace',
       intentName: `precio_nuevo_${suffix}`,
     });
+    const blockedPrevious = await createIntentWithResponse(projectId, `pregunta_bloqueada_${suffix}`);
+    const { data: blockedProposal, error: blockedProposalError } = await supabaseServer
+      .from('compiler_proposals')
+      .insert({
+        run_id: replacement.runId,
+        scope_id: projectId,
+        intent_id: blockedPrevious.intentId,
+        response_key: `compiler_bloqueada_${suffix}`,
+        message_text: { fragments: [{ type: 'text', content: 'No debe publicarse.', delay: 0 }] },
+        matcher_patterns: { keywords: [], synonyms: [], typos: [], phrases: [] },
+        review_signals: ['poor_vocabulary'],
+        is_publishable: false,
+        review_details: { vocabulary: { question: '¿Pregunta bloqueada?', reached: [], missed: ['¿Pregunta bloqueada?'] } },
+      })
+      .select('id')
+      .single();
+    if (blockedProposalError) throw blockedProposalError;
 
     // Un modelo que la corrida propuso y al que no le toco ninguna propuesta.
     // Antes nacia y moria en la misma publicacion.
@@ -253,12 +270,24 @@ async function main() {
     }).eq('id', newModelId);
     const { data: versionBefore } = await supabaseServer.from('scope_tree_version')
       .select('version').eq('singleton', true).single();
-    await documentCompilerRepository.publishRun(replacement.runId, adminId);
+    const publicationResult = await documentCompilerRepository.publishRun(replacement.runId, adminId);
     const { data: versionAfter } = await supabaseServer.from('scope_tree_version')
       .select('version').eq('singleton', true).single();
     assert(
       Number(versionAfter?.version) === Number(versionBefore?.version) + 1,
       'publicar incrementa una sola vez la versión del contenido'
+    );
+    assert(
+      publicationResult.published_responses === 1 && publicationResult.blocked_responses === 1,
+      'la publicación distingue respuestas publicadas de bloqueadas'
+    );
+    const [{ data: preservedBlocked }, { data: rejectedBlocked }] = await Promise.all([
+      supabaseServer.from('bot_responses').select('is_active').eq('id', blockedPrevious.responseId).single(),
+      supabaseServer.from('compiler_proposals').select('approval_status').eq('id', blockedProposal.id).single(),
+    ]);
+    assert(
+      preservedBlocked?.is_active && rejectedBlocked?.approval_status === 'rejected',
+      'una propuesta bloqueada queda fuera y conserva la respuesta anterior'
     );
 
     const { data: oldResponses } = await supabaseServer.from('bot_responses')

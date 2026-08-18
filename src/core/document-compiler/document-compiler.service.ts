@@ -1,20 +1,27 @@
 import { z } from 'zod';
 import type { ResponseInputContent } from 'openai/resources/responses/responses';
 import {
+  catalogLeadPhrases,
+  catalogTermsFromFacts,
   consolidateFacts,
   changedFactFingerprints,
   deriveCoverage,
   factFingerprint,
   groupFactsByDestination,
+  keyMatchesAlias,
   mergeCandidates,
+  normalizeFactKey,
   REAL_ESTATE_PRESET,
   reviewSignalsForFacts,
   sharedFactsForAncestor,
+  vocabularyReachesQuestion,
+  vocabularyRegression,
 } from '@/core/document-compiler/compiler-rules';
 import {
   SCOPE_TYPE_VALUES,
   type CandidateQuestion,
   type ExtractedFact,
+  type MatcherPatterns,
 } from '@/data/models/document-compiler.model';
 import { documentCompilerRepository } from '@/data/repositories/document-compiler.repository';
 import { getAiModel, getOpenAIClient } from '@/services/ai/openai.service';
@@ -22,6 +29,8 @@ import { getCompilerMaterialModelSource } from '@/services/storage/compiler-mate
 import { clientBrandRepository } from '@/data/repositories/client-brand.repository';
 import { toClientVocabulary, toneInstruction } from '@/core/onboarding/client-vocabulary';
 import { scopeRepository } from '@/data/repositories/scope.repository';
+
+const VOCABULARY_GENERATION_VERSION = 7;
 
 const extractionSchema = z.object({
   facts: z.array(z.object({
@@ -115,15 +124,16 @@ const WRITING_JSON_SCHEMA = {
       items: {
         type: 'object',
         additionalProperties: false,
-        required: ['proposal_key', 'intent_name', 'response', 'keywords', 'synonyms', 'typos', 'phrases'],
+        required: ['proposal_key', 'intent_name', 'response', 'keywords', 'synonyms', 'typos', 'phrases', 'question_variants'],
         properties: {
           proposal_key: { type: 'string' },
           intent_name: { type: 'string' },
           response: { type: 'string' },
-          keywords: { type: 'array', items: { type: 'string' } },
-          synonyms: { type: 'array', items: { type: 'string' } },
-          typos: { type: 'array', items: { type: 'string' } },
-          phrases: { type: 'array', items: { type: 'string' } },
+          keywords: { type: 'array', minItems: 2, items: { type: 'string' } },
+          synonyms: { type: 'array', minItems: 2, items: { type: 'string' } },
+          typos: { type: 'array', minItems: 1, items: { type: 'string' } },
+          phrases: { type: 'array', minItems: 3, items: { type: 'string' } },
+          question_variants: { type: 'array', minItems: 2, items: { type: 'string' } },
         },
       },
     },
@@ -135,10 +145,11 @@ const writingSchema = z.object({
     proposal_key: z.string(),
     intent_name: z.string(),
     response: z.string().min(1),
-    keywords: z.array(z.string()).default([]),
-    synonyms: z.array(z.string()).default([]),
-    typos: z.array(z.string()).default([]),
-    phrases: z.array(z.string()).default([]),
+    keywords: z.array(z.string().min(1)).min(2),
+    synonyms: z.array(z.string().min(1)).min(2),
+    typos: z.array(z.string().min(1)).min(1),
+    phrases: z.array(z.string().min(1)).min(3),
+    question_variants: z.array(z.string().min(1)).min(2),
   })),
 });
 
@@ -335,6 +346,32 @@ export class DocumentCompilerService {
       factKeys: candidate.fact_keys,
     }));
 
+    const scopes = await scopeRepository.getScopes();
+    const scopesById = new Map(scopes.map((scope: any) => [scope.id, scope]));
+    const belongsToRunScope = (scopeId: string) => {
+      let current: any = scopesById.get(scopeId);
+      while (current) {
+        if (current.id === run.scope_id) return true;
+        current = current.parent_id ? scopesById.get(current.parent_id) : null;
+      }
+      return false;
+    };
+    const optionScopeIds = new Set(scopes
+      .filter((scope: any) => scope.scope_type === 'model' && belongsToRunScope(scope.id))
+      .map((scope: any) => scope.id));
+    const catalogFacts = facts.filter(fact => (
+      optionScopeIds.has(fact.scopeId)
+      || catalogLeadPhrases([fact]).length > 0
+    ));
+    if (catalogFacts.length > 0) {
+      materialCandidates.push({
+        intentName: 'modelo',
+        question: '¿Qué opciones hay?',
+        source: 'material',
+        factKeys: Array.from(new Set(catalogFacts.map(fact => fact.key))),
+      });
+    }
+
     const coverage = deriveCoverage(
       facts,
       mergeCandidates(REAL_ESTATE_PRESET, materialCandidates)
@@ -367,9 +404,15 @@ export class DocumentCompilerService {
       const previousFacts = previous.facts.map(row => this.toFact(row));
       changedKeys = changedFactFingerprints(previousFacts, facts);
       previousProposals = previous.proposals;
-      covered = covered.filter((coverage: any) =>
-        facts.some(fact => coverage.fact_ids.includes(fact.id) && changedKeys!.has(fact.key))
+      const vocabularyNeedsRegeneration = previousProposals.some(proposal =>
+        proposal.is_publishable === false
+        || proposal.review_details?.vocabulary_version !== VOCABULARY_GENERATION_VERSION
       );
+      if (!vocabularyNeedsRegeneration) {
+        covered = covered.filter((coverage: any) =>
+          facts.some(fact => coverage.fact_ids.includes(fact.id) && changedKeys!.has(fact.key))
+        );
+      }
 
       const currentKeys = new Set(facts.map(fact => fact.key));
       const disappearedFacts = previousFacts.filter(fact => !currentKeys.has(fact.key));
@@ -379,13 +422,75 @@ export class DocumentCompilerService {
     }
 
     const writingTargets = covered.flatMap((coverage: any) => {
-      const supportingFacts = facts.filter(fact => coverage.fact_ids.includes(fact.id));
-      return groupFactsByDestination(supportingFacts, run.scope_id, scopes).map(group => ({
+      let supportingFacts = facts.filter(fact => coverage.fact_ids.includes(fact.id));
+      if (coverage.intent_name === 'precio') {
+        const priceAliases = REAL_ESTATE_PRESET.find(item => item.intentName === 'precio')!.factKeys;
+        supportingFacts = supportingFacts.filter(fact => (
+          priceAliases.some(alias => keyMatchesAlias(fact.key, alias))
+        ));
+      }
+      const groups = groupFactsByDestination(supportingFacts, run.scope_id, scopes);
+      const targets = groups.map(group => ({
         proposalKey: `${coverage.id}:${group.scopeId}`,
         coverage,
         scopeId: group.scopeId,
         facts: group.facts,
+        extraPhrases: [] as string[],
+        excludedTerms: [] as string[],
       }));
+
+      // El catalogo describe el conjunto completo, no cada opcion aislada.
+      // Sus dependencias siguen siendo los hechos que sustentan esas opciones.
+      if (coverage.intent_name === 'modelo') {
+        const optionScopeIds = new Set(scopes
+          .filter((scope: any) => scope.scope_type === 'model')
+          .map((scope: any) => scope.id));
+        const catalogFacts = supportingFacts.filter(fact => (
+          optionScopeIds.has(fact.scopeId)
+          || catalogLeadPhrases([fact]).length > 0
+        ));
+        const optionNames = scopes
+          .filter((scope: any) => optionScopeIds.has(scope.id))
+          .flatMap((scope: any) => [
+            scope.name,
+            ...((scope.metadata?.compiler_aliases || []) as string[]),
+          ]);
+        return [{
+          proposalKey: `${coverage.id}:${run.scope_id}:catalog`,
+          coverage,
+          scopeId: run.scope_id,
+          facts: catalogFacts,
+          extraPhrases: catalogLeadPhrases(catalogFacts),
+          excludedTerms: optionNames,
+        }];
+      }
+
+      // Una pregunta sin foco se resuelve en la raiz. Los precios detallados
+      // siguen viviendo en cada opcion para que "precio de X" sea exacto.
+      if (
+        coverage.intent_name === 'precio'
+        && supportingFacts.length > 0
+        && !groups.some(group => group.scopeId === run.scope_id)
+      ) {
+        targets.push({
+          proposalKey: `${coverage.id}:${run.scope_id}:overview`,
+          coverage,
+          scopeId: run.scope_id,
+          facts: supportingFacts,
+          extraPhrases: [],
+          excludedTerms: [
+            ...catalogTermsFromFacts(facts),
+            ...scopes
+              .filter((scope: any) => scope.scope_type === 'model')
+              .flatMap((scope: any) => [
+                scope.name,
+                ...((scope.metadata?.compiler_aliases || []) as string[]),
+              ]),
+          ],
+        });
+      }
+
+      return targets;
     });
 
     const [openai, model, brand] = await Promise.all([
@@ -400,7 +505,7 @@ export class DocumentCompilerService {
     const response = await openai.responses.create({
       model,
       store: false,
-      input: `Redacta exactamente una respuesta breve de WhatsApp por cada objetivo usando exclusivamente sus hechos. Conserva proposal_key e intent_name literalmente. No combines objetivos, no inventes, no agregues invitaciones a agendar y no uses emojis. ${brandInstruction} Devuelve JSON con {"proposals":[{"proposal_key":"...","intent_name":"...","response":"...","keywords":[],"synonyms":[],"typos":[],"phrases":[]}]}.\n\nObjetivos: ${JSON.stringify(writingTargets.map(target => ({ proposal_key: target.proposalKey, intent_name: target.coverage.intent_name, question: target.coverage.question, scope_id: target.scopeId, facts: target.facts.map(fact => ({ id: fact.id, key: fact.key, subject: fact.subject, value: fact.value })) })))}`,
+      input: `Redacta exactamente una respuesta breve de WhatsApp por cada objetivo usando exclusivamente sus hechos. Conserva proposal_key e intent_name literalmente. No combines objetivos, no inventes, no agregues invitaciones a agendar y no uses emojis. ${brandInstruction} Para cada objetivo genera tambien el vocabulario con el que un lead preguntaria eso por WhatsApp. Las palabras deben salir de los hechos y del material de este cliente: no uses una lista fija del sector. keywords lleva al menos 2 palabras principales, synonyms al menos 2 formas equivalentes, typos al menos 1 errata probable y phrases al menos 3 preguntas completas y naturales. question_variants lleva 2 reformulaciones breves que funcionen como mensaje autonomo, sin nombre de empresa, desarrollo, modelo ni producto concreto; por ejemplo, para una pregunta de precio una variante seria "cuanto cuesta" y no "cuanto cuesta el modelo X". El nombre intent_name no cuenta como vocabulario y no debes copiarlo para completar listas. Devuelve JSON con {"proposals":[{"proposal_key":"...","intent_name":"...","response":"...","keywords":["..."],"synonyms":["..."],"typos":["..."],"phrases":["..."],"question_variants":["..."]}]}.\n\nObjetivos: ${JSON.stringify(writingTargets.map(target => ({ proposal_key: target.proposalKey, intent_name: target.coverage.intent_name, question: target.coverage.question, scope_id: target.scopeId, facts: target.facts.map(fact => ({ id: fact.id, key: fact.key, subject: fact.subject, value: fact.value })) })))}`,
       text: {
         format: {
           type: 'json_schema',
@@ -439,10 +544,46 @@ export class DocumentCompilerService {
       );
       const template: any = exactIntent || visibleIntent;
       const previousProposal = previousProposals.find(item => item.intent_id === exactIntent?.id);
-      const intentKeywords = String(target.coverage.intent_name)
-        .split(/[^a-zA-Z0-9áéíóúüñÁÉÍÓÚÜÑ]+/)
-        .map(value => value.toLowerCase())
-        .filter(value => value.length >= 4 && value !== 'consultar');
+      const excludedTerms = target.excludedTerms
+        .map(term => normalizeFactKey(term))
+        .filter(Boolean);
+      const keepVocabulary = (value: string) => {
+        const normalized = normalizeFactKey(value);
+        return !excludedTerms.some(term => (
+          normalized === term
+          || normalized.startsWith(`${term}_`)
+          || normalized.endsWith(`_${term}`)
+          || normalized.includes(`_${term}_`)
+        ));
+      };
+      const matcherPatterns: MatcherPatterns = {
+        keywords: Array.from(new Set(proposal.keywords.filter(keepVocabulary))),
+        synonyms: Array.from(new Set(proposal.synonyms.filter(keepVocabulary))),
+        typos: Array.from(new Set(proposal.typos.filter(keepVocabulary))),
+        phrases: Array.from(new Set([
+          ...proposal.phrases,
+          ...proposal.question_variants,
+          ...target.extraPhrases,
+        ].filter(keepVocabulary))),
+      };
+      const vocabularyCheck = vocabularyReachesQuestion(
+        matcherPatterns,
+        target.coverage.question,
+        proposal.question_variants
+      );
+      const previousPatterns: MatcherPatterns = {
+        keywords: template?.keywords || [],
+        synonyms: template?.synonyms || [],
+        typos: template?.typos || [],
+        phrases: template?.phrases || [],
+      };
+      const regression = vocabularyRegression(matcherPatterns, previousPatterns);
+      const signals = reviewSignalsForFacts(target.facts, {
+        changed: Boolean(changedKeys),
+        humanEdited: previousProposal?.edited_by_human || false,
+      });
+      if (vocabularyCheck.missed.length > 0) signals.push('poor_vocabulary');
+      if (regression.missed.length > 0) signals.push('vocabulary_regression');
 
       proposals.push({
         coverageId: target.coverage.id,
@@ -454,24 +595,21 @@ export class DocumentCompilerService {
         priority: Number(template?.priority ?? 0),
         responseKey: `compiler_${target.coverage.intent_name}`,
         messageText: { fragments: [{ type: 'text' as const, content: proposal.response, delay: 0 }] },
-        matcherPatterns: {
-          keywords: Array.from(new Set([
-            ...(template?.keywords || []),
-            ...proposal.keywords,
-            ...intentKeywords,
-          ])),
-          synonyms: Array.from(new Set([...(template?.synonyms || []), ...proposal.synonyms])),
-          typos: Array.from(new Set([...(template?.typos || []), ...proposal.typos])),
-          phrases: Array.from(new Set([
-            ...(template?.phrases || []),
-            ...proposal.phrases,
-            target.coverage.question,
-          ])),
+        matcherPatterns,
+        signals,
+        isPublishable: vocabularyCheck.missed.length === 0,
+        reviewDetails: {
+          vocabulary_version: VOCABULARY_GENERATION_VERSION,
+          vocabulary: {
+            question: target.coverage.question,
+            reached: vocabularyCheck.reached,
+            missed: vocabularyCheck.missed,
+          },
+          regression: {
+            reached: regression.reached,
+            missed: regression.missed,
+          },
         },
-        signals: reviewSignalsForFacts(target.facts, {
-          changed: Boolean(changedKeys),
-          humanEdited: previousProposal?.edited_by_human || false,
-        }),
         factIds: target.facts.flatMap(fact => fact.id ? [fact.id] : []),
       });
     }
@@ -513,7 +651,9 @@ subject dice de qué habla el hecho: el modelo, la etapa o la unidad concreta a 
 
 Usa la misma key para el mismo tipo de dato en todo el material, y nómbrala en el idioma del documento. Descarta cualquier hecho cuya página no puedas atribuir. No resuelvas contradicciones ni elijas un valor: si el material afirma dos valores para el mismo subject, devuelve los dos. material_id debe ser uno de: ${JSON.stringify(materials)}. Las preguntas solo son candidatas; el preset nunca aporta hechos. business_name es la empresa que vende, solo cuando el material la identifica de forma explícita; no uses ahí el nombre del proyecto.
 
-proposed_tree describe únicamente estructura que el material sustenta y debe incluir todos los desarrollos de todos los archivos. No incluyas a la empresa como nodo: cada desarrollo es un nodo raíz con parent_name null y sus modelos cuelgan de él. Si un desarrollo o modelo tiene otros nombres, conserva el nombre comercial en name y pon los demás en aliases; nunca crees dos nodos para el mismo producto. Clasifica cada nodo con scope_type: usa proyecto para lo que se comercializa como un todo, opcion para cada variante que un comprador elige y adquiere por separado, amenidad para lo que se comparte y no se vende —alberca, casa club, áreas verdes—, etapa para una fase de construcción o entrega, y otro para lo que no encaje. La distinción que importa es si alguien puede comprar ese nodo por sí solo: si no, no es una opcion.`;
+Conserva también el vocabulario comercial del material: por cada nombre genérico con el que el documento llama a algo que vende —por ejemplo casas, lotes de terreno, bodegas o consultorios— agrega un hecho separado con key producto_ofrecido y value igual a ese término, sin reemplazarlo por una palabra del sector.
+
+proposed_tree describe únicamente estructura que el material sustenta y debe incluir todos los desarrollos de todos los archivos. No incluyas a la empresa como nodo: cada desarrollo es un nodo raíz con parent_name null y sus modelos cuelgan de él. Si un desarrollo o modelo tiene otros nombres, conserva el nombre comercial en name y pon los demás en aliases; nunca crees dos nodos para el mismo producto. Cuando name combina un descriptor genérico con un nombre comercial, agrega el nombre corto en aliases: "Modelo Solara" lleva "Solara", "Bodega Atlas" lleva "Atlas". Clasifica cada nodo con scope_type: usa proyecto para lo que se comercializa como un todo, opcion para cada variante que un comprador elige y adquiere por separado, amenidad para lo que se comparte y no se vende —alberca, casa club, áreas verdes—, etapa para una fase de construcción o entrega, y otro para lo que no encaje. La distinción que importa es si alguien puede comprar ese nodo por sí solo: si no, no es una opcion.`;
   }
 }
 

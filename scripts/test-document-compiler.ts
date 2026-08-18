@@ -5,6 +5,7 @@ config({ path: resolve(process.cwd(), '.env.development.local') });
 config({ path: resolve(process.cwd(), '.env.local') });
 
 import {
+  catalogLeadPhrases,
   changedFactFingerprints,
   consolidateFacts,
   deriveCoverage,
@@ -14,6 +15,9 @@ import {
   REAL_ESTATE_PRESET,
   reviewSignalsForFacts,
   sharedFactsForAncestor,
+  shortScopeAlias,
+  vocabularyReachesQuestion,
+  vocabularyRegression,
 } from '../src/core/document-compiler/compiler-rules';
 import type { ExtractedFact } from '../src/data/models/document-compiler.model';
 import baseline from '../openspec/changes/document-compiler/baseline.json';
@@ -217,6 +221,147 @@ const mergedCandidates = mergeCandidates(REAL_ESTATE_PRESET, [{
 assert(
   mergedCandidates.filter(row => row.intentName === 'precio').length === 1,
   'el preset y el material no producen dos filas para la misma intención'
+);
+
+const emptyVocabulary = vocabularyReachesQuestion({
+  keywords: [], synonyms: [], typos: [], phrases: [],
+}, '¿Cuánto cuesta?', ['que precio tiene', 'cuanto vale']);
+assert(
+  emptyVocabulary.reached.length === 0 && emptyVocabulary.missed.length === 3,
+  'un vocabulario vacío no alcanza la pregunta que dice cubrir'
+);
+
+const materialVocabulary = vocabularyReachesQuestion({
+  keywords: ['costo', 'casas'],
+  synonyms: ['precio', 'cuesta'],
+  typos: ['presio'],
+  phrases: ['cuanto vale una casa', 'que precio tienen las casas', 'cuanto cuesta'],
+}, '¿Cuánto cuesta?', ['que precio tienen las casas', 'cuanto vale una casa']);
+assert(
+  materialVocabulary.missed.length === 0,
+  'sinónimos y frases del material alcanzan las formas del lead'
+);
+
+const fuzzyVocabulary = vocabularyReachesQuestion({
+  keywords: ['precio', 'importe'],
+  synonyms: ['costo', 'valor'],
+  typos: ['presio'],
+  phrases: ['cuanto cuesta', 'que precio tiene', 'cuanto vale'],
+}, 'prescio', []);
+assert(
+  fuzzyVocabulary.reached.length === 1,
+  'la comprobación hereda el matching difuso del matcher del runtime'
+);
+
+const regression = vocabularyRegression({
+  keywords: ['precio', 'costo'], synonyms: [], typos: [], phrases: [],
+}, {
+  keywords: ['precio', 'costo'], synonyms: ['valor'], typos: [], phrases: ['cuanto vale'],
+});
+assert(
+  regression.missed.includes('cuanto vale'),
+  'detecta las formas anteriores que el vocabulario nuevo deja de reconocer'
+);
+const expandedVocabulary = vocabularyRegression({
+  keywords: ['precio', 'costo'], synonyms: ['valor', 'importe'], typos: [], phrases: ['cuanto vale'],
+}, {
+  keywords: ['precio'], synonyms: ['valor'], typos: [], phrases: ['cuanto vale'],
+});
+assert(
+  expandedVocabulary.missed.length === 0,
+  'un vocabulario que conserva y amplía las formas anteriores no se marca'
+);
+
+const stablePrice = mergeCandidates(REAL_ESTATE_PRESET, [{
+  intentName: 'precio_modelos',
+  question: '¿Cuánto cuestan los modelos?',
+  source: 'material',
+  factKeys: ['precio_modelo'],
+}]);
+assert(
+  stablePrice.some(row => row.intentName === 'precio')
+    && !stablePrice.some(row => row.intentName === 'precio_modelos'),
+  'una pregunta conocida se mapea al nombre estable del catálogo'
+);
+
+const warehouseCandidate = mergeCandidates(REAL_ESTATE_PRESET, [{
+  intentName: 'ficha_producto',
+  question: '¿Cuánto peso soporta?',
+  source: 'material',
+  factKeys: ['capacidad_carga'],
+}]);
+assert(
+  warehouseCandidate.some(row => row.intentName === 'capacidad_carga'),
+  'una pregunta de otro sector conserva un nombre estable en lengua del lead'
+);
+const stableCustomName = mergeCandidates(REAL_ESTATE_PRESET, [{
+  intentName: 'otra_redaccion',
+  question: '¿Qué carga máxima admite esta bodega?',
+  source: 'material',
+  factKeys: ['capacidad_carga'],
+}]);
+assert(
+  stableCustomName.some(row => row.intentName === 'capacidad_carga'),
+  'dos redacciones sobre los mismos hechos producen el mismo nombre nuevo'
+);
+const boundedCustomName = mergeCandidates(REAL_ESTATE_PRESET, [{
+  intentName: 'nombre_largo',
+  question: '¿Qué incluye?',
+  source: 'material',
+  factKeys: ['casas', 'etapas', 'lotes', 'numero', 'residenciales', 'viviendas'],
+}]).find(row => row.source === 'material')?.intentName || '';
+assert(
+  boundedCustomName.length <= 41 && `compiler_${boundedCustomName}`.length <= 50,
+  'un nombre nuevo deja espacio para la clave de respuesta sin perder estabilidad'
+);
+
+// El horario de FYMSA llegaba como `atencion_domingo_horario_lunes_s_6b885bae`:
+// las palabras de cinco hechos ordenadas alfabeticamente y recortadas con hash.
+const scheduleName = mergeCandidates(REAL_ESTATE_PRESET, [{
+  intentName: 'horario',
+  question: '¿Cuál es el horario de atención en sitio de Residencial Europa?',
+  source: 'material',
+  factKeys: [
+    'horario_atención_sitio_domingo',
+    'horario_atención_sitio_lunes_a_sábado',
+    'horario_atención_sitio_lunes_a_viernes',
+    'horario_atención_sitio_sábado',
+  ],
+}]).find(row => row.source === 'material')?.intentName || '';
+assert(
+  scheduleName === 'horario_atencion_sitio',
+  'el nombre nuevo se lee en la lengua del material y no lleva hash'
+);
+const shuffledScheduleName = mergeCandidates(REAL_ESTATE_PRESET, [{
+  intentName: 'horario',
+  question: '¿A qué hora abren?',
+  source: 'material',
+  factKeys: [
+    'horario_atención_sitio_sábado',
+    'horario_atención_sitio_lunes_a_viernes',
+    'horario_atención_sitio_domingo',
+  ],
+}]).find(row => row.source === 'material')?.intentName || '';
+assert(
+  shuffledScheduleName === scheduleName,
+  'el orden en que llegan los hechos no cambia el nombre'
+);
+assert(shortScopeAlias('Modelo Solara') === 'Solara', 'un modelo publica su nombre comercial como alias corto');
+assert(shortScopeAlias('Bodega Atlas') === 'Atlas', 'el alias corto no está limitado al sector vivienda');
+assert(
+  catalogLeadPhrases([fact({ key: 'cantidad de casas' })]).includes('que casas manejan'),
+  'el catalogo convierte el nombre del producto del material en una pregunta alcanzable'
+);
+const warehouseCatalogPhrases = catalogLeadPhrases([fact({ key: 'cantidad de bodegas' })]);
+assert(
+  warehouseCatalogPhrases.includes('que bodegas manejan')
+    && !warehouseCatalogPhrases.some(phrase => phrase.includes('casas')),
+  'el vocabulario estructural no cablea el sector vivienda'
+);
+assert(
+  catalogLeadPhrases([fact({ key: 'producto_ofrecido', value: 'consultorios' })])
+    .includes('que consultorios manejan'),
+  'el nombre comercial extraído se convierte en vocabulario del catálogo'
 );
 assert(
   deriveCoverage(

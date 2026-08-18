@@ -66,7 +66,7 @@
 > se genera con una palabra por intencion y sin sinonimos. No se marcan como
 > hechas hasta que eso se corrija.
 
-- [ ] 9.1 Con la base sembrada y sucia, subir `fymsa-europa.txt` y `fymsa-altabrisa.txt` juntos, revisar y publicar
-- [ ] 9.2 Comprobar en el simulador que no queda rastro del contenido anterior: ningun `[XXX]`, ninguna mencion a Europa desde el negocio, ningun desarrollo duplicado
+- [x] 9.1 Con la base sembrada y sucia, subir `fymsa-europa.txt` y `fymsa-altabrisa.txt` juntos, revisar y publicar
+- [x] 9.2 Comprobar en el simulador que no queda rastro del contenido anterior: ningun `[XXX]`, ninguna mencion a Europa desde el negocio, ningun desarrollo duplicado
 - [ ] 9.3 Comprobar que "me interesa Europa" fija el foco y que "que casas manejan" no cae al fallback, con el vocabulario salido del material
 - [ ] 9.4 Recorrer los turnos de `openspec/conversacion-objetivo.md` sobre el contenido publicado

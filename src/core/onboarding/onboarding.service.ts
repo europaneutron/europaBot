@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { documentCompilerService } from '@/core/document-compiler/document-compiler.service';
+import { shortScopeAlias } from '@/core/document-compiler/compiler-rules';
 import {
   composeBusinessGreeting,
   normalizeScopeAlias,
@@ -414,7 +415,11 @@ export class OnboardingService {
         const parentId = node.parent_name
           ? scopeByName.get(normalizeScopeAlias(node.parent_name))!
           : ROOT_SCOPE_ID;
-        const aliases = uniqueAliases([node.name, ...(node.aliases || [])]);
+        const aliases = uniqueAliases([
+          node.name,
+          shortScopeAlias(node.name) || '',
+          ...(node.aliases || []),
+        ]);
         const scope = await scopeRepository.create({
           name: node.name.trim(),
           slug: projectSlug(`${node.parent_name || ''}-${node.name}`),
@@ -449,6 +454,7 @@ export class OnboardingService {
     }
     await documentCompilerRepository.assignFactsToStructure(run.id, factScopeById);
     await documentCompilerRepository.approveTree(run.id, adminId);
+    await this.adoptBusinessName(run);
 
     const projectNames = nodes.filter((node: ProposedNode) => !node.parent_name).map((node: ProposedNode) => node.name);
     const firstProjectParts = nodes
@@ -464,6 +470,38 @@ export class OnboardingService {
         part_names: firstProjectParts,
       }),
     });
+  }
+
+  /**
+   * La raiz es el negocio, no un desarrollo. El alcance raiz nace sembrado con
+   * el nombre del primer cliente --`Europa`-- y nada lo cambiaba: al compilar
+   * material de FYMSA el arbol quedaba con `Europa` como negocio y `Residencial
+   * Europa` colgando de si mismo, y el saludo perdia el nombre del cliente
+   * porque `client_brand_config.business_name` seguia vacio.
+   *
+   * El material si trae el nombre; el compilador ya lo extrae. Aqui se adopta,
+   * con la misma regla que el resto del contenido: sustituir es quedarse con lo
+   * que dice el material, y anadir no toca lo que ya estaba. Renombrar la raiz
+   * no mueve contenido, solo como se llama el negocio en el arbol y el saludo.
+   *
+   * La eleccion de saludo si es de la persona: solo se enciende el saludo
+   * compuesto la primera vez, cuando todavia no habia nombre que componer.
+   */
+  private async adoptBusinessName(run: { stage_checkpoint?: any; replacement_mode?: string }) {
+    const detected = typeof run?.stage_checkpoint?.business_name === 'string'
+      ? run.stage_checkpoint.business_name.trim()
+      : '';
+    if (!detected) return;
+    const brand = await clientBrandRepository.get();
+    const previous = brand.business_name?.trim() || '';
+    if (previous && run.replacement_mode === 'add') return;
+    await Promise.all([
+      clientBrandRepository.update({
+        businessName: detected,
+        ...(previous ? {} : { useComposedGreeting: true }),
+      }),
+      scopeRepository.rename(ROOT_SCOPE_ID, detected),
+    ]);
   }
 
   async saveVisitFlow(adminId: string, values: {
