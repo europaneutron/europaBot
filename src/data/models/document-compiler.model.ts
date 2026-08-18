@@ -51,6 +51,9 @@ export interface CandidateQuestion {
   question: string;
   source: 'preset' | 'material' | 'fallback';
   factKeys: string[];
+  // Como pregunta esto un lead. Solo lo traen las preguntas del catalogo: el
+  // material dice que es cierto, no como se pregunta.
+  leadForms?: string[];
 }
 
 export interface CompilerProposal {

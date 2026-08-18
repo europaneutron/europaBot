@@ -11,6 +11,7 @@ import {
   factFingerprint,
   groupFactsByDestination,
   keyMatchesAlias,
+  presetLeadForms,
   mergeCandidates,
   normalizeFactKey,
   REAL_ESTATE_PRESET,
@@ -506,10 +507,11 @@ export class DocumentCompilerService {
     const brandInstruction = brand.is_configured
       ? `${toneInstruction(brand.tone)} Llama a los proyectos "${vocabulary.plural}" y a uno solo "${vocabulary.singular}".`
       : '';
-    const response = await openai.responses.create({
+    const requestProposals = async (targets: typeof writingTargets) => {
+      const response = await openai.responses.create({
       model,
       store: false,
-      input: `Redacta exactamente una respuesta breve de WhatsApp por cada objetivo usando exclusivamente sus hechos. Conserva proposal_key e intent_name literalmente. No combines objetivos, no inventes, no invites a agendar una cita y no uses emojis. ${brandInstruction} Para cada objetivo genera tambien el vocabulario con el que un lead preguntaria eso por WhatsApp. Las palabras deben salir de los hechos y del material de este cliente: no uses una lista fija del sector. keywords lleva al menos 2 palabras principales, synonyms al menos 2 formas equivalentes, typos al menos 1 errata probable y phrases al menos 3 preguntas completas y naturales. question_variants lleva 2 reformulaciones breves que funcionen como mensaje autonomo, sin nombre de empresa, desarrollo, modelo ni producto concreto; por ejemplo, para una pregunta de precio una variante seria "cuanto cuesta" y no "cuanto cuesta el modelo X". El nombre intent_name no cuenta como vocabulario y no debes copiarlo para completar listas. Evita terminar la respuesta en una pregunta de si o no salvo que sea necesario invitar a algo (ver planos, agendar, mostrar mas detalle); si lo haces, offers_intent_name debe llevar el intent_name de lo que le ofreces al lead (uno de los objetivos de esta misma lista, o el mismo intent_name si ofreces un nivel siguiente de el mismo). Si la respuesta no termina en pregunta de si o no, offers_intent_name debe ir null. Devuelve JSON con {"proposals":[{"proposal_key":"...","intent_name":"...","response":"...","keywords":["..."],"synonyms":["..."],"typos":["..."],"phrases":["..."],"question_variants":["..."],"offers_intent_name":null}]}.\n\nObjetivos: ${JSON.stringify(writingTargets.map(target => ({ proposal_key: target.proposalKey, intent_name: target.coverage.intent_name, question: target.coverage.question, scope_id: target.scopeId, facts: target.facts.map(fact => ({ id: fact.id, key: fact.key, subject: fact.subject, value: fact.value })) })))}`,
+      input: `Redacta exactamente una respuesta breve de WhatsApp por cada objetivo usando exclusivamente sus hechos. Conserva proposal_key e intent_name literalmente. No combines objetivos, no inventes, no invites a agendar una cita y no uses emojis. ${brandInstruction} Para cada objetivo genera tambien el vocabulario con el que un lead preguntaria eso por WhatsApp. Las palabras deben salir de los hechos y del material de este cliente: no uses una lista fija del sector. keywords lleva al menos 2 palabras principales, synonyms al menos 2 formas equivalentes, typos al menos 1 errata probable y phrases al menos 3 preguntas completas y naturales. question_variants lleva 2 reformulaciones breves que funcionen como mensaje autonomo, sin nombre de empresa, desarrollo, modelo ni producto concreto; por ejemplo, para una pregunta de precio una variante seria "cuanto cuesta" y no "cuanto cuesta el modelo X". El nombre intent_name no cuenta como vocabulario y no debes copiarlo para completar listas. Evita terminar la respuesta en una pregunta de si o no salvo que sea necesario invitar a algo (ver planos, agendar, mostrar mas detalle); si lo haces, offers_intent_name debe llevar el intent_name de lo que le ofreces al lead (uno de los objetivos de esta misma lista, o el mismo intent_name si ofreces un nivel siguiente de el mismo). Si la respuesta no termina en pregunta de si o no, offers_intent_name debe ir null. Devuelve JSON con {"proposals":[{"proposal_key":"...","intent_name":"...","response":"...","keywords":["..."],"synonyms":["..."],"typos":["..."],"phrases":["..."],"question_variants":["..."],"offers_intent_name":null}]}.\n\nObjetivos: ${JSON.stringify(targets.map(target => ({ proposal_key: target.proposalKey, intent_name: target.coverage.intent_name, question: target.coverage.question, scope_id: target.scopeId, facts: target.facts.map(fact => ({ id: fact.id, key: fact.key, subject: fact.subject, value: fact.value })) })))}`,
       text: {
         format: {
           type: 'json_schema',
@@ -518,9 +520,24 @@ export class DocumentCompilerService {
           schema: WRITING_JSON_SCHEMA as unknown as Record<string, unknown>,
         },
       },
-    });
-    const generated = writingSchema.parse(JSON.parse(response.output_text));
-    const generatedByKey = new Map(generated.proposals.map(item => [item.proposal_key, item]));
+      });
+      const generated = writingSchema.parse(JSON.parse(response.output_text));
+      return new Map(generated.proposals.map(item => [item.proposal_key, item]));
+    };
+
+    const generatedByKey = await requestProposals(writingTargets);
+
+    // El modelo puede volver con un objetivo menos y sin decirlo. Paso: en la
+    // corrida de FYMSA del 18 de agosto volvio con cinco precios de seis, y el
+    // precio del Modelo Aura --extraido, asignado a su alcance-- se quedo sin
+    // publicar. Se reintenta una vez con los que faltan, que es una llamada
+    // corta, antes de darlo por hueco.
+    const missingTargets = writingTargets.filter(target => !generatedByKey.has(target.proposalKey));
+    if (missingTargets.length > 0) {
+      const retried = await requestProposals(missingTargets);
+      retried.forEach((value, key) => generatedByKey.set(key, value));
+    }
+
     const proposals = [];
     const placementErrors = new Map<string, string[]>();
 
@@ -528,7 +545,10 @@ export class DocumentCompilerService {
       const proposal = generatedByKey.get(target.proposalKey);
       if (!proposal) {
         const errors = placementErrors.get(target.coverage.id) || [];
-        errors.push(`No se generó contenido para el alcance ${target.scopeId}`);
+        // Con el nombre del alcance, no con su identificador: el panel lo lee
+        // una persona que tiene que decidir si recompila o lo escribe a mano.
+        const scopeName = scopes.find((scope: any) => scope.id === target.scopeId)?.name;
+        errors.push(`No se generó contenido para ${scopeName || target.scopeId}, ni al reintentar`);
         placementErrors.set(target.coverage.id, errors);
         continue;
       }
@@ -564,16 +584,24 @@ export class DocumentCompilerService {
         keywords: Array.from(new Set(proposal.keywords.filter(keepVocabulary))),
         synonyms: Array.from(new Set(proposal.synonyms.filter(keepVocabulary))),
         typos: Array.from(new Set(proposal.typos.filter(keepVocabulary))),
+        // Las formas del lead del catalogo entran siempre: el material puede
+        // sumar vocabulario, no puede dejar sin cubrir la forma basica de
+        // preguntar. `keepVocabulary` no las filtra --no son nombres de
+        // alcance-- pero pasan por el mismo tamiz por coherencia.
         phrases: Array.from(new Set([
           ...proposal.phrases,
           ...proposal.question_variants,
           ...target.extraPhrases,
+          ...presetLeadForms(target.coverage.intent_name),
         ].filter(keepVocabulary))),
       };
+      // La comprobacion se hace contra las formas del lead, no solo contra la
+      // pregunta que escribio el propio compilador: alcanzar la propia
+      // redaccion es una vara que cualquier vocabulario pasa.
       const vocabularyCheck = vocabularyReachesQuestion(
         matcherPatterns,
         target.coverage.question,
-        proposal.question_variants
+        [...proposal.question_variants, ...presetLeadForms(target.coverage.intent_name)]
       );
       const previousPatterns: MatcherPatterns = {
         keywords: template?.keywords || [],

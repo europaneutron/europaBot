@@ -16,6 +16,7 @@ import {
   reviewSignalsForFacts,
   sharedFactsForAncestor,
   shortScopeAlias,
+  presetLeadForms,
   vocabularyReachesQuestion,
   vocabularyRegression,
 } from '../src/core/document-compiler/compiler-rules';
@@ -251,6 +252,45 @@ const fuzzyVocabulary = vocabularyReachesQuestion({
 assert(
   fuzzyVocabulary.reached.length === 1,
   'la comprobación hereda el matching difuso del matcher del runtime'
+);
+
+// El vocabulario que el compilador publicó de verdad para `ubicacion`: todo en
+// singular e impersonal, porque el material no contiene preguntas. "donde estan
+// ubicados" caía al fallback --el matcher perdona plurales y erratas, pero
+// "ubicados" contra "ubicacion" es 0.55, por debajo del umbral--.
+const publishedLocationVocabulary = {
+  keywords: ['plaza', 'ubicacion'],
+  synonyms: ['donde queda', 'direccion'],
+  typos: ['ubicasion'],
+  phrases: ['donde queda', 'cual es la direccion', '¿Dónde se ubica?'],
+};
+assert(
+  vocabularyReachesQuestion(
+    publishedLocationVocabulary,
+    '¿Dónde se ubica?',
+    []
+  ).missed.length === 0,
+  'alcanzar la pregunta que el propio compilador escribió es una vara que cualquier vocabulario pasa'
+);
+assert(
+  vocabularyReachesQuestion(
+    publishedLocationVocabulary,
+    '¿Dónde se ubica?',
+    presetLeadForms('ubicacion')
+  ).missed.includes('donde estan ubicados'),
+  'contra las formas del lead, ese mismo vocabulario se queda corto'
+);
+assert(
+  vocabularyReachesQuestion(
+    { ...publishedLocationVocabulary, phrases: [...publishedLocationVocabulary.phrases, ...presetLeadForms('ubicacion')] },
+    '¿Dónde se ubica?',
+    presetLeadForms('ubicacion')
+  ).missed.length === 0,
+  'sembrar las formas del catálogo cubre las maneras de preguntar que el material no trae'
+);
+assert(
+  presetLeadForms('pregunta_que_el_catalogo_no_conoce').length === 0,
+  'una pregunta fuera del catálogo no recibe formas sembradas: su vocabulario sale del material'
 );
 
 const regression = vocabularyRegression({

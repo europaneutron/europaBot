@@ -29,15 +29,38 @@ const SENSITIVE_VALUE_PATTERNS = [
 // hecho que el modelo pudo nombrar en cualquiera de los dos idiomas: el
 // material esta en espanol y el prompt tambien, asi que esperar unicamente
 // claves en ingles convertia en hueco todo lo que el documento si responde.
+//
+// `leadForms` son las maneras de preguntar eso mismo. No salen del material a
+// proposito: un folleto no escribe preguntas, asi que pedirselas al modelo
+// sobre el material es preguntarle a la fuente equivocada. Medido: `ubicacion`
+// se publico con "donde queda" y "cual es la direccion", y "donde estan
+// ubicados" caia al fallback --el matcher perdona el plural y la errata
+// ("ubicaciones" 0.82, "ubicacon" 0.89) pero no un participio contra un
+// sustantivo ("ubicados" contra "ubicacion", 0.55)--.
+//
+// Esto no es el "vocabulario del sector" que la spec prohibe: eso era inventar
+// palabras de vivienda para un negocio que quiza no vende casas. Si el catalogo
+// ya declaro que la pregunta es `ubicacion`, "donde estan" no es inmobiliario,
+// es espanol. Fuera del catalogo el vocabulario sigue saliendo del material.
 export const REAL_ESTATE_PRESET: CandidateQuestion[] = [
-  { intentName: 'precio', question: '¿Cuál es el precio?', source: 'preset', factKeys: ['price', 'price_from', 'precio', 'precio_desde', 'costo', 'valor'] },
-  { intentName: 'ubicacion', question: '¿Dónde se ubica?', source: 'preset', factKeys: ['location', 'address', 'ubicacion', 'direccion', 'zona'] },
-  { intentName: 'modelo', question: '¿Qué modelos hay?', source: 'preset', factKeys: ['model', 'unit_type', 'modelo', 'tipo_unidad', 'prototipo', 'producto_ofrecido'] },
-  { intentName: 'creditos', question: '¿Qué financiamiento aceptan?', source: 'preset', factKeys: ['financing', 'credit', 'financiamiento', 'credito', 'hipoteca', 'enganche'] },
-  { intentName: 'seguridad', question: '¿Qué seguridad ofrece?', source: 'preset', factKeys: ['security', 'seguridad', 'vigilancia'] },
-  { intentName: 'amenidades', question: '¿Qué amenidades tiene?', source: 'preset', factKeys: ['amenity', 'amenities', 'amenidad', 'amenidades', 'areas_comunes'] },
-  { intentName: 'brochure', question: '¿Dónde puedo ver el brochure?', source: 'preset', factKeys: ['brochure', 'catalogo', 'folleto'] },
+  { intentName: 'precio', question: '¿Cuál es el precio?', source: 'preset', factKeys: ['price', 'price_from', 'precio', 'precio_desde', 'costo', 'valor'], leadForms: ['cuanto cuesta', 'cuanto cuestan', 'que precio tienen', 'cuanto vale', 'precios', 'que precios manejan', 'desde cuanto'] },
+  { intentName: 'ubicacion', question: '¿Dónde se ubica?', source: 'preset', factKeys: ['location', 'address', 'ubicacion', 'direccion', 'zona'], leadForms: ['donde estan', 'donde estan ubicados', 'donde queda', 'donde quedan', 'como llego', 'en que zona estan', 'cual es la direccion', 'me pasas la ubicacion'] },
+  { intentName: 'modelo', question: '¿Qué modelos hay?', source: 'preset', factKeys: ['model', 'unit_type', 'modelo', 'tipo_unidad', 'prototipo', 'producto_ofrecido'], leadForms: ['que modelos hay', 'que modelos manejan', 'que opciones tienen', 'que tienen disponible', 'que manejan'] },
+  { intentName: 'creditos', question: '¿Qué financiamiento aceptan?', source: 'preset', factKeys: ['financing', 'credit', 'financiamiento', 'credito', 'hipoteca', 'enganche'], leadForms: ['aceptan credito', 'que creditos aceptan', 'puedo pagar a meses', 'manejan financiamiento', 'cuanto es el enganche'] },
+  { intentName: 'seguridad', question: '¿Qué seguridad ofrece?', source: 'preset', factKeys: ['security', 'seguridad', 'vigilancia'], leadForms: ['es seguro', 'que seguridad tiene', 'tiene vigilancia', 'hay caseta'] },
+  { intentName: 'amenidades', question: '¿Qué amenidades tiene?', source: 'preset', factKeys: ['amenity', 'amenities', 'amenidad', 'amenidades', 'areas_comunes'], leadForms: ['que amenidades tiene', 'que amenidades tienen', 'que areas comunes hay', 'que incluye', 'tiene alberca'] },
+  { intentName: 'brochure', question: '¿Dónde puedo ver el brochure?', source: 'preset', factKeys: ['brochure', 'catalogo', 'folleto'], leadForms: ['me mandas el brochure', 'tienen catalogo', 'me pasas informacion', 'hay folleto'] },
 ];
+
+/**
+ * Las formas del lead de una pregunta del catalogo. Vacio para una pregunta
+ * que el catalogo no conoce: ahi el vocabulario sale del material y de nada
+ * mas, que es la regla de `vocabulario-del-matcher`.
+ */
+export function presetLeadForms(intentName: string): string[] {
+  const normalized = normalizeFactKey(intentName);
+  return REAL_ESTATE_PRESET.find(item => item.intentName === normalized)?.leadForms || [];
+}
 
 /**
  * Normaliza una clave de hecho para compararla: minusculas, sin acentos y con
