@@ -24,7 +24,7 @@ async function main() {
   const { ROOT_SCOPE_ID, scopeRepository } = await import('../src/data/repositories/scope.repository');
   const { documentCompilerRepository } = await import('../src/data/repositories/document-compiler.repository');
   const { documentCompilerService } = await import('../src/core/document-compiler/document-compiler.service');
-  const { proposedStructureFromRun } = await import('../src/core/onboarding/onboarding.service');
+  const { proposedStructureFromRun, onboardingService } = await import('../src/core/onboarding/onboarding.service');
   const { messageProcessor } = await import('../src/core/conversation/message-processor');
   const { intentDetectionService } = await import('../src/core/intent-engine/intent-detection.service');
 
@@ -72,47 +72,24 @@ async function main() {
   }
 
   const structure = proposedStructureFromRun(withTree);
-  console.log('\nlo que el paso de estructura del onboarding materializaria:');
-  console.log(`  proyecto: ${structure?.projectName}`);
-  console.log(`  partes:   ${structure?.partNames.join(', ')}`);
-  console.log(`  raices detectadas: ${structure?.projectNames.join(', ')}`);
-
-  // El onboarding solo da de alta el primer desarrollo. Aqui se materializa el
-  // arbol completo para poder ver lo que viene despues.
-  await documentCompilerRepository.approveTree(run.id, admin.id);
-  const idByName = new Map<string, string>();
-  for (const node of nodes.filter(item => !item.parent_name)) {
-    const created = await scopeRepository.create({
-      name: node.name,
-      slug: `${node.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${randomUUID().slice(0, 6)}`,
-      parent_id: ROOT_SCOPE_ID,
-      scope_type: node.scope_type,
-      is_active: false,
-      metadata: { compiler_run_id: run.id, compiler_aliases: node.aliases || [] },
-    });
-    idByName.set(node.name, created.id);
-  }
-  for (const node of nodes.filter(item => item.parent_name)) {
-    const parentId = idByName.get(node.parent_name);
-    if (!parentId) continue;
-    const created = await scopeRepository.create({
-      name: node.name,
-      slug: `${node.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${randomUUID().slice(0, 6)}`,
-      parent_id: parentId,
-      scope_type: node.scope_type,
-      is_active: false,
-      metadata: { compiler_run_id: run.id, compiler_aliases: node.aliases || [] },
-    });
-    idByName.set(node.name, created.id);
+  console.log('\nlo que la pantalla presenta para confirmar:');
+  for (const project of structure?.projects || []) {
+    console.log(`  ${project.name}: ${project.partNames.join(', ') || '(sin opciones)'}`);
   }
 
-  const facts = await documentCompilerRepository.getFacts(run.id);
-  const factScope = new Map<string, string>();
-  for (const fact of facts) {
-    const owner = fact.subject ? idByName.get(String(fact.subject).trim()) : null;
-    factScope.set(fact.id, owner || idByName.get(structure!.projectName) || ROOT_SCOPE_ID);
-  }
-  await documentCompilerRepository.assignFactsToStructure(run.id, factScope);
+  // El camino real: la persona confirma cada desarrollo con sus opciones y el
+  // onboarding materializa el arbol entero.
+  const { data: admin2 } = await supabaseServer.from('admin_users').select('id').limit(1).single();
+  const { data: session } = await supabaseServer.from('onboarding_sessions')
+    .insert({ admin_id: admin2!.id, run_id: run.id, current_step: 2, status: 'in_progress' })
+    .select('id').single();
+  await onboardingService.confirmProposedStructure(admin.id, {
+    projectName: structure!.projects[0].name,
+    partNames: structure!.projects[0].partNames,
+    flatten: false,
+    projects: structure!.projects,
+  });
+  await supabaseServer.from('onboarding_sessions').delete().eq('id', session!.id);
 
   await supabaseServer.from('compiler_runs')
     .update({ current_stage: 'catalog', status: 'running' }).eq('id', run.id);
