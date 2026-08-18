@@ -82,10 +82,22 @@ interface ProposedNode {
   aliases?: string[];
 }
 
+export interface ProposedProject {
+  name: string;
+  partNames: string[];
+}
+
 export interface ProposedStructure {
   projectName: string;
   partNames: string[];
   projectNames: string[];
+  /**
+   * Cada desarrollo con sus partes, para que la persona pueda confirmarlos
+   * todos. Antes solo se presentaba el primero: los demas se creaban con el
+   * nombre que les hubiera puesto el modelo, sin que nadie pudiera corregirlo.
+   * Confirmar la mitad no es confirmar.
+   */
+  projects: ProposedProject[];
   businessName: string | null;
 }
 
@@ -112,10 +124,25 @@ export function proposedStructureFromRun(run: any): ProposedStructure | null {
     ))
     .map(node => node.name.trim());
 
+  const roots = nodes.filter(node => !node.parent_name);
+  const partsOf = (rootName: string) => {
+    const key = normalizeScopeAlias(rootName);
+    return Array.from(new Set(nodes
+      .filter(node => (
+        normalizeScopeAlias(node.parent_name || '') === key
+        && isSellableScopeType(node.scope_type)
+      ))
+      .map(node => node.name.trim())));
+  };
+
   return {
     projectName: project.name.trim(),
     partNames: Array.from(new Set(parts)),
-    projectNames: nodes.filter(node => !node.parent_name).map(node => node.name.trim()),
+    projectNames: roots.map(node => node.name.trim()),
+    projects: roots.map(node => ({
+      name: node.name.trim(),
+      partNames: partsOf(node.name),
+    })),
     businessName: typeof run?.stage_checkpoint?.business_name === 'string'
       ? run.stage_checkpoint.business_name.trim() || null
       : null,
@@ -297,6 +324,7 @@ export class OnboardingService {
     projectName: string;
     partNames: string[];
     flatten: boolean;
+    projects?: Array<{ name: string; partNames: string[] }>;
   }) {
     const session = await this.requireActiveSession(adminId);
     if (!session.run_id) throw new Error('Primero agrega el material');
@@ -311,24 +339,45 @@ export class OnboardingService {
       .filter((node: ProposedNode) => (
         node?.name?.trim() && (!node.parent_name || isSellableScopeType(node.scope_type))
       ));
-    const firstRoot = proposedNodes.find((node: ProposedNode) => !node.parent_name);
-    const nodes = proposedNodes.map((node: ProposedNode) => {
-      if (node === firstRoot) return { ...node, name: projectName };
-      if (firstRoot && node.parent_name === firstRoot.name) {
-        return { ...node, parent_name: projectName };
+    const roots = proposedNodes.filter((node: ProposedNode) => !node.parent_name);
+
+    // Lo que confirma la persona, un desarrollo por fila. Si solo llega el
+    // nombre principal --el contrato anterior-- se aplica al primero y los
+    // demas conservan lo que propuso el modelo.
+    const confirmed = values.projects?.length
+      ? values.projects
+      : [{ name: projectName, partNames: values.partNames }];
+
+    const nodes = proposedNodes.map((node: ProposedNode) => ({ ...node }));
+    roots.forEach((root: ProposedNode, index: number) => {
+      const answer = confirmed[index];
+      if (!answer?.name?.trim()) return;
+      const nextName = answer.name.trim();
+      const previousName = root.name;
+      for (const node of nodes) {
+        if (node.name === previousName && !node.parent_name) node.name = nextName;
+        if (node.parent_name === previousName) node.parent_name = nextName;
       }
-      return node;
     });
+
     if (values.flatten) {
+      const firstName = confirmed[0]?.name?.trim() || projectName;
       for (let index = nodes.length - 1; index >= 0; index -= 1) {
-        if (nodes[index].parent_name === projectName) nodes.splice(index, 1);
+        if (nodes[index].parent_name === firstName) nodes.splice(index, 1);
       }
-    } else if (firstRoot) {
-      const proposedParts = nodes
-        .filter((node: ProposedNode) => node.parent_name === projectName && isSellableScopeType(node.scope_type));
-      const partNames = Array.from(new Set(values.partNames.map(name => name.trim()).filter(Boolean)));
-      proposedParts.forEach((node: ProposedNode, index: number) => {
-        if (partNames[index]) node.name = partNames[index];
+    } else {
+      confirmed.forEach(answer => {
+        const rootName = answer?.name?.trim();
+        if (!rootName) return;
+        const partNames = Array.from(new Set(
+          (answer.partNames || []).map(name => name.trim()).filter(Boolean)
+        ));
+        const proposedParts = nodes.filter((node: ProposedNode) => (
+          node.parent_name === rootName && isSellableScopeType(node.scope_type)
+        ));
+        proposedParts.forEach((node: ProposedNode, index: number) => {
+          if (partNames[index]) node.name = partNames[index];
+        });
       });
     }
 

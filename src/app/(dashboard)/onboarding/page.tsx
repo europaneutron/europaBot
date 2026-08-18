@@ -63,6 +63,9 @@ export default function OnboardingPage() {
   const [plural, setPlural] = useState('');
   const [greetingChoice, setGreetingChoice] = useState<'keep' | 'composed'>('composed');
   const [confirmingCancel, setConfirmingCancel] = useState(false);
+  // Un desarrollo por fila. El material de un negocio trae varios y todos
+  // tienen que poder corregirse antes de darlos de alta.
+  const [editedProjects, setEditedProjects] = useState<Array<{ name: string; parts: string }>>([]);
 
   /**
    * Lo ultimo que se sembro en cada campo desde el servidor.
@@ -74,7 +77,7 @@ export default function OnboardingPage() {
    * distingue "el usuario no lo ha tocado" de "esta vacio", que es lo que hacia
    * falta para poder actualizarlo sin pisar lo que alguien escribio.
    */
-  const seeded = useRef({ project: '', parts: '', business: '' });
+  const seeded = useRef({ project: '', parts: '', business: '', projects: '' });
 
   useEffect(() => {
     if (!data) return;
@@ -91,6 +94,19 @@ export default function OnboardingPage() {
       const previous = seeded.current.parts;
       seeded.current.parts = nextParts;
       setPartNames(current => (current === previous ? nextParts : current));
+    }
+
+    const proposedProjects = (data.proposedStructure?.projects || []).map((project: any) => ({
+      name: project.name || '',
+      parts: (project.partNames || []).join(', '),
+    }));
+    const nextProjects = JSON.stringify(proposedProjects);
+    if (nextProjects !== seeded.current.projects) {
+      const previous = seeded.current.projects;
+      seeded.current.projects = nextProjects;
+      setEditedProjects(current => (
+        JSON.stringify(current) === previous ? proposedProjects : current
+      ));
     }
 
     const nextBusiness = data.brand.business_name
@@ -156,7 +172,20 @@ export default function OnboardingPage() {
   const vocabulary = data.vocabulary;
   const project = session.answers.project_name || projectName || `tu ${vocabulary.singular}`;
   const proposedParts = partNames.split(',').map(value => value.trim()).filter(Boolean);
-  const overlongParts = proposedParts.filter(name => name.length > NAME_MAX_LENGTH);
+  const confirmedProjects = editedProjects
+    .filter(project => project.name.trim())
+    .map(project => ({
+      name: project.name.trim(),
+      partNames: project.parts.split(',').map(value => value.trim()).filter(Boolean),
+    }));
+  const overlongParts = [
+    ...proposedParts,
+    ...confirmedProjects.flatMap(project => [project.name, ...project.partNames]),
+  ].filter(name => name.length > NAME_MAX_LENGTH);
+  const updateProject = (index: number, patch: Partial<{ name: string; parts: string }>) =>
+    setEditedProjects(current => current.map(
+      (project, position) => (position === index ? { ...project, ...patch } : project)
+    ));
   const progress = run ? progressForStage(run.current_stage) : 0;
   const greetingPreview = composeBusinessGreeting(
     businessName,
@@ -293,26 +322,44 @@ export default function OnboardingPage() {
                 </h2>
                 <p className="text-muted-foreground">Puedes corregir cualquier nombre antes de continuar.</p>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="proposed-project">Nombre principal</Label>
-                <Input id="proposed-project" maxLength={NAME_MAX_LENGTH} value={projectName} onChange={event => setProjectName(event.target.value)} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="proposed-parts">Opciones que se venden por separado</Label>
-                <Input id="proposed-parts" value={partNames} onChange={event => setPartNames(event.target.value)} placeholder="Toscana, Milano, Verona" />
-                <p className="text-xs text-muted-foreground">Sepáralas con comas.</p>
-                {overlongParts.length ? (
-                  <p className="text-xs text-destructive">
-                    Acorta {overlongParts.length === 1 ? 'este nombre' : 'estos nombres'}: no pueden pasar de {NAME_MAX_LENGTH} caracteres. El detalle completo va en las respuestas, no en el nombre.
-                  </p>
-                ) : null}
-              </div>
+              {editedProjects.map((project, index) => (
+                <div key={`proposed-project-${index}`} className="space-y-4 rounded-md border p-4">
+                  <div className="space-y-2">
+                    <Label htmlFor={`proposed-project-${index}`}>
+                      {editedProjects.length === 1
+                        ? 'Nombre principal'
+                        : `${vocabulary.singular.charAt(0).toUpperCase()}${vocabulary.singular.slice(1)} ${index + 1}`}
+                    </Label>
+                    <Input
+                      id={`proposed-project-${index}`}
+                      maxLength={NAME_MAX_LENGTH}
+                      value={project.name}
+                      onChange={event => updateProject(index, { name: event.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor={`proposed-parts-${index}`}>Opciones que se venden por separado</Label>
+                    <Input
+                      id={`proposed-parts-${index}`}
+                      value={project.parts}
+                      onChange={event => updateProject(index, { parts: event.target.value })}
+                      placeholder="Toscana, Milano, Verona"
+                    />
+                    <p className="text-xs text-muted-foreground">Sepáralas con comas.</p>
+                  </div>
+                </div>
+              ))}
+              {overlongParts.length ? (
+                <p className="text-xs text-destructive">
+                  Acorta {overlongParts.length === 1 ? 'este nombre' : 'estos nombres'}: no pueden pasar de {NAME_MAX_LENGTH} caracteres. El detalle completo va en las respuestas, no en el nombre.
+                </p>
+              ) : null}
               <div className="flex flex-wrap gap-2">
-                <Button disabled={busy || !projectName.trim() || overlongParts.length > 0} onClick={() => submit({ action: 'confirm_structure', projectName, partNames: proposedParts, flatten: false })}>
+                <Button disabled={busy || !confirmedProjects.length || overlongParts.length > 0} onClick={() => submit({ action: 'confirm_structure', projectName: confirmedProjects[0]?.name || projectName, partNames: confirmedProjects[0]?.partNames || [], projects: confirmedProjects, flatten: false })}>
                   Sí, continuar con estos nombres
                 </Button>
-                {proposedParts.length ? (
-                  <Button variant="outline" disabled={busy || !projectName.trim()} onClick={() => submit({ action: 'confirm_structure', projectName, partNames: [], flatten: true })}>
+                {confirmedProjects.some(project => project.partNames.length) ? (
+                  <Button variant="outline" disabled={busy || !confirmedProjects.length} onClick={() => submit({ action: 'confirm_structure', projectName: confirmedProjects[0]?.name || projectName, partNames: [], projects: confirmedProjects.map(project => ({ ...project, partNames: [] })), flatten: true })}>
                     Lo vendo todo junto
                   </Button>
                 ) : null}

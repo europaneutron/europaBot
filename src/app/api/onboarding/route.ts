@@ -45,6 +45,10 @@ const actionSchema = z.discriminatedUnion('action', [
     projectName: nameField('el nombre principal'),
     partNames: z.array(nameField('cada nombre')).max(30).default([]),
     flatten: z.boolean().default(false),
+    projects: z.array(z.object({
+      name: nameField('el nombre del desarrollo'),
+      partNames: z.array(nameField('cada nombre')).max(30).default([]),
+    })).max(20).optional(),
   }),
   z.object({
     action: z.literal('identity'),

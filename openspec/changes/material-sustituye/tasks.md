@@ -19,7 +19,7 @@
 - [x] 3.1 La etapa de estructura propone todos los desarrollos que el material describe, no una rama
 - [x] 3.2 Un desarrollo nombrado de varias formas se propone una sola vez, con las demas formas como alias
 - [x] 3.3 Al publicar, los alias se escriben en `scope_aliases`
-- [ ] 3.4 Verificar con los dos materiales de FYMSA en una corrida: la estructura contiene Europa y Altabrisa con sus modelos, y ningun desarrollo duplicado
+- [x] 3.4 Verificar con los dos materiales de FYMSA en una corrida: la estructura contiene Europa y Altabrisa con sus modelos, y ningun desarrollo duplicado
 
 ## 4. Publicar la corrida
 
@@ -55,10 +55,16 @@
 - [x] 8.4 Prueba de que en modo anadir no se retira nada
 - [x] 8.5 Prueba de que leads, conversaciones, citas, progreso y configuracion sobreviven a una sustitucion
 - [x] 8.6 Prueba de que un lead con el foco en un alcance retirado recibe respuesta desde el negocio
-- [ ] 8.7 `scripts/test-document-compiler-e2e.ts`: compilar los dos materiales de FYMSA en una sola corrida y publicar
+- [x] 8.7 `scripts/test-document-compiler-e2e.ts`: compilar los dos materiales de FYMSA en una sola corrida y publicar
 - [x] 8.8 Ninguna prueba deja datos temporales, y las que tocan configuracion global la restauran en el `finally`
 
 ## 9. Recorrido de aceptacion
+
+> Bloqueado por la spec del vocabulario. El recorrido se hizo el 17 de agosto de
+> 2026 con `scripts/walkthrough-fymsa.ts`: la estructura y la publicacion salen
+> bien, pero el bot compilado cae al fallback en casi todo porque el vocabulario
+> se genera con una palabra por intencion y sin sinonimos. No se marcan como
+> hechas hasta que eso se corrija.
 
 - [ ] 9.1 Con la base sembrada y sucia, subir `fymsa-europa.txt` y `fymsa-altabrisa.txt` juntos, revisar y publicar
 - [ ] 9.2 Comprobar en el simulador que no queda rastro del contenido anterior: ningun `[XXX]`, ninguna mencion a Europa desde el negocio, ningun desarrollo duplicado
