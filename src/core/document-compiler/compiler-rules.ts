@@ -368,6 +368,73 @@ export function reviewSignalsForFacts(
   return Array.from(signals);
 }
 
+// Palabras que abren una pregunta abierta: si la ultima oracion de una
+// respuesta empieza con una de estas, no es una pregunta de si/no aunque
+// termine en "?".
+const OPEN_QUESTION_STARTERS = [
+  'que', 'cual', 'cuales', 'como', 'donde', 'cuando', 'cuanto', 'cuanta',
+  'cuantos', 'cuantas', 'quien', 'quienes', 'por que',
+];
+
+/**
+ * Una respuesta termina en pregunta de si/no cuando su ultima oracion acaba
+ * en "?" y no arranca con una palabra interrogativa abierta. Es una
+ * comprobacion de forma, del mismo tipo que ya usa la deteccion de datos
+ * sensibles: no interpreta el lenguaje, reconoce su forma.
+ */
+export function endsInYesNoQuestion(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed.endsWith('?')) return false;
+
+  const openMark = trimmed.lastIndexOf('¿');
+  const lastSentence = (openMark >= 0 ? trimmed.slice(openMark + 1) : trimmed).trim();
+  const normalized = normalizeFactKey(lastSentence).replace(/_/g, ' ');
+  const firstTwoWords = normalized.split(' ').slice(0, 2).join(' ');
+
+  return !OPEN_QUESTION_STARTERS.some(starter => {
+    const normalizedStarter = normalizeFactKey(starter).replace(/_/g, ' ');
+    return normalized === normalizedStarter
+      || normalized.startsWith(`${normalizedStarter} `)
+      || firstTwoWords === normalizedStarter;
+  });
+}
+
+/**
+ * La comprobacion previa a publicar bloquea una respuesta que termina en
+ * pregunta de si/no sin declarar que ofrece: sin eso, el afirmativo del lead
+ * no tiene contra que resolverse.
+ */
+export function checkOfferDeclared(
+  responseText: string,
+  offersIntentName: string | null | undefined
+): string | null {
+  if (!endsInYesNoQuestion(responseText)) return null;
+  if (offersIntentName && offersIntentName.trim().length > 0) return null;
+  return 'La pregunta de si o no no tiene a que responder: no declara que ofrece.';
+}
+
+/**
+ * La comprobacion previa a publicar bloquea una respuesta que reune datos de
+ * mas de una rama sin decir de cual es cada uno. `branchNames` son las ramas
+ * cuyos hechos alimentan esta respuesta; con una sola no hay nada que
+ * nombrar.
+ */
+export function checkBranchesNamed(
+  responseText: string,
+  branchNames: string[]
+): string | null {
+  const distinctNames = Array.from(new Set(branchNames.map(name => name.trim()).filter(Boolean)));
+  if (distinctNames.length < 2) return null;
+
+  const normalizedText = normalizeFactKey(responseText).replace(/_/g, ' ');
+  const missing = distinctNames.filter(name => {
+    const normalizedName = normalizeFactKey(name).replace(/_/g, ' ');
+    return normalizedName.length > 0 && !normalizedText.includes(normalizedName);
+  });
+  if (missing.length === 0) return null;
+  return `La respuesta mezcla ${distinctNames.length} ramas sin nombrarlas: falta ${missing.join(', ')}.`;
+}
+
 /**
  * Un hecho es sensible por lo que dice, no por como lo etiqueto el modelo.
  * El tipo declarado se acepta como senal adicional, nunca como la unica.

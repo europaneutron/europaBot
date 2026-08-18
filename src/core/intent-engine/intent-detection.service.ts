@@ -155,6 +155,40 @@ export class IntentDetectionService {
     };
   }
 
+  /**
+   * Resuelve una intención por nombre en vez de por coincidencia difusa: la
+   * misma resolución de `detect`, pero cuando ya se sabe cuál es la
+   * intención y solo hace falta su contenido en un alcance concreto. Sirve
+   * para repetir la última pregunta al mencionar un alcance a secas.
+   */
+  async resolveByName(
+    intentName: string,
+    supabaseClient: any,
+    scopeId: string | null = ROOT_SCOPE_ID
+  ): Promise<DetectionResult['intent'] | null> {
+    const cacheKey = scopeId ?? 'global';
+    let cache = this.caches.get(cacheKey);
+    if (!cache || Date.now() - cache.updatedAt > this.CACHE_TTL_MS) {
+      cache = await this.loadIntents(supabaseClient, scopeId);
+    }
+
+    const intent = cache.intents.find(candidate => candidate.intent_name === intentName);
+    if (!intent) return null;
+
+    return {
+      intent_id: intent.id,
+      scope_id: intent.scope_id,
+      response_intent_ids: cache.responseIntentIdsByName.get(intent.intent_name) || [intent.id],
+      intent_name: intent.intent_name,
+      confidence: 1,
+      matched_keywords: [],
+      fuzzy_matches: [],
+      detection_method: 'exact',
+      is_checkpoint: intent.is_checkpoint,
+      is_strong_signal: intent.is_strong_signal,
+    };
+  }
+
   async detectAcrossScopes(
     message: string,
     supabaseClient: any,

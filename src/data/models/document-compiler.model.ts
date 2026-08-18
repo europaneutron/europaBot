@@ -16,7 +16,9 @@ export type ReviewSignal =
   | 'changed'
   | 'human_edited'
   | 'poor_vocabulary'
-  | 'vocabulary_regression';
+  | 'vocabulary_regression'
+  | 'unoffered_yes_no'
+  | 'crosses_branches_unnamed';
 
 export interface MatcherPatterns {
   keywords: string[];
@@ -63,6 +65,7 @@ export interface CompilerProposal {
   review_signals: ReviewSignal[];
   approved_with_signals: ReviewSignal[];
   edited_by_human: boolean;
+  offers_intent_name?: string | null;
   created_at: string;
 }
 

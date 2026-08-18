@@ -386,6 +386,7 @@ export class DocumentCompilerRepository {
       signals: ReviewSignal[];
       isPublishable?: boolean;
       reviewDetails?: Record<string, unknown>;
+      offersIntentName?: string | null;
       factIds: string[];
     }>
   ) {
@@ -405,6 +406,7 @@ export class DocumentCompilerRepository {
         review_signals: proposal.signals,
         is_publishable: proposal.isPublishable ?? true,
         review_details: proposal.reviewDetails || {},
+        offers_intent_name: proposal.offersIntentName || null,
         fact_ids: proposal.factIds,
       })),
     });

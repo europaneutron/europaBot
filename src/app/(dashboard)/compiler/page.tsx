@@ -19,6 +19,8 @@ const SIGNAL_LABELS: Record<string, string> = {
   human_edited: 'Editada a mano',
   poor_vocabulary: 'Vocabulario bloqueado',
   vocabulary_regression: 'Pierde formas de preguntar',
+  unoffered_yes_no: 'Pregunta sin oferta declarada',
+  crosses_branches_unnamed: 'Mezcla ramas sin nombrarlas',
 };
 
 async function fetcher(url: string) {
@@ -238,6 +240,18 @@ export default function CompilerPage() {
                             <div className="rounded-md bg-muted p-3 text-sm">
                               <div className="font-medium">Formas que dejaría de reconocer:</div>
                               <div className="mt-1 text-muted-foreground">{proposal.review_details.regression.missed.join('; ')}</div>
+                            </div>
+                          ) : null}
+                          {proposal.review_details?.offer?.reason ? (
+                            <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm">
+                              <div className="font-medium">Oferta sin declarar:</div>
+                              <div className="mt-1 text-muted-foreground">{proposal.review_details.offer.reason}</div>
+                            </div>
+                          ) : null}
+                          {proposal.review_details?.branches?.reason ? (
+                            <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm">
+                              <div className="font-medium">Ramas mezcladas:</div>
+                              <div className="mt-1 text-muted-foreground">{proposal.review_details.branches.reason}</div>
                             </div>
                           ) : null}
                           <Textarea

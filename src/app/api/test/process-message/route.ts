@@ -6,6 +6,7 @@ import { conversationRepository } from '@/data/repositories/conversation.reposit
 import { scopeRepository } from '@/data/repositories/scope.repository';
 import { userRepository } from '@/data/repositories/user.repository';
 import { getAuthenticatedAdmin } from '@/lib/server/authenticated-admin';
+import { offerButtons } from '@/core/conversation/pending-offer-messages';
 import {
   isFragmentedResponse,
   isSimpleResponseWithMedia,
@@ -91,6 +92,15 @@ export async function POST(request: NextRequest) {
     }
     const diagnostic = await conversationSimulatorRepository.getDiagnostic(user.id, result.scopeId);
 
+    // Las opciones de una enumeracion viajan en la oferta pendiente, no en el
+    // texto: sin esto el simulador enseñaba "¿De cual desarrollo?" sin ninguna
+    // opcion, mientras WhatsApp recibia los botones. El transporte cambia, lo
+    // que se ofrece no. Tocar un boton manda su `id`, que es la misma via
+    // determinista que usa `button_reply` en el webhook.
+    const enumerationButtons = flowMessage
+      ? []
+      : await offerButtons(user.id, messages[messages.length - 1] ?? '');
+
     return NextResponse.json({
       success: true,
       responses: result.responses,
@@ -99,7 +109,7 @@ export async function POST(request: NextRequest) {
       isFallback: result.isFallback,
       intent: result.detectedIntent?.intent_name || (result.flowHandled ? 'appointment_flow' : null),
       intentId: result.detectedIntent?.intent_id || null,
-      buttons: flowMessage?.buttons ?? [],
+      buttons: flowMessage?.buttons ?? enumerationButtons,
       // Parte del contrato del endpoint desde antes del simulador: hay pruebas
       // que comprueban contra que alcance se resolvio la respuesta.
       scopeId: result.scopeId || null,

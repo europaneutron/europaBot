@@ -24,6 +24,19 @@ export interface SendButtonsParams {
   buttons: ReplyButton[];
 }
 
+export interface ListRow {
+  id: string;
+  title: string; // Máximo 24 caracteres
+  description?: string; // Máximo 72 caracteres
+}
+
+export interface SendListParams {
+  to: string;
+  bodyText: string;
+  buttonText: string; // Máximo 20 caracteres, abre la lista
+  rows: ListRow[];
+}
+
 export class WhatsAppMessageSender {
   /**
    * Enviar mensaje de texto
@@ -530,6 +543,62 @@ export class WhatsAppMessageSender {
       const error = await response.text();
       console.error('WhatsApp API error:', error);
       throw new Error(`Failed to send interactive buttons: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return {
+      messageId: data.messages[0].id
+    };
+  }
+
+  /**
+   * Enviar mensaje de lista interactiva (Interactive List)
+   * De 4 a 10 opciones: el rango que ya no cabe en botones de respuesta.
+   */
+  async sendListMessage({ to, bodyText, buttonText, rows }: SendListParams): Promise<{ messageId: string }> {
+    if (rows.length === 0) {
+      throw new Error('Una lista interactiva necesita al menos una opción');
+    }
+    if (rows.length > 10) {
+      throw new Error('WhatsApp permite máximo 10 filas en un mensaje de lista');
+    }
+
+    const url = `${WHATSAPP_API_URL}/${WHATSAPP_PHONE_ID}/messages`;
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${WHATSAPP_TOKEN}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to: to,
+        type: 'interactive',
+        interactive: {
+          type: 'list',
+          body: {
+            text: bodyText
+          },
+          action: {
+            button: buttonText.substring(0, 20),
+            sections: [{
+              rows: rows.map(row => ({
+                id: row.id,
+                title: row.title.substring(0, 24),
+                ...(row.description ? { description: row.description.substring(0, 72) } : {}),
+              })),
+            }],
+          }
+        }
+      })
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      console.error('WhatsApp API error:', error);
+      throw new Error(`Failed to send list message: ${response.status}`);
     }
 
     const data = await response.json();

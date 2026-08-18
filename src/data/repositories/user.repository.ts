@@ -3,7 +3,7 @@
  */
 
 import { supabaseServer } from '@/services/supabase/server-client';
-import type { User, UserSession, UserProgress } from '@/data/models/user.model';
+import type { User, UserSession, UserProgress, PendingOfferOption } from '@/data/models/user.model';
 import { scopeRepository } from '@/data/repositories/scope.repository';
 
 export interface UserScopeProgress {
@@ -242,6 +242,40 @@ export class UserRepository {
       pending_scope_message: null,
       pending_scope_intent_name: null,
       pending_scope_updated_at: null,
+    });
+  }
+
+  /**
+   * Deja constancia de que el bot ofreció algo. Toda enumeración y toda
+   * respuesta de sí/no declarada pasan por aquí; es el único lugar que
+   * escribe la oferta pendiente.
+   */
+  async setPendingOffer(
+    userId: string,
+    intentName: string,
+    level: string | null,
+    options: PendingOfferOption[]
+  ): Promise<void> {
+    await this.updateSession(userId, {
+      pending_offer_intent_name: intentName,
+      pending_offer_level: level,
+      pending_offer_options: options,
+      pending_offer_updated_at: new Date().toISOString(),
+    });
+  }
+
+  /**
+   * La oferta se descarta en cuanto el bot contesta algo sin usarla, y se
+   * consume cuando el lead responde con un afirmativo o eligiendo una opción.
+   * Sin esto, un "sí" de varios turnos después resolvería una oferta que el
+   * lead ya olvidó.
+   */
+  async clearPendingOffer(userId: string): Promise<void> {
+    await this.updateSession(userId, {
+      pending_offer_intent_name: null,
+      pending_offer_level: null,
+      pending_offer_options: null,
+      pending_offer_updated_at: null,
     });
   }
 

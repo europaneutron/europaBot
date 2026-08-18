@@ -39,10 +39,12 @@ async function main() {
   const { supabaseServer } = await import('../src/services/supabase/server-client');
   const { messageProcessor } = await import('../src/core/conversation/message-processor');
   const { scopeRepository, ROOT_SCOPE_ID } = await import('../src/data/repositories/scope.repository');
+  const { offerButtons } = await import('../src/core/conversation/pending-offer-messages');
 
   const createdScopes: string[] = [];
   const createdIntents: string[] = [];
   const deactivated: string[] = [];
+  const deactivatedRootIntents: string[] = [];
   const phone = `sim${Date.now().toString(36)}`;
 
   async function scope(name: string, parentId: string, type: string, aliases: string[]) {
@@ -109,6 +111,25 @@ async function main() {
       deactivated.push(row.id);
     }
 
+    // Contenido suelto en la raíz de corridas anteriores del compilador
+    // también enturbia la conversación: el nuevo "afirma lo cierto antes de
+    // preguntar" (spec `enumerated-disambiguation`) sí lo resuelve, donde el
+    // flujo viejo nunca lo tocaba. Solo para las intenciones que este guion
+    // vuelve a sembrar por alcance: `modelo` y `cita` se dejan tal cual,
+    // porque esta simulación depende de que sigan resolviendo por herencia
+    // global en vez de resembrarlas.
+    const RESEEDED_INTENT_NAMES = ['precio', 'ubicacion', 'seguridad'];
+    const { data: staleRootIntents } = await supabaseServer
+      .from('intent_configurations')
+      .select('id')
+      .eq('scope_id', ROOT_SCOPE_ID)
+      .in('intent_name', RESEEDED_INTENT_NAMES)
+      .eq('is_active', true);
+    for (const row of staleRootIntents || []) {
+      await supabaseServer.from('intent_configurations').update({ is_active: false }).eq('id', row.id);
+      deactivatedRootIntents.push(row.id);
+    }
+
     const europa = await scope('Europa', ROOT_SCOPE_ID, 'development', ['Europa']);
     const altabrisa = await scope('Altabrisa', ROOT_SCOPE_ID, 'development', ['Altabrisa']);
     const aura = await scope('Modelo Aura', europa, 'model', ['Aura', 'Modelo Aura']);
@@ -165,10 +186,20 @@ async function main() {
         const body = typeof reply === 'string' ? reply : JSON.stringify(reply);
         console.log(`Bot   ${body.replace(/\n/g, '\n      ')}`);
       }
+      const userId = (await supabaseServer.from('users').select('id').eq('phone_number', phone).single()).data!.id;
+
+      // Las opciones no viajan en el texto: quien las enseña es el transporte.
+      // El recorrido de aceptacion tiene que enseñar lo que ve el lead, o la
+      // pregunta se lee como si no ofreciera nada.
+      const buttons = await offerButtons(userId, '');
+      if (buttons.length > 0) {
+        console.log(`      ${buttons.map(button => `[ ${button.title} ]`).join('  ')}`);
+      }
+
       const { data: session } = await supabaseServer
         .from('user_sessions')
         .select('current_scope_id, pending_scope_message')
-        .eq('user_id', (await supabaseServer.from('users').select('id').eq('phone_number', phone).single()).data!.id)
+        .eq('user_id', userId)
         .maybeSingle();
       const { data: focusScope } = session?.current_scope_id
         ? await supabaseServer.from('scopes').select('name').eq('id', session.current_scope_id).maybeSingle()
@@ -198,6 +229,9 @@ async function main() {
     }
     for (const scopeId of deactivated) {
       await supabaseServer.from('scopes').update({ is_active: true }).eq('id', scopeId);
+    }
+    for (const intentId of deactivatedRootIntents) {
+      await supabaseServer.from('intent_configurations').update({ is_active: true }).eq('id', intentId);
     }
     console.log('Base restaurada.');
   }

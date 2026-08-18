@@ -80,49 +80,128 @@ export class ScopeRoutingRepository {
   }
 
   /**
-   * Una intención depende del alcance cuando dos ramas distintas definen
-   * contenido propio para ella.
-   *
-   * Se cuenta por rama y no por alcance: un desarrollo que responde el precio
-   * en su nivel y también en el de una de sus torres no plantea ninguna
-   * ambigüedad al lead, porque ambas respuestas pertenecen al mismo desarrollo.
+   * Los hermanos vivos de un alcance: los demás hijos activos y alcanzables
+   * de su mismo padre. Vacío para la raíz y para un hijo único.
    */
-  async isIntentScopeDependent(intentName: string): Promise<boolean> {
-    const availableScopes = await this.getAvailableScopes();
-    if (availableScopes.length <= 1) return false;
+  async getSiblingScopes(scopeId: string): Promise<Scope[]> {
+    const scopes = await scopeRepository.getScopes();
+    const self = scopes.find(scope => scope.id === scopeId);
+    if (!self?.parent_id) return [];
+
+    const reachable = await scopeRepository.getReachableScopeIds();
+    return scopes
+      .filter(scope => (
+        scope.parent_id === self.parent_id &&
+        scope.id !== scopeId &&
+        scope.is_active &&
+        reachable.has(scope.id)
+      ))
+      .sort((a, b) => a.created_at.localeCompare(b.created_at));
+  }
+
+  /**
+   * Dónde está la duda para una intención, partiendo del foco (o de la raíz
+   * si no hay).
+   *
+   * El descenso baja mientras haya un solo camino: si en el nivel actual solo
+   * un descendiente define contenido propio para la intención, ahí no hay
+   * duda y se sigue bajando dentro de ese descendiente. Se detiene en el
+   * primer nivel donde dos o más descendientes definen contenido distinto:
+   * ese nivel es la pregunta, y esos descendientes son las opciones.
+   *
+   * Devuelve `null` cuando la respuesta no depende del alcance —ni en este
+   * nivel ni en ninguno de los siguientes—, que es la señal de que hay que
+   * responder directamente en vez de preguntar.
+   */
+  async findScopeDependency(
+    intentName: string,
+    fromScopeId: string | null
+  ): Promise<{ level: string; candidateIds: string[] } | null> {
+    const scopes = await scopeRepository.getScopes();
+    const scopesByParent = new Map<string, Scope[]>();
+    for (const scope of scopes) {
+      if (!scope.parent_id) continue;
+      const siblings = scopesByParent.get(scope.parent_id) || [];
+      siblings.push(scope);
+      scopesByParent.set(scope.parent_id, siblings);
+    }
+
+    const reachable = await scopeRepository.getReachableScopeIds();
 
     const { data: intents, error: intentsError } = await supabaseServer
       .from('intent_configurations')
       .select('id, scope_id')
       .eq('intent_name', intentName)
       .eq('is_active', true);
-
     if (intentsError) throw intentsError;
 
-    const reachable = await scopeRepository.getReachableScopeIds();
-    const branchByIntentId = new Map<string, string>();
-    for (const intent of intents || []) {
-      if (!intent.scope_id || !reachable.has(intent.scope_id)) continue;
-
-      const branchId = await scopeRepository.getBranchId(intent.scope_id);
-      if (branchId) branchByIntentId.set(intent.id, branchId);
-    }
-    if (new Set(branchByIntentId.values()).size < 2) return false;
-
+    const candidateIntents = (intents || []).filter(
+      intent => intent.scope_id && reachable.has(intent.scope_id)
+    );
     const { data: responses, error: responsesError } = await supabaseServer
       .from('bot_responses')
       .select('intent_id')
-      .in('intent_id', Array.from(branchByIntentId.keys()))
+      .in('intent_id', candidateIntents.map(intent => intent.id))
       .eq('is_active', true);
-
     if (responsesError) throw responsesError;
 
-    const branchesWithContent = new Set(
-      (responses || [])
-        .map(response => branchByIntentId.get(response.intent_id))
-        .filter((branchId): branchId is string => Boolean(branchId))
+    const intentIdsWithContent = new Set((responses || []).map(response => response.intent_id));
+    const scopesWithOwnContent = new Set(
+      candidateIntents
+        .filter(intent => intentIdsWithContent.has(intent.id))
+        .map(intent => intent.scope_id as string)
     );
-    return branchesWithContent.size >= 2;
+
+    const subtreeAnswer = new Map<string, boolean>();
+    const subtreeDefines = (scopeId: string): boolean => {
+      const cached = subtreeAnswer.get(scopeId);
+      if (cached !== undefined) return cached;
+      // Marca antes de bajar: un arbol con ciclo se detiene aqui en vez de
+      // desbordar la pila, y el `while` de abajo lo reporta como tal.
+      subtreeAnswer.set(scopeId, false);
+      const answer = scopesWithOwnContent.has(scopeId)
+        || (scopesByParent.get(scopeId) || [])
+          .filter(child => child.is_active && reachable.has(child.id))
+          .some(child => subtreeDefines(child.id));
+      subtreeAnswer.set(scopeId, answer);
+      return answer;
+    };
+
+    let level = fromScopeId ?? ROOT_SCOPE_ID;
+    const visited = new Set<string>();
+
+    while (true) {
+      if (visited.has(level)) throw new Error('Scope hierarchy contains a cycle');
+      visited.add(level);
+
+      const children = (scopesByParent.get(level) || [])
+        .filter(child => child.is_active && reachable.has(child.id))
+        .sort((a, b) => a.created_at.localeCompare(b.created_at));
+
+      // Sin alternativa no hay nada que preguntar: con un único descendiente
+      // se sigue bajando aunque ese descendiente no defina contenido propio,
+      // porque no hay ningún otro camino entre el que elegir.
+      if (children.length === 0) return null;
+      if (children.length === 1) {
+        level = children[0].id;
+        continue;
+      }
+
+      // Un descendiente cuenta como camino cuando el contenido esta en el o en
+      // cualquiera de los suyos. Mirar solo al hijo inmediato dejaba sin duda
+      // la forma que el compilador produce de verdad: el precio vive en los
+      // modelos, no en los desarrollos, asi que en la raiz ningun hijo definia
+      // nada y el lead recibia los seis precios de los dos desarrollos
+      // seguidos, sin decir cual era de cual y sin pregunta.
+      const definingChildren = children.filter(child => subtreeDefines(child.id));
+
+      if (definingChildren.length === 0) return null;
+      if (definingChildren.length === 1) {
+        level = definingChildren[0].id;
+        continue;
+      }
+      return { level, candidateIds: definingChildren.map(child => child.id) };
+    }
   }
 }
 

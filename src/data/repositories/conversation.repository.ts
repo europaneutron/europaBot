@@ -254,6 +254,32 @@ export class ConversationRepository {
   }
 
   /**
+   * Qué intención declara ofrecer la respuesta que `getBotResponses`
+   * resolvería para estos mismos `intentIds`, con la misma resolución por
+   * orden. `null` cuando la respuesta no termina en pregunta de sí/no —que
+   * es el caso normal— o cuando no declaró ninguna.
+   */
+  async getResponseOffer(intentIds: string | string[]): Promise<string | null> {
+    const resolutionIds = Array.isArray(intentIds) ? intentIds : [intentIds];
+    const { data, error } = await supabaseServer
+      .from('bot_responses')
+      .select('intent_id, offers_intent_name, order_priority')
+      .in('intent_id', resolutionIds)
+      .eq('is_active', true)
+      .order('order_priority', { ascending: true });
+
+    if (error || !data) return null;
+
+    const resolvedIntentId = resolutionIds.find(
+      intentId => data.some(row => row.intent_id === intentId)
+    );
+    if (!resolvedIntentId) return null;
+
+    const row = data.find(candidate => candidate.intent_id === resolvedIntentId);
+    return row?.offers_intent_name || null;
+  }
+
+  /**
    * Detectar tipo de archivo por extensión
    */
   private detectMediaType(url: string): 'image' | 'document' | 'video' | undefined {

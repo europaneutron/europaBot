@@ -2,6 +2,21 @@
  * Modelos de dominio para User
  */
 
+/**
+ * Una opción ofrecida por el bot: un alcance concreto, con el identificador
+ * que el lead usará para elegirla (toque o texto) y el título que la
+ * distingue de sus hermanas.
+ *
+ * Una oferta de una sola opción es una oferta de sí/no: el afirmativo la
+ * ejecuta directo. Dos o más es una enumeración: el afirmativo no elige,
+ * repite las opciones.
+ */
+export interface PendingOfferOption {
+  id: string;
+  scopeId: string;
+  label: string;
+}
+
 export interface User {
   id: string;
   phone_number: string;
@@ -34,6 +49,10 @@ export interface UserSession {
   pending_scope_message?: string | null;
   pending_scope_intent_name?: string | null;
   pending_scope_updated_at?: string | Date | null;
+  pending_offer_intent_name?: string | null;
+  pending_offer_level?: string | null;
+  pending_offer_options?: PendingOfferOption[] | null;
+  pending_offer_updated_at?: string | Date | null;
   session_started_at: Date;
   updated_at: Date;
 }

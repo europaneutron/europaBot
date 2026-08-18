@@ -21,19 +21,38 @@ import {
   scopeRoutingService,
   SCOPE_FOCUS_WINDOW_MS,
   type ScopeFocusSource,
+  type ScopeRoutingResult,
 } from './scope-routing.service';
-import type { User, UserSession } from '@/data/models/user.model';
+import type { User, UserSession, PendingOfferOption } from '@/data/models/user.model';
 import { scopeRoutingRepository } from '@/data/repositories/scope-routing.repository';
 import { interpolateMessage } from '@/lib/interpolate-message';
 import { resolveConfiguredMessage } from '@/core/messaging/configured-message';
 import { clientBrandRepository } from '@/data/repositories/client-brand.repository';
 import { composeBusinessGreeting, toClientVocabulary } from '@/core/onboarding/client-vocabulary';
 import { withContentVersionScope } from '@/lib/server/content-version-scope';
+import { isAffirmative, isPureAffirmative } from './affirmative-phrases';
+import { isSiblingRequest } from './sibling-request';
+import {
+  buildScopeOptions,
+  resolveLevelAnswer,
+  MAX_LIST_OPTIONS,
+} from './scope-enumeration.service';
+import {
+  isPendingOfferFresh,
+  resolvePendingOfferSelection,
+} from './pending-offer-messages';
 
 // Fuentes de foco que pueden reanudar una pregunta retenida: las tres nacen de
 // algo que el lead acaba de decir o traer. El foco heredado de la sesión no
 // cuenta, porque entonces la pregunta se reanudaría en cada mensaje siguiente.
 const RESUMING_FOCUS_SOURCES: ScopeFocusSource[] = ['alias', 'referral', 'override'];
+
+// Intenciones que no son una pregunta que repetir sino un flujo que arranca.
+// Mencionar un alcance a secas repite la última pregunta contestada, y con
+// `cita` ahí dentro eso significaba volver a abrir el agendamiento: un lead que
+// cancelaba y decía "Altabrisa" recibía otra vez "¿qué día te gustaría
+// visitarnos?". Repetir una pregunta es contestar de nuevo; reabrir un flujo no.
+const FLOW_INTENT_NAMES = new Set(['cita']);
 
 function isPendingQuestionFresh(session: UserSession | null): boolean {
   if (!session?.pending_scope_message || !session.pending_scope_updated_at) return false;
@@ -105,11 +124,26 @@ export class MessageProcessor {
       }
 
       const sessionBeforeRouting = await userRepository.getSession(user.id);
+
+      // Una opción tocada o escrita contra la oferta viva fija el foco sin
+      // pasar por el matcher difuso: misma prioridad que un alias explícito.
+      const offerSelection = resolvePendingOfferSelection(sessionBeforeRouting, messageText);
+      const priorOffer = isPendingOfferFresh(sessionBeforeRouting) ? sessionBeforeRouting : null;
+
+      // La oferta se consume al resolverse y se descarta en cuanto el bot va
+      // a contestar algo sin usarla. Lo que haga falta de ella ya quedó en
+      // `priorOffer`/`offerSelection`; a partir de aquí, limpia. Solo se
+      // escribe si había algo que limpiar: la mayoría de los mensajes llegan
+      // sin oferta viva y no tienen por qué pagar una escritura.
+      if (sessionBeforeRouting?.pending_offer_options?.length) {
+        await userRepository.clearPendingOffer(user.id);
+      }
+
       const routing = await scopeRoutingService.resolve({
         userId: user.id,
         message: messageText,
         referralAdId: options.referralAdId,
-        scopeOverride: options.scopeId,
+        scopeOverride: options.scopeId ?? offerSelection?.option.scopeId,
       });
       const scopeId = routing.scopeId;
 
@@ -241,14 +275,9 @@ export class MessageProcessor {
             // Botón "No, gracias"
             isPositive = false;
           } else {
-            // Si no es botón, verificar palabras afirmativas
-            isPositive = ['si', 'sí', 'claro', 'ok', 'vale', 'dale', 'yes',
-                         'por favor', 'porfavor', 'esta bien', 'está bien',
-                         'adelante', 'vamos', 'perfecto', 'excelente',
-                         'me interesa', 'quiero', 'acepto'].some(phrase => {
-                          const regex = new RegExp(`\\b${phrase}\\b`, 'i');
-                          return regex.test(normalized) || normalized === phrase;
-                        });
+            // Si no es botón, verificar palabras afirmativas. La lista vive
+            // en un solo lugar: ver `affirmative-phrases.ts`.
+            isPositive = isAffirmative(normalized);
           }
 
           if (isPositive) {
@@ -316,6 +345,32 @@ export class MessageProcessor {
         };
       }
 
+      // 3.9. Un afirmativo se resuelve contra la oferta viva antes que contra
+      // el matcher: sin oferta, "sí" sigue siendo palabra vacía y sigue de
+      // largo hacia la detección normal.
+      if (isPureAffirmative(messageText)) {
+        if (priorOffer?.pending_offer_options?.length) {
+          const resolved = await this.resolveAffirmativeOffer(user, priorOffer);
+          return { scopeId, ...resolved };
+        }
+        // Sin oferta viva, un afirmativo no es palabra vacía hacia el
+        // fallback genérico: no hay a qué decir que sí, así que se pregunta
+        // y se ofrecen las opciones disponibles.
+        return {
+          ...await this.presentSiblings(user, routing, 'unanchored_affirmative'),
+          scopeId,
+        };
+      }
+
+      // 3.91. Pedir otro es pedir los hermanos del alcance en foco, no el
+      // catálogo entero.
+      if (isSiblingRequest(messageText)) {
+        return {
+          ...await this.presentSiblings(user, routing),
+          scopeId,
+        };
+      }
+
       // 4. Detectar intención con fuzzy matching
       //
       // Sin foco se busca en todos los alcances alcanzables, no solo en las
@@ -351,6 +406,32 @@ export class MessageProcessor {
         await userRepository.clearPendingScopeQuestion(user.id);
       }
 
+      // Mencionar un alcance a secas no pregunta nada nuevo: repite ahí la
+      // última pregunta que sí se contestó en la conversación, aunque esa
+      // respuesta no haya dejado pendiente ninguna desambiguación.
+      const isFreshMention = RESUMING_FOCUS_SOURCES.includes(routing.source);
+      if (
+        !detectionResult.detected
+        && isFreshMention
+        && sessionBeforeRouting?.last_intent_detected
+        && !FLOW_INTENT_NAMES.has(sessionBeforeRouting.last_intent_detected)
+      ) {
+        const replay = await intentDetectionService.resolveByName(
+          sessionBeforeRouting.last_intent_detected,
+          supabaseServer,
+          scopeId
+        );
+        if (replay) {
+          detectionResult = {
+            detected: true,
+            intent: replay,
+            normalized_message: messageText,
+            all_matches: [replay],
+          };
+          messageForDetection = messageText;
+        }
+      }
+
       // 5. Guardar mensaje entrante
       const conversation = await conversationRepository.saveIncomingMessage(
         user.id,
@@ -360,37 +441,71 @@ export class MessageProcessor {
         { scopeId, referralAdId: options.referralAdId }
       );
 
-      if (
-        !routing.hasFocus &&
-        detectionResult.intent &&
-        await scopeRoutingRepository.isIntentScopeDependent(detectionResult.intent.intent_name)
-      ) {
-        await userRepository.setPendingScopeQuestion(
-          user.id,
-          messageText,
-          detectionResult.intent.intent_name
-        );
-        const scopeList = await this.getAvailableScopeList();
-        const message = await resolveConfiguredMessage(
-          'scope_disambiguation_message',
-          '¿De cuál {project_singular} te gustaría recibir información?\n\n{alcances}',
-          { alcances: scopeList }
-        );
+      // Saludar suelta el foco: es la salida del lead de una rama sin tener
+      // que nombrar otra. Detectar el saludo no depende del foco, así que se
+      // resuelve igual y solo cambia lo que pasa después.
+      let effectiveScopeId = scopeId;
+      let effectiveHasFocus = routing.hasFocus;
+      if (detectionResult.intent?.intent_name === 'saludo' && routing.hasFocus) {
+        await userRepository.clearScopeFocus(user.id);
+        await userRepository.clearPendingScopeQuestion(user.id);
+        await userRepository.clearPendingOffer(user.id);
+        effectiveScopeId = ROOT_SCOPE_ID;
+        effectiveHasFocus = false;
+      }
+
+      // El cálculo parte del foco cuando lo hay, no solo de la raíz: con
+      // foco puesto en un desarrollo cuyos modelos difieren, la duda sigue
+      // estando ahí abajo, y es donde hay que afirmar el rango y preguntar.
+      const dependency = detectionResult.intent
+        ? await scopeRoutingRepository.findScopeDependency(detectionResult.intent.intent_name, effectiveScopeId)
+        : null;
+      if (dependency && detectionResult.intent) {
+        const plan = await this.buildDisambiguationPlan(detectionResult.intent.intent_name, dependency);
+        if (plan) {
+          await userRepository.setPendingScopeQuestion(
+            user.id,
+            messageForDetection,
+            detectionResult.intent.intent_name
+          );
+          await userRepository.setPendingOffer(
+            user.id,
+            detectionResult.intent.intent_name,
+            dependency.level,
+            plan.options
+          );
+          return {
+            responses: [plan.bodyText],
+            shouldSend: true,
+            wasDetected: true,
+            isFallback: false,
+            detectedIntent: detectionResult.intent,
+            scopeId: effectiveScopeId,
+          };
+        }
+        // Más de diez opciones y sin criterio del catálogo para estrechar:
+        // mejor decirlo y pasar al asesor que mandar una lista que el
+        // transporte va a rechazar.
         return {
-          responses: [message],
-          shouldSend: true,
-          wasDetected: true,
-          isFallback: false,
-          detectedIntent: detectionResult.intent,
-          scopeId,
+          ...await fallbackHandler.handle(user.id, messageText),
+          scopeId: effectiveScopeId,
         };
       }
 
-      // 6. Si no se detectó intención → Fallback
+      // 6. Si no se detectó intención...
       if (!detectionResult.detected || !detectionResult.intent) {
+        // ...salvo que sea una mención a secas sin nada que repetir: ahí se
+        // presenta el alcance y se ofrece su nivel siguiente, en vez de caer
+        // al fallback genérico.
+        if (isFreshMention && effectiveHasFocus) {
+          return {
+            ...await this.presentFocusedScope(user, effectiveScopeId),
+            scopeId: effectiveScopeId,
+          };
+        }
         return {
           ...await fallbackHandler.handle(user.id, messageText),
-          scopeId,
+          scopeId: effectiveScopeId,
         };
       }
 
@@ -406,12 +521,18 @@ export class MessageProcessor {
       // 8. Resetear contador de fallback (tuvo éxito)
       await userRepository.resetFallbackAttempts(user.id);
 
+      // La última pregunta contestada con éxito: lo que repite mencionar un
+      // alcance a secas si el lead cambia de foco sin preguntar de nuevo.
+      await userRepository.updateSession(user.id, {
+        last_intent_detected: detectionResult.intent.intent_name,
+      });
+
       // 9. Procesar intención específica
       const responses = await this.handleIntent(
         user,
         detectionResult.intent,
-        scopeId,
-        routing.hasFocus
+        effectiveScopeId,
+        effectiveHasFocus
       );
 
       return {
@@ -420,7 +541,7 @@ export class MessageProcessor {
         wasDetected: true,
         isFallback: false,
         detectedIntent: detectionResult.intent,
-        scopeId,
+        scopeId: effectiveScopeId,
       };
 
     } catch (error) {
@@ -434,6 +555,176 @@ export class MessageProcessor {
         error: error instanceof Error ? error.message : 'Error desconocido',
       };
     }
+  }
+
+  /**
+   * Construye la pregunta de desambiguación: lo cierto en el nivel de la
+   * duda primero, las opciones enumeradas después. `null` cuando hay más
+   * opciones de las que WhatsApp permite enumerar y el catálogo no tiene
+   * ningún criterio para estrechar.
+   */
+  private async buildDisambiguationPlan(
+    intentName: string,
+    dependency: { level: string; candidateIds: string[] }
+  ): Promise<{ bodyText: string; options: PendingOfferOption[] } | null> {
+    if (dependency.candidateIds.length > MAX_LIST_OPTIONS) return null;
+
+    const [preface, options] = await Promise.all([
+      resolveLevelAnswer(intentName, dependency.level),
+      buildScopeOptions(dependency.candidateIds, intentName),
+    ]);
+    if (options.length === 0) return null;
+
+    const prompt = preface
+      ? await resolveConfiguredMessage('scope_disambiguation_followup_message', '¿Cuál te muestro?')
+      : await resolveConfiguredMessage(
+          'scope_disambiguation_message',
+          '¿De cuál te gustaría recibir información?'
+        );
+
+    return {
+      bodyText: [preface, prompt].filter(Boolean).join('\n\n'),
+      options,
+    };
+  }
+
+  /**
+   * Un afirmativo contra la oferta viva. Una sola opción es una oferta de
+   * sí/no: se ejecuta directo. Varias opciones no se eligen con un "sí": se
+   * repiten.
+   */
+  private async resolveAffirmativeOffer(
+    user: User,
+    offer: UserSession
+  ): Promise<ProcessedResponse> {
+    const options = offer.pending_offer_options!;
+
+    if (options.length > 1) {
+      await userRepository.setPendingOffer(
+        user.id,
+        offer.pending_offer_intent_name || '',
+        offer.pending_offer_level || null,
+        options
+      );
+      const bodyText = await resolveConfiguredMessage(
+        'pending_offer_repeat_message',
+        'No elige por sí sola: ¿cuál de estas te muestro?'
+      );
+      return { responses: [bodyText], shouldSend: true, wasDetected: true, isFallback: false, scopeId: offer.current_scope_id ?? undefined };
+    }
+
+    const option = options[0];
+    const intentName = offer.pending_offer_intent_name;
+    const replay = intentName
+      ? await intentDetectionService.resolveByName(intentName, supabaseServer, option.scopeId)
+      : null;
+
+    if (!replay) {
+      // Oferta de nivel siguiente sin intención propia (mención a secas o
+      // "pedir otro"): el "sí" simplemente fija el foco en la única opción.
+      await userRepository.setScopeFocus(user.id, option.scopeId, offer.current_scope_id ?? null);
+      return { ...await this.presentFocusedScope(user, option.scopeId), scopeId: option.scopeId };
+    }
+
+    await userRepository.setScopeFocus(user.id, option.scopeId, offer.current_scope_id ?? null);
+    const responses = await this.handleIntent(user, replay, option.scopeId, true);
+    return {
+      responses,
+      shouldSend: true,
+      wasDetected: true,
+      isFallback: false,
+      detectedIntent: replay,
+      scopeId: option.scopeId,
+    };
+  }
+
+  /**
+   * Pedir otro es pedir los hermanos del alcance en foco. Sin hermanos, sube
+   * un nivel y ofrece lo que sí hay; sin foco, enumera el primer nivel.
+   */
+  private async presentSiblings(
+    user: User,
+    routing: ScopeRoutingResult,
+    reason: 'siblings' | 'unanchored_affirmative' = 'siblings'
+  ): Promise<ProcessedResponse> {
+    let siblings = routing.hasFocus
+      ? await scopeRoutingRepository.getSiblingScopes(routing.scopeId)
+      : [];
+    const hadNoSiblings = routing.hasFocus && siblings.length === 0;
+
+    if (siblings.length === 0) {
+      siblings = (await scopeRoutingRepository.getAvailableScopes())
+        .filter(scope => scope.id !== routing.scopeId);
+    }
+
+    if (siblings.length === 0) {
+      const bodyText = await resolveConfiguredMessage(
+        'sibling_none_message',
+        'No tengo más opciones que mostrarte por ahora. ¿En qué más puedo ayudarte?'
+      );
+      return { responses: [bodyText], shouldSend: true, wasDetected: true, isFallback: false };
+    }
+
+    const options: PendingOfferOption[] = siblings.map(scope => ({
+      id: scope.id,
+      scopeId: scope.id,
+      label: scope.name,
+    }));
+    await userRepository.setPendingOffer(user.id, '', null, options);
+
+    if (reason === 'unanchored_affirmative') {
+      const bodyText = await resolveConfiguredMessage(
+        'unanchored_affirmative_message',
+        '¿Sí a qué? Esto es lo que tengo disponible:'
+      );
+      return { responses: [bodyText], shouldSend: true, wasDetected: true, isFallback: false };
+    }
+
+    const bodyText = await resolveConfiguredMessage(
+      hadNoSiblings ? 'sibling_up_message' : 'sibling_message',
+      hadNoSiblings
+        ? 'No tengo más para ese; esto es lo que sí tengo:'
+        : '¿Cuál de estas te interesa?'
+    );
+    return { responses: [bodyText], shouldSend: true, wasDetected: true, isFallback: false };
+  }
+
+  /**
+   * Mencionar un alcance a secas, sin pregunta previa que repetir: se
+   * presenta el alcance y, si tiene nivel siguiente, se ofrece.
+   */
+  private async presentFocusedScope(user: User, scopeId: string): Promise<ProcessedResponse> {
+    const scopes = await scopeRepository.getScopes();
+    const scope = scopes.find(candidate => candidate.id === scopeId);
+    const name = scope?.name ?? '';
+
+    const reachable = await scopeRepository.getReachableScopeIds();
+    const children = scopes
+      .filter(candidate => candidate.parent_id === scopeId && candidate.is_active && reachable.has(candidate.id))
+      .sort((a, b) => a.created_at.localeCompare(b.created_at));
+
+    if (children.length === 0) {
+      const bodyText = await resolveConfiguredMessage(
+        'scope_only_presentation_message',
+        '{alcance}. ¿En qué más puedo ayudarte?',
+        { alcance: name }
+      );
+      return { responses: [bodyText], shouldSend: true, wasDetected: true, isFallback: false };
+    }
+
+    const options: PendingOfferOption[] = children.map(child => ({
+      id: child.id,
+      scopeId: child.id,
+      label: child.name,
+    }));
+    await userRepository.setPendingOffer(user.id, '', scopeId, options);
+
+    const bodyText = await resolveConfiguredMessage(
+      'scope_next_level_message',
+      '{alcance}. ¿Cuál te muestro?',
+      { alcance: name }
+    );
+    return { responses: [bodyText], shouldSend: true, wasDetected: true, isFallback: false };
   }
 
   /**
@@ -486,11 +777,22 @@ export class MessageProcessor {
 
     // Obtener respuesta configurada desde BD
     const scopeList = await this.getAvailableScopeList();
+    const responseIntentIds = intent.response_intent_ids || intent.intent_id;
     const responses = await conversationRepository.getBotResponses(
-      intent.response_intent_ids || intent.intent_id,
+      responseIntentIds,
       { alcances: scopeList, nombre: user.name ?? '', telefono: user.phone_number }
     );
-    
+
+    // Una respuesta compilada que termina en pregunta de sí/no declara qué
+    // ofrece: deja constancia para que el afirmativo del lead se resuelva
+    // contra ella en vez de caer al matcher.
+    const declaredOffer = await conversationRepository.getResponseOffer(responseIntentIds);
+    if (declaredOffer) {
+      await userRepository.setPendingOffer(userId, declaredOffer, null, [
+        { id: resolvedScopeId, scopeId: resolvedScopeId, label: '' },
+      ]);
+    }
+
     // Verificar si debe ofrecer cita (configurable desde BD)
     const offerScopeId = await scopeRepository.getBranchId(resolvedScopeId) ?? resolvedScopeId;
     const completedCount = await userRepository.countCompletedCheckpoints(userId, offerScopeId);

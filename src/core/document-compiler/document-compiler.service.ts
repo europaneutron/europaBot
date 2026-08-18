@@ -3,6 +3,8 @@ import type { ResponseInputContent } from 'openai/resources/responses/responses'
 import {
   catalogLeadPhrases,
   catalogTermsFromFacts,
+  checkBranchesNamed,
+  checkOfferDeclared,
   consolidateFacts,
   changedFactFingerprints,
   deriveCoverage,
@@ -124,7 +126,7 @@ const WRITING_JSON_SCHEMA = {
       items: {
         type: 'object',
         additionalProperties: false,
-        required: ['proposal_key', 'intent_name', 'response', 'keywords', 'synonyms', 'typos', 'phrases', 'question_variants'],
+        required: ['proposal_key', 'intent_name', 'response', 'keywords', 'synonyms', 'typos', 'phrases', 'question_variants', 'offers_intent_name'],
         properties: {
           proposal_key: { type: 'string' },
           intent_name: { type: 'string' },
@@ -134,6 +136,7 @@ const WRITING_JSON_SCHEMA = {
           typos: { type: 'array', minItems: 1, items: { type: 'string' } },
           phrases: { type: 'array', minItems: 3, items: { type: 'string' } },
           question_variants: { type: 'array', minItems: 2, items: { type: 'string' } },
+          offers_intent_name: { type: ['string', 'null'] },
         },
       },
     },
@@ -150,6 +153,7 @@ const writingSchema = z.object({
     typos: z.array(z.string().min(1)).min(1),
     phrases: z.array(z.string().min(1)).min(3),
     question_variants: z.array(z.string().min(1)).min(2),
+    offers_intent_name: z.string().nullable(),
   })),
 });
 
@@ -505,7 +509,7 @@ export class DocumentCompilerService {
     const response = await openai.responses.create({
       model,
       store: false,
-      input: `Redacta exactamente una respuesta breve de WhatsApp por cada objetivo usando exclusivamente sus hechos. Conserva proposal_key e intent_name literalmente. No combines objetivos, no inventes, no agregues invitaciones a agendar y no uses emojis. ${brandInstruction} Para cada objetivo genera tambien el vocabulario con el que un lead preguntaria eso por WhatsApp. Las palabras deben salir de los hechos y del material de este cliente: no uses una lista fija del sector. keywords lleva al menos 2 palabras principales, synonyms al menos 2 formas equivalentes, typos al menos 1 errata probable y phrases al menos 3 preguntas completas y naturales. question_variants lleva 2 reformulaciones breves que funcionen como mensaje autonomo, sin nombre de empresa, desarrollo, modelo ni producto concreto; por ejemplo, para una pregunta de precio una variante seria "cuanto cuesta" y no "cuanto cuesta el modelo X". El nombre intent_name no cuenta como vocabulario y no debes copiarlo para completar listas. Devuelve JSON con {"proposals":[{"proposal_key":"...","intent_name":"...","response":"...","keywords":["..."],"synonyms":["..."],"typos":["..."],"phrases":["..."],"question_variants":["..."]}]}.\n\nObjetivos: ${JSON.stringify(writingTargets.map(target => ({ proposal_key: target.proposalKey, intent_name: target.coverage.intent_name, question: target.coverage.question, scope_id: target.scopeId, facts: target.facts.map(fact => ({ id: fact.id, key: fact.key, subject: fact.subject, value: fact.value })) })))}`,
+      input: `Redacta exactamente una respuesta breve de WhatsApp por cada objetivo usando exclusivamente sus hechos. Conserva proposal_key e intent_name literalmente. No combines objetivos, no inventes, no invites a agendar una cita y no uses emojis. ${brandInstruction} Para cada objetivo genera tambien el vocabulario con el que un lead preguntaria eso por WhatsApp. Las palabras deben salir de los hechos y del material de este cliente: no uses una lista fija del sector. keywords lleva al menos 2 palabras principales, synonyms al menos 2 formas equivalentes, typos al menos 1 errata probable y phrases al menos 3 preguntas completas y naturales. question_variants lleva 2 reformulaciones breves que funcionen como mensaje autonomo, sin nombre de empresa, desarrollo, modelo ni producto concreto; por ejemplo, para una pregunta de precio una variante seria "cuanto cuesta" y no "cuanto cuesta el modelo X". El nombre intent_name no cuenta como vocabulario y no debes copiarlo para completar listas. Evita terminar la respuesta en una pregunta de si o no salvo que sea necesario invitar a algo (ver planos, agendar, mostrar mas detalle); si lo haces, offers_intent_name debe llevar el intent_name de lo que le ofreces al lead (uno de los objetivos de esta misma lista, o el mismo intent_name si ofreces un nivel siguiente de el mismo). Si la respuesta no termina en pregunta de si o no, offers_intent_name debe ir null. Devuelve JSON con {"proposals":[{"proposal_key":"...","intent_name":"...","response":"...","keywords":["..."],"synonyms":["..."],"typos":["..."],"phrases":["..."],"question_variants":["..."],"offers_intent_name":null}]}.\n\nObjetivos: ${JSON.stringify(writingTargets.map(target => ({ proposal_key: target.proposalKey, intent_name: target.coverage.intent_name, question: target.coverage.question, scope_id: target.scopeId, facts: target.facts.map(fact => ({ id: fact.id, key: fact.key, subject: fact.subject, value: fact.value })) })))}`,
       text: {
         format: {
           type: 'json_schema',
@@ -585,6 +589,35 @@ export class DocumentCompilerService {
       if (vocabularyCheck.missed.length > 0) signals.push('poor_vocabulary');
       if (regression.missed.length > 0) signals.push('vocabulary_regression');
 
+      // Una respuesta de si/no sin oferta declarada es un callejon: el
+      // afirmativo del lead no tiene contra que resolverse.
+      const offerReason = checkOfferDeclared(proposal.response, proposal.offers_intent_name);
+      let offerTargetMissing: string | null = null;
+      if (!offerReason && proposal.offers_intent_name) {
+        const knownIntentNames = new Set([
+          ...writingTargets.map(item => item.coverage.intent_name),
+          ...intents.map((intent: any) => intent.intent_name),
+        ]);
+        if (!knownIntentNames.has(proposal.offers_intent_name)) {
+          offerTargetMissing = `La oferta declarada ("${proposal.offers_intent_name}") no corresponde a ninguna pregunta que el material sostenga.`;
+        }
+      }
+
+      // Una respuesta que reune datos de mas de una rama sin nombrarlas no es
+      // una respuesta que el lead pueda usar.
+      const factScopeIds = Array.from(new Set(target.facts.map(fact => fact.scopeId).filter(Boolean)));
+      const branchIds = Array.from(new Set(
+        (await Promise.all(factScopeIds.map(scopeId => scopeRepository.getBranchId(scopeId))))
+          .filter((id): id is string => Boolean(id))
+      ));
+      const branchNames = branchIds
+        .map(id => scopes.find((scope: any) => scope.id === id)?.name)
+        .filter((name): name is string => Boolean(name));
+      const branchReason = checkBranchesNamed(proposal.response, branchNames);
+
+      if (offerReason || offerTargetMissing) signals.push('unoffered_yes_no');
+      if (branchReason) signals.push('crosses_branches_unnamed');
+
       proposals.push({
         coverageId: target.coverage.id,
         scopeId: target.scopeId,
@@ -597,7 +630,8 @@ export class DocumentCompilerService {
         messageText: { fragments: [{ type: 'text' as const, content: proposal.response, delay: 0 }] },
         matcherPatterns,
         signals,
-        isPublishable: vocabularyCheck.missed.length === 0,
+        offersIntentName: proposal.offers_intent_name || null,
+        isPublishable: vocabularyCheck.missed.length === 0 && !offerReason && !offerTargetMissing && !branchReason,
         reviewDetails: {
           vocabulary_version: VOCABULARY_GENERATION_VERSION,
           vocabulary: {
@@ -609,6 +643,8 @@ export class DocumentCompilerService {
             reached: regression.reached,
             missed: regression.missed,
           },
+          offer: (offerReason || offerTargetMissing) ? { reason: offerReason || offerTargetMissing } : undefined,
+          branches: branchReason ? { reason: branchReason, names: branchNames } : undefined,
         },
         factIds: target.facts.flatMap(fact => fact.id ? [fact.id] : []),
       });

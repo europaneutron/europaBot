@@ -10,6 +10,7 @@ import { whatsappSender } from '@/services/whatsapp/message-sender';
 import { messageProcessor } from '@/core/conversation/message-processor';
 import { conversationRepository } from '@/data/repositories/conversation.repository';
 import { isSimpleResponseWithMedia } from '@/types/message-fragments.types';
+import { currentOfferPresentation } from '@/core/conversation/pending-offer-messages';
 
 /**
  * GET - Verificación del webhook (requerido por Meta)
@@ -100,12 +101,34 @@ export async function POST(request: NextRequest) {
       for (const botResponse of response.responses) {
         if (typeof botResponse === 'string') {
           // Verificar si es el mensaje de selección de horario y enviar con botones
-          const isTimeSelection = botResponse.includes('¿En qué momento del día') || 
+          const isTimeSelection = botResponse.includes('¿En qué momento del día') ||
                                  botResponse.includes('momento del día prefieres');
-          
-          if (isTimeSelection) {
+
+          // Una enumeración viva de dos o más opciones se manda como botones
+          // o lista interactiva, no como el texto plano que ya se guarda en
+          // BD: es el mismo texto, la única diferencia es el transporte.
+          const offerPresentation = user
+            ? await currentOfferPresentation(user.id, botResponse)
+            : null;
+
+          if (offerPresentation?.format === 'buttons') {
+            console.log(`📤 Enviando desambiguación con botones`);
+            await whatsappSender.sendInteractiveButtons({
+              to: from,
+              bodyText: offerPresentation.bodyText,
+              buttons: offerPresentation.buttons,
+            });
+          } else if (offerPresentation?.format === 'list') {
+            console.log(`📤 Enviando desambiguación con lista`);
+            await whatsappSender.sendListMessage({
+              to: from,
+              bodyText: offerPresentation.bodyText,
+              buttonText: offerPresentation.buttonText,
+              rows: offerPresentation.rows,
+            });
+          } else if (isTimeSelection) {
             console.log(`📤 Enviando selección de horario con botones`);
-            
+
             await whatsappSender.sendInteractiveButtons({
               to: from,
               bodyText: botResponse,
@@ -118,7 +141,7 @@ export async function POST(request: NextRequest) {
           } else {
             // Respuesta simple normal: enviar texto
             console.log(`📤 Enviando texto: "${botResponse.substring(0, 50)}..."`);
-            
+
             await whatsappSender.sendTextMessage({
               to: from,
               message: botResponse

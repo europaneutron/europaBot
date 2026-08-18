@@ -500,12 +500,14 @@ async function main(): Promise<void> {
       'The greeting must not list a scope nested inside a development'
     );
 
+    const priceDependency = await scopeRoutingRepository.findScopeDependency(intentName, null);
     assert(
-      await scopeRoutingRepository.isIntentScopeDependent(intentName),
+      priceDependency !== null && priceDependency.candidateIds.length === 2,
       'An intent answered by two different branches depends on the scope'
     );
+    const nestedDependency = await scopeRoutingRepository.findScopeDependency(nestedIntentName, null);
     assert(
-      !await scopeRoutingRepository.isIntentScopeDependent(nestedIntentName),
+      nestedDependency === null,
       'An intent answered twice inside the same branch does not depend on the scope'
     );
 
