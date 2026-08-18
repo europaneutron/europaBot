@@ -443,14 +443,30 @@ export class OnboardingService {
     const facts = await documentCompilerRepository.getFacts(run.id);
     const scopeEntries = Array.from(scopeByName.entries())
       .sort(([left], [right]) => right.length - left.length);
+
+    // Un hecho sin sujeto no dice de quien habla, pero el archivo del que salio
+    // si: el cliente sube el material de cada desarrollo, y ese material es la
+    // afirmacion de a quien pertenece lo que dice. Si el archivo nombra un solo
+    // desarrollo, sus hechos sin sujeto son de ese desarrollo.
+    const materialScope = await this.branchByMaterial(run, nodes, scopeByName);
     const factScopeById = new Map<string, string>();
     for (const fact of facts) {
       const subject = normalizeScopeAlias(fact.subject || '');
       const paddedSubject = ` ${subject} `;
-      const matchedScope = scopeEntries.find(([name]) => (
-        subject === name || paddedSubject.includes(` ${name} `)
-      ))?.[1];
-      factScopeById.set(fact.id, matchedScope || firstProjectId || ROOT_SCOPE_ID);
+      const matchedScope = subject
+        ? scopeEntries.find(([name]) => (
+            subject === name || paddedSubject.includes(` ${name} `)
+          ))?.[1]
+        : undefined;
+      // Sin sujeto ni procedencia, el hecho se queda en el negocio. Antes caia
+      // en `firstProjectId` --el primer proyecto de la lista, por estar
+      // primero--: en la corrida de FYMSA eso metio dentro de Europa los 18
+      // hechos sin sujeto del folleto de Altabrisa, su direccion incluida.
+      // "No se" tiene que llevar a la raiz, nunca a una pertenencia inventada.
+      factScopeById.set(
+        fact.id,
+        matchedScope || materialScope.get(fact.material_id) || ROOT_SCOPE_ID
+      );
     }
     await documentCompilerRepository.assignFactsToStructure(run.id, factScopeById);
     await documentCompilerRepository.approveTree(run.id, adminId);
@@ -470,6 +486,51 @@ export class OnboardingService {
         part_names: firstProjectParts,
       }),
     });
+  }
+
+  /**
+   * A que rama pertenece cada material, cuando se puede saber sin ambiguedad.
+   *
+   * Se mira el nombre del archivo y su texto: si ahi aparece el nombre --o un
+   * alias-- de exactamente un desarrollo, el material es de ese desarrollo. Si
+   * aparecen varios, o ninguno, el material no decide y sus hechos sin sujeto
+   * se quedan en el negocio.
+   *
+   * Es deterministico y no consulta al modelo: la procedencia ya esta guardada.
+   */
+  private async branchByMaterial(
+    run: { id: string; material_ids?: string[] },
+    nodes: ProposedNode[],
+    scopeByName: Map<string, string>
+  ): Promise<Map<string, string>> {
+    const byMaterial = new Map<string, string>();
+    const materialIds = run.material_ids || [];
+    if (materialIds.length === 0) return byMaterial;
+
+    const branchNames = nodes
+      .filter(node => !node.parent_name)
+      .map(node => ({
+        aliases: uniqueAliases([node.name, ...(node.aliases || [])])
+          .map(alias => alias.normalizedAlias)
+          .filter(Boolean),
+        scopeId: scopeByName.get(normalizeScopeAlias(node.name)),
+      }))
+      .filter((branch): branch is { aliases: string[]; scopeId: string } => Boolean(branch.scopeId));
+    if (branchNames.length < 2) return byMaterial;
+
+    const materials = await documentCompilerRepository.getMaterials(materialIds);
+    for (const material of materials) {
+      // El nombre del archivo cuenta tanto como el texto: un PDF que no se pudo
+      // leer como texto sigue llamandose `fymsa-altabrisa.pdf`.
+      const haystack = ` ${normalizeScopeAlias(
+        `${material.original_filename || ''} ${material.plain_text || ''}`.replace(/[^0-9a-zA-Z\u00C0-\u024F]+/g, ' ')
+      )} `;
+      const named = branchNames.filter(branch =>
+        branch.aliases.some(alias => haystack.includes(` ${alias} `))
+      );
+      if (named.length === 1) byMaterial.set(material.id, named[0].scopeId);
+    }
+    return byMaterial;
   }
 
   /**

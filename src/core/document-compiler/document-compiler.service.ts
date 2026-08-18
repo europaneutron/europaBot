@@ -508,7 +508,7 @@ export class DocumentCompilerService {
       ? `${toneInstruction(brand.tone)} Llama a los proyectos "${vocabulary.plural}" y a uno solo "${vocabulary.singular}".`
       : '';
     const requestProposals = async (targets: typeof writingTargets) => {
-      const response = await openai.responses.create({
+      const response = await this.askModelToWrite(openai, {
       model,
       store: false,
       input: `Redacta exactamente una respuesta breve de WhatsApp por cada objetivo usando exclusivamente sus hechos. Conserva proposal_key e intent_name literalmente. No combines objetivos, no inventes, no invites a agendar una cita y no uses emojis. ${brandInstruction} Para cada objetivo genera tambien el vocabulario con el que un lead preguntaria eso por WhatsApp. Las palabras deben salir de los hechos y del material de este cliente: no uses una lista fija del sector. keywords lleva al menos 2 palabras principales, synonyms al menos 2 formas equivalentes, typos al menos 1 errata probable y phrases al menos 3 preguntas completas y naturales. question_variants lleva 2 reformulaciones breves que funcionen como mensaje autonomo, sin nombre de empresa, desarrollo, modelo ni producto concreto; por ejemplo, para una pregunta de precio una variante seria "cuanto cuesta" y no "cuanto cuesta el modelo X". El nombre intent_name no cuenta como vocabulario y no debes copiarlo para completar listas. Evita terminar la respuesta en una pregunta de si o no salvo que sea necesario invitar a algo (ver planos, agendar, mostrar mas detalle); si lo haces, offers_intent_name debe llevar el intent_name de lo que le ofreces al lead (uno de los objetivos de esta misma lista, o el mismo intent_name si ofreces un nivel siguiente de el mismo). Si la respuesta no termina en pregunta de si o no, offers_intent_name debe ir null. Devuelve JSON con {"proposals":[{"proposal_key":"...","intent_name":"...","response":"...","keywords":["..."],"synonyms":["..."],"typos":["..."],"phrases":["..."],"question_variants":["..."],"offers_intent_name":null}]}.\n\nObjetivos: ${JSON.stringify(targets.map(target => ({ proposal_key: target.proposalKey, intent_name: target.coverage.intent_name, question: target.coverage.question, scope_id: target.scopeId, facts: target.facts.map(fact => ({ id: fact.id, key: fact.key, subject: fact.subject, value: fact.value })) })))}`,
@@ -708,10 +708,28 @@ export class DocumentCompilerService {
     };
   }
 
+  /**
+   * La llamada al modelo de la etapa de redaccion, en un metodo propio.
+   *
+   * No es indireccion por gusto: es el unico punto por el que una prueba puede
+   * hacer que el modelo se porte mal a proposito --devolver un objetivo de
+   * menos, JSON malformado, nada-- sin pagar una llamada real y sin esperar a
+   * que ocurra solo. La omision que dejo al Modelo Aura sin precio publicado
+   * paso una vez en seis corridas; asi se reproduce en milisegundos.
+   *
+   * En produccion nada cambia: recibe el cliente real y lo llama igual.
+   */
+  protected async askModelToWrite(
+    openai: { responses: { create: (request: any) => Promise<any> } },
+    request: any
+  ): Promise<{ output_text: string }> {
+    return openai.responses.create(request);
+  }
+
   private extractionPrompt(materials: Array<{ id: string; filename: string }>): string {
     return `Extrae hechos atómicos verificables de todo el material. Devuelve solo JSON con las claves facts, candidate_questions, business_name y proposed_tree. Cada hecho debe llevar material_id, key, subject, value, type (text, money, date, contractual, number o location), page y provenance_confidence.
 
-subject dice de qué habla el hecho: el modelo, la etapa o la unidad concreta a la que se refiere. Úsalo siempre que el mismo dato exista para varias cosas, de modo que tres modelos con tres precios sean tres hechos con la misma key y distinto subject. Deja subject en null solo cuando el hecho sea del desarrollo entero.
+subject dice de quién habla el hecho, con el nombre tal como aparece en el material: el modelo, la etapa o la unidad concreta cuando el dato es de una de ellas, y el nombre del desarrollo cuando el dato es del desarrollo entero —su dirección, su horario, sus amenidades, cuántas casas tiene—. Úsalo siempre que el mismo dato pueda existir para varias cosas, de modo que tres modelos con tres precios sean tres hechos con la misma key y distinto subject. Un mismo envío puede traer varios desarrollos, así que "el desarrollo entero" no basta para identificarlo: nómbralo. Deja subject en null únicamente cuando el hecho sea de la empresa completa y valga igual para todos sus desarrollos.
 
 Usa la misma key para el mismo tipo de dato en todo el material, y nómbrala en el idioma del documento. Descarta cualquier hecho cuya página no puedas atribuir. No resuelvas contradicciones ni elijas un valor: si el material afirma dos valores para el mismo subject, devuelve los dos. material_id debe ser uno de: ${JSON.stringify(materials)}. Las preguntas solo son candidatas; el preset nunca aporta hechos. business_name es la empresa que vende, solo cuando el material la identifica de forma explícita; no uses ahí el nombre del proyecto.
 
