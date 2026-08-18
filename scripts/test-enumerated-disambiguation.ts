@@ -269,8 +269,33 @@ async function main(): Promise<void> {
       phone, 'Cala', `t14-${suffix}`, 'Test'
     );
     assert(
+      mentionAfterFlow.scopeId === devB,
+      `A bare mention after a flow must still set focus: ${JSON.stringify(mentionAfterFlow)}`
+    );
+    assert(
       !mentionAfterFlow.responses.some(r => typeof r === 'string' && r.includes('agendar tu visita')),
       `A bare mention must not restart the appointment flow: ${JSON.stringify(mentionAfterFlow.responses)}`
+    );
+
+    // Saludar tampoco es una pregunta que repetir, y ademas suelta el foco:
+    // repetirlo al mencionar un alcance tiraba el foco que la mencion acababa
+    // de fijar. "hola" y luego "me interesa Europa" devolvia el saludo entero.
+    await messageProcessor.processMessage(phone, 'hola', `t15-${suffix}`, 'Test');
+    session = await userRepository.getSession(userId);
+    assert(
+      session?.last_intent_detected === 'saludo',
+      `The scenario needs the greeting as the last intent answered: ${session?.last_intent_detected}`
+    );
+    const mentionAfterGreeting = await messageProcessor.processMessage(
+      phone, 'Europa', `t16-${suffix}`, 'Test'
+    );
+    assert(
+      mentionAfterGreeting.scopeId === devA,
+      `A mention after a greeting must set focus, not replay the greeting: ${JSON.stringify(mentionAfterGreeting)}`
+    );
+    assert(
+      mentionAfterGreeting.detectedIntent?.intent_name !== 'saludo',
+      `A mention must not repeat the greeting: ${JSON.stringify(mentionAfterGreeting.responses)}`
     );
 
     console.log('Enumerated disambiguation verification passed');

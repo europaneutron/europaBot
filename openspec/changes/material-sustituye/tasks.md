@@ -68,5 +68,5 @@
 
 - [x] 9.1 Con la base sembrada y sucia, subir `fymsa-europa.txt` y `fymsa-altabrisa.txt` juntos, revisar y publicar
 - [x] 9.2 Comprobar en el simulador que no queda rastro del contenido anterior: ningun `[XXX]`, ninguna mencion a Europa desde el negocio, ningun desarrollo duplicado
-- [ ] 9.3 Comprobar que "me interesa Europa" fija el foco y que "que casas manejan" no cae al fallback, con el vocabulario salido del material
-- [ ] 9.4 Recorrer los turnos de `openspec/conversacion-objetivo.md` sobre el contenido publicado
+- [x] 9.3 Comprobado el 18 de agosto de 2026 sobre una corrida real del compilador: "me interesa Europa" fija el foco y ofrece los modelos de Europa, y "que casas manejan" responde desde el material
+- [x] 9.4 Turnos recorridos sobre el contenido publicado por esa misma corrida (ver 10.5 de `desambiguacion-enumerada`); la unica frase que sigue sin cubrir es de vocabulario, no de sustitucion

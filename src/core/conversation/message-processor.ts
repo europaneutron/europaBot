@@ -47,12 +47,18 @@ import {
 // cuenta, porque entonces la pregunta se reanudaría en cada mensaje siguiente.
 const RESUMING_FOCUS_SOURCES: ScopeFocusSource[] = ['alias', 'referral', 'override'];
 
-// Intenciones que no son una pregunta que repetir sino un flujo que arranca.
-// Mencionar un alcance a secas repite la última pregunta contestada, y con
-// `cita` ahí dentro eso significaba volver a abrir el agendamiento: un lead que
-// cancelaba y decía "Altabrisa" recibía otra vez "¿qué día te gustaría
-// visitarnos?". Repetir una pregunta es contestar de nuevo; reabrir un flujo no.
-const FLOW_INTENT_NAMES = new Set(['cita']);
+// Intenciones que no son una pregunta que repetir. Mencionar un alcance a
+// secas repite la última pregunta contestada, y estas tres no lo son:
+//
+//   `cita` arranca un flujo. Un lead que agendaba, cancelaba y decía
+//   "Altabrisa" recibía otra vez "¿qué día te gustaría visitarnos?".
+//
+//   `saludo` y `despedida` abren y cierran la conversación. Peor todavía:
+//   saludar suelta el foco, así que repetir el saludo al mencionar un alcance
+//   tiraba el foco que esa misma mención acababa de fijar. Medido tras un
+//   recorrido real del compilador: "hola" y luego "me interesa Europa"
+//   devolvía el saludo entero en vez del precio de Europa.
+const NON_REPEATABLE_INTENT_NAMES = new Set(['cita', 'saludo', 'despedida']);
 
 function isPendingQuestionFresh(session: UserSession | null): boolean {
   if (!session?.pending_scope_message || !session.pending_scope_updated_at) return false;
@@ -414,7 +420,7 @@ export class MessageProcessor {
         !detectionResult.detected
         && isFreshMention
         && sessionBeforeRouting?.last_intent_detected
-        && !FLOW_INTENT_NAMES.has(sessionBeforeRouting.last_intent_detected)
+        && !NON_REPEATABLE_INTENT_NAMES.has(sessionBeforeRouting.last_intent_detected)
       ) {
         const replay = await intentDetectionService.resolveByName(
           sessionBeforeRouting.last_intent_detected,
