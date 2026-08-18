@@ -1,5 +1,5 @@
 /**
- * Recorrido completo del compilador, de un PDF a un lead.
+ * Recorrido completo del compilador, de los dos materiales de FYMSA a un lead.
  *
  * Sube material, lo compila con el modelo real, comprueba las dos compuertas y
  * verifica que la respuesta aprobada llega por el matcher, sin que el runtime
@@ -35,16 +35,29 @@ async function main() {
 
   const suffix = randomUUID().slice(0, 8);
   const phone = `e2e${suffix}`;
-  let materialId: string | null = null;
+  const materialIds: string[] = [];
   let runId: string | null = null;
-  let storagePath: string | null = null;
   let responseId: string | null = null;
   let testScopeId: string | null = null;
+  let adminId: string | null = null;
 
   const previousTyping = (await supabaseServer.from('bot_config').select('config_value').eq('config_key', 'typing_indicator_enabled').single()).data?.config_value ?? 'true';
   await supabaseServer.from('bot_config').update({ config_value: 'false' }).eq('config_key', 'typing_indicator_enabled');
 
   try {
+    const email = `document-e2e-${suffix}@example.com`;
+    const { data: authData, error: authError } = await supabaseServer.auth.admin.createUser({
+      email,
+      password: `Local-${randomUUID()}-A1`,
+      email_confirm: true,
+    });
+    if (authError || !authData.user) throw authError || new Error('No se creó el administrador local');
+    adminId = authData.user.id;
+    const { error: adminError } = await supabaseServer.from('admin_users').insert({
+      id: adminId, email, full_name: 'Document Compiler E2E', role: 'super_admin', is_active: true,
+    });
+    if (adminError) throw adminError;
+
     const { data: testScope, error: testScopeError } = await supabaseServer
       .from('scopes')
       .insert({
@@ -58,27 +71,27 @@ async function main() {
     if (testScopeError) throw testScopeError;
     testScopeId = testScope.id;
 
-    const bytes = readFileSync(resolve(process.cwd(), 'scripts/fixtures/compiler/brochure-tabla.pdf'));
-    storagePath = `e2e/${randomUUID()}.pdf`;
-    const upload = await supabaseServer.storage.from('compiler-materials')
-      .upload(storagePath, bytes, { contentType: 'application/pdf' });
-    if (upload.error) throw upload.error;
-
-    const { data: material, error: materialError } = await supabaseServer.from('compiler_materials').insert({
-      scope_id: testScopeId,
-      material_kind: 'pdf',
-      original_filename: 'brochure-tabla.pdf',
-      storage_path: storagePath,
-      mime_type: 'application/pdf',
-      reading_status: 'ready',
-      checksum: createHash('sha256').update(bytes).digest('hex'),
-    }).select('id').single();
+    const materialRows = ['fymsa-europa.txt', 'fymsa-altabrisa.txt'].map(filename => {
+      const text = readFileSync(resolve(process.cwd(), 'scripts/fixtures/compiler', filename), 'utf8');
+      return {
+        scope_id: testScopeId,
+        material_kind: 'text',
+        original_filename: filename,
+        mime_type: 'text/plain',
+        plain_text: text,
+        reading_status: 'ready',
+        checksum: createHash('sha256').update(text).digest('hex'),
+        created_by: adminId,
+      };
+    });
+    const { data: materials, error: materialError } = await supabaseServer.from('compiler_materials')
+      .insert(materialRows).select('id');
     if (materialError) throw materialError;
-    materialId = material.id;
+    materialIds.push(...(materials || []).map(material => material.id));
 
     const { data: run, error: runError } = await supabaseServer.from('compiler_runs').insert({
       scope_id: testScopeId,
-      material_ids: [materialId],
+      material_ids: materialIds,
       status: 'running',
       current_stage: 'extract_facts',
     }).select('id').single();
@@ -87,7 +100,19 @@ async function main() {
 
     await documentCompilerService.runNextStage(runId!);
     const facts = await documentCompilerRepository.getFacts(runId!);
-    assert(facts.length > 0, 'la compilación extrae hechos de un PDF real');
+    assert(facts.length > 0, 'la compilación extrae hechos de los dos materiales');
+    assert(
+      materialIds.every(materialId => facts.some((fact: any) => fact.material_id === materialId)),
+      'cada material aporta hechos a la misma corrida'
+    );
+    const extractedRun = await documentCompilerRepository.getRun(runId!);
+    const proposedNames = (extractedRun.proposed_tree || [])
+      .map((node: { name?: string }) => (node.name || '').toLowerCase());
+    assert(
+      proposedNames.some((name: string) => name.includes('europa'))
+      && proposedNames.some((name: string) => name.includes('altabrisa')),
+      'la estructura propuesta contiene Europa y Altabrisa sin exigir dos corridas'
+    );
     assert(
       facts.every((fact: any) => fact.page_number > 0),
       'ningún hecho se conserva sin procedencia'
@@ -139,8 +164,13 @@ async function main() {
       .eq('compiler_proposal_id', proposal.id);
     assert(beforeApproval === 0, 'una propuesta pendiente no existe como respuesta del bot');
 
-    const { data: admin } = await supabaseServer.from('admin_users').select('id').eq('is_active', true).limit(1).single();
-    responseId = await documentCompilerRepository.approveProposal(proposal.id, admin!.id);
+    await documentCompilerRepository.publishRun(runId!, adminId);
+    const { data: publishedProposal } = await supabaseServer
+      .from('compiler_proposals')
+      .select('approved_response_id')
+      .eq('id', proposal.id)
+      .single();
+    responseId = publishedProposal?.approved_response_id || null;
     assert(!!responseId, 'aprobar publica la respuesta');
 
     const { data: published } = await supabaseServer.from('bot_responses')
@@ -181,11 +211,14 @@ async function main() {
       await supabaseServer.from('compiler_proposals').delete().eq('run_id', runId);
       await supabaseServer.from('compiler_runs').delete().eq('id', runId);
     }
-    if (materialId) await supabaseServer.from('compiler_materials').delete().eq('id', materialId);
-    if (storagePath) await supabaseServer.storage.from('compiler-materials').remove([storagePath]);
+    if (materialIds.length > 0) await supabaseServer.from('compiler_materials').delete().in('id', materialIds);
     if (testScopeId) {
       await supabaseServer.from('intent_configurations').delete().eq('scope_id', testScopeId);
       await supabaseServer.from('scopes').delete().eq('id', testScopeId);
+    }
+    if (adminId) {
+      await supabaseServer.from('admin_users').delete().eq('id', adminId);
+      await supabaseServer.auth.admin.deleteUser(adminId);
     }
     await supabaseServer.from('bot_config').update({ config_value: previousTyping }).eq('config_key', 'typing_indicator_enabled');
     intentDetectionService.invalidateAll();

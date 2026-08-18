@@ -43,7 +43,23 @@ export class DocumentCompilerRepository {
     return data;
   }
 
-  async createRun(scopeId: string, materialId: string, adminId: string) {
+  async deleteMaterials(materialIds: string[]) {
+    if (materialIds.length === 0) return;
+    const { error } = await supabaseServer
+      .from('compiler_materials')
+      .delete()
+      .in('id', materialIds)
+      .is('run_id', null);
+    if (error) throw error;
+  }
+
+  async createRun(
+    scopeId: string,
+    materialIds: string[],
+    adminId: string,
+    replacementMode: 'replace' | 'add' = 'replace'
+  ) {
+    if (materialIds.length === 0) throw new Error('La corrida requiere al menos un material');
     const { data: previous } = await supabaseServer
       .from('compiler_runs')
       .select('id')
@@ -57,7 +73,8 @@ export class DocumentCompilerRepository {
       .from('compiler_runs')
       .insert({
         scope_id: scopeId,
-        material_ids: [materialId],
+        material_ids: materialIds,
+        replacement_mode: replacementMode,
         current_stage: 'extract_facts',
         previous_run_id: previous?.id || null,
         created_by: adminId,
@@ -69,8 +86,11 @@ export class DocumentCompilerRepository {
     const { error: materialError } = await supabaseServer
       .from('compiler_materials')
       .update({ run_id: data.id })
-      .eq('id', materialId);
-    if (materialError) throw materialError;
+      .in('id', materialIds);
+    if (materialError) {
+      await supabaseServer.from('compiler_runs').delete().eq('id', data.id);
+      throw materialError;
+    }
     return data;
   }
 
@@ -153,6 +173,22 @@ export class DocumentCompilerRepository {
       .eq('run_id', runId);
     if (materialError) throw materialError;
 
+    const factsByScope = new Map<string, string[]>();
+    for (const [factId, scopeId] of Array.from(factScopeById.entries())) {
+      const ids = factsByScope.get(scopeId) || [];
+      ids.push(factId);
+      factsByScope.set(scopeId, ids);
+    }
+    for (const [scopeId, factIds] of Array.from(factsByScope.entries())) {
+      const { error } = await supabaseServer
+        .from('compiler_facts')
+        .update({ scope_id: scopeId })
+        .in('id', factIds);
+      if (error) throw error;
+    }
+  }
+
+  async assignFactsToStructure(runId: string, factScopeById: Map<string, string>) {
     const factsByScope = new Map<string, string[]>();
     for (const [factId, scopeId] of Array.from(factScopeById.entries())) {
       const ids = factsByScope.get(scopeId) || [];
@@ -390,31 +426,85 @@ export class DocumentCompilerRepository {
     const proposals = (proposalsResult.data || []).sort((left, right) =>
       right.review_signals.length - left.review_signals.length
     );
-    const intentIds = Array.from(new Set(proposals.map(proposal => proposal.intent_id)));
-    const replacementCandidates = intentIds.length === 0
-      ? []
-      : await this.getActiveResponsesForIntents(intentIds);
     return {
       run,
       facts: factsResult.data || [],
       coverage: coverageResult.data || [],
-      proposals: proposals.map(proposal => ({
-        ...proposal,
-        replacement_candidates: replacementCandidates.filter(row => row.intent_id === proposal.intent_id),
-      })),
+      proposals,
+      publication_impact: await this.getPublicationImpact(run, proposals),
     };
   }
 
-  private async getActiveResponsesForIntents(intentIds: string[]) {
-    const { data, error } = await supabaseServer
-      .from('bot_responses')
-      .select('id, intent_id, response_key, message_text, response_type, origin, edited_by_human, created_at')
-      .in('intent_id', intentIds)
-      .eq('is_active', true)
-      .order('order_priority')
-      .order('created_at');
-    if (error) throw error;
-    return data || [];
+  private async getPublicationImpact(run: any, proposals: any[]) {
+    if (run.replacement_mode === 'add') {
+      return { retired_scopes: [], retired_responses: 0, human_edited_responses: 0 };
+    }
+
+    const { scopeRepository } = await import('@/data/repositories/scope.repository');
+    const [scopes, affectedIds, intentsResult, responsesResult] = await Promise.all([
+      scopeRepository.getScopes(),
+      scopeRepository.getDescendantIds(run.scope_id),
+      supabaseServer.from('intent_configurations').select('id, scope_id, intent_name'),
+      supabaseServer.from('bot_responses').select('intent_id, edited_by_human').eq('is_active', true),
+    ]);
+    if (intentsResult.error) throw intentsResult.error;
+    if (responsesResult.error) throw responsesResult.error;
+
+    const pending = proposals.filter(item => item.approval_status === 'pending');
+    const affected = new Set(affectedIds);
+    const kept = new Set<string>([run.scope_id]);
+    const byId = new Map(scopes.map(scope => [scope.id, scope]));
+    for (const proposal of pending) {
+      let scopeId: string | null = proposal.scope_id;
+      while (scopeId && affected.has(scopeId) && !kept.has(scopeId)) {
+        kept.add(scopeId);
+        scopeId = byId.get(scopeId)?.parent_id || null;
+      }
+    }
+
+    // Lo que la corrida armó como estructura se conserva aunque no le haya
+    // tocado contenido: un modelo sin propuestas sigue siendo parte del árbol
+    // que el material describe.
+    for (const scope of scopes) {
+      if ((scope.metadata as any)?.compiler_run_id !== run.id) continue;
+      let scopeId: string | null = scope.id;
+      while (scopeId && affected.has(scopeId) && !kept.has(scopeId)) {
+        kept.add(scopeId);
+        scopeId = byId.get(scopeId)?.parent_id || null;
+      }
+    }
+
+    // Solo se retira el contenido de las preguntas que esta publicación cubre.
+    // Lo que el material no menciona --saludar, despedirse, agendar-- no lo
+    // produce ningún preset, así que retirarlo dejaría al bot sin ello para
+    // siempre.
+    const intentNameById = new Map(
+      (intentsResult.data || []).map(intent => [intent.id, intent.intent_name])
+    );
+    const publishedNames = new Set(
+      pending.flatMap(item => {
+        const name = intentNameById.get(item.intent_id);
+        return name ? [name] : [];
+      })
+    );
+    const affectedIntentIds = new Set(
+      (intentsResult.data || [])
+        .filter(intent =>
+          intent.scope_id &&
+          affected.has(intent.scope_id) &&
+          publishedNames.has(intent.intent_name)
+        )
+        .map(intent => intent.id)
+    );
+    const retiredResponses = (responsesResult.data || [])
+      .filter(response => affectedIntentIds.has(response.intent_id));
+    return {
+      retired_scopes: scopes
+        .filter(scope => affected.has(scope.id) && scope.id !== run.scope_id && scope.is_active && !kept.has(scope.id))
+        .map(scope => ({ id: scope.id, name: scope.name })),
+      retired_responses: retiredResponses.length,
+      human_edited_responses: retiredResponses.filter(response => response.edited_by_human).length,
+    };
   }
 
   async approveTree(runId: string, adminId: string | null) {
@@ -426,79 +516,22 @@ export class DocumentCompilerRepository {
     });
   }
 
-  async approveProposal(
-    proposalId: string,
-    adminId: string,
-    messageText?: unknown,
-    confirmReplacement = false
-  ) {
-    const { data, error } = await supabaseServer.rpc('approve_compiler_proposal', {
-      proposal_uuid: proposalId,
-      admin_uuid: adminId,
-      approved_message: messageText ?? null,
-      confirm_replacement: confirmReplacement,
-    });
+  async updateProposal(proposalId: string, messageText: unknown) {
+    const { error } = await supabaseServer
+      .from('compiler_proposals')
+      .update({ message_text: messageText, edited_by_human: true })
+      .eq('id', proposalId)
+      .eq('approval_status', 'pending');
     if (error) throw error;
-    return data as string;
   }
 
-  async listResponseCollisions() {
-    const { data: intents, error: intentError } = await supabaseServer
-      .from('intent_configurations')
-      .select('id, scope_id, intent_name, display_name, scopes(name)')
-      .eq('is_active', true);
-    if (intentError) throw intentError;
-    const { data: responses, error: responseError } = await supabaseServer
-      .from('bot_responses')
-      .select('id, intent_id, response_key, message_text, response_type, origin, edited_by_human, order_priority, created_at')
-      .eq('is_active', true)
-      .order('order_priority')
-      .order('created_at');
-    if (responseError) throw responseError;
-
-    const byIntent = new Map<string, any[]>();
-    for (const response of responses || []) {
-      const rows = byIntent.get(response.intent_id) || [];
-      rows.push(response);
-      byIntent.set(response.intent_id, rows);
-    }
-    return (intents || []).flatMap(intent => {
-      const rows = byIntent.get(intent.id) || [];
-      if (rows.length < 2) return [];
-      const supplementalKeys = new Set(['followup', 'maps', 'simulator']);
-      const supplemental = rows.filter(row => supplementalKeys.has(row.response_key));
-      const primary = rows
-        .filter(row => !supplementalKeys.has(row.response_key))
-        .sort((left, right) => Date.parse(right.created_at) - Date.parse(left.created_at))[0];
-      const recommendedRows = primary
-        ? [primary, ...supplemental].sort((left, right) => left.order_priority - right.order_priority)
-        : [];
-      return [{
-        ...intent,
-        responses: rows,
-        recommended_strategy: recommendedRows.length > 1 ? 'combine' : 'keep',
-        recommended_response_id: recommendedRows.length > 1 ? null : primary?.id || rows[0].id,
-        recommended_response_ids: recommendedRows.map(row => row.id),
-      }];
-    });
-  }
-
-  async resolveResponseCollision(
-    intentId: string,
-    adminId: string,
-    strategy: 'keep' | 'combine',
-    keepResponseId?: string,
-    combineResponseIds?: string[]
-  ) {
-    const { data, error } = await supabaseServer.rpc('resolve_response_collision', {
-      intent_uuid: intentId,
+  async publishRun(runId: string, adminId: string) {
+    const { data, error } = await supabaseServer.rpc('publish_compiler_run', {
+      run_uuid: runId,
       admin_uuid: adminId,
-      strategy,
-      keep_response_uuid: keepResponseId || null,
-      combine_response_uuids: combineResponseIds || null,
     });
     if (error) throw error;
-    return data as string;
+    return data;
   }
 
   async rejectProposal(proposalId: string) {

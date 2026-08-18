@@ -79,11 +79,13 @@ interface ProposedNode {
   name: string;
   scope_type: string;
   parent_name: string | null;
+  aliases?: string[];
 }
 
 export interface ProposedStructure {
   projectName: string;
   partNames: string[];
+  projectNames: string[];
   businessName: string | null;
 }
 
@@ -113,6 +115,7 @@ export function proposedStructureFromRun(run: any): ProposedStructure | null {
   return {
     projectName: project.name.trim(),
     partNames: Array.from(new Set(parts)),
+    projectNames: nodes.filter(node => !node.parent_name).map(node => node.name.trim()),
     businessName: typeof run?.stage_checkpoint?.business_name === 'string'
       ? run.stage_checkpoint.business_name.trim() || null
       : null,
@@ -304,10 +307,30 @@ export class OnboardingService {
     }
 
     const projectName = values.projectName.trim();
-    const proposedParts = proposedStructureFromRun(run)?.partNames || [];
-    const partNames = values.flatten
-      ? []
-      : Array.from(new Set(values.partNames.map(name => name.trim()).filter(Boolean)));
+    const proposedNodes = (Array.isArray(run.proposed_tree) ? run.proposed_tree : [])
+      .filter((node: ProposedNode) => (
+        node?.name?.trim() && (!node.parent_name || isSellableScopeType(node.scope_type))
+      ));
+    const firstRoot = proposedNodes.find((node: ProposedNode) => !node.parent_name);
+    const nodes = proposedNodes.map((node: ProposedNode) => {
+      if (node === firstRoot) return { ...node, name: projectName };
+      if (firstRoot && node.parent_name === firstRoot.name) {
+        return { ...node, parent_name: projectName };
+      }
+      return node;
+    });
+    if (values.flatten) {
+      for (let index = nodes.length - 1; index >= 0; index -= 1) {
+        if (nodes[index].parent_name === projectName) nodes.splice(index, 1);
+      }
+    } else if (firstRoot) {
+      const proposedParts = nodes
+        .filter((node: ProposedNode) => node.parent_name === projectName && isSellableScopeType(node.scope_type));
+      const partNames = Array.from(new Set(values.partNames.map(name => name.trim()).filter(Boolean)));
+      proposedParts.forEach((node: ProposedNode, index: number) => {
+        if (partNames[index]) node.name = partNames[index];
+      });
+    }
 
     // El alta no es atomica: son varios inserts sin transaccion. Si uno falla a
     // media lista, lo ya creado se queda, y el reintento del cliente vuelve a
@@ -329,31 +352,34 @@ export class OnboardingService {
       }
     };
 
-    const partsByName = new Map<string, string>();
-    let project;
+    const scopeByName = new Map<string, string>();
+    let firstProjectId: string | null = null;
     try {
-      project = await scopeRepository.create({
-        name: projectName,
-        slug: projectSlug(projectName),
-        parent_id: ROOT_SCOPE_ID,
-        scope_type: 'development',
-      });
-      created.push(project.id);
-      await scopeRoutingRepository.createAliases(project.id, uniqueAliases([projectName]));
-
-      for (let index = 0; index < partNames.length; index += 1) {
-        const name = partNames[index];
-        const part = await scopeRepository.create({
-          name,
-          slug: projectSlug(`${projectName}-${name}`),
-          parent_id: project.id,
-          scope_type: 'model',
+      const pending = [...nodes];
+      while (pending.length > 0) {
+        const creatableIndex = pending.findIndex((node: ProposedNode) => (
+          !node.parent_name || scopeByName.has(normalizeScopeAlias(node.parent_name))
+        ));
+        if (creatableIndex < 0) throw new Error('La estructura propuesta contiene un padre que no existe');
+        const [node] = pending.splice(creatableIndex, 1);
+        const parentId = node.parent_name
+          ? scopeByName.get(normalizeScopeAlias(node.parent_name))!
+          : ROOT_SCOPE_ID;
+        const aliases = uniqueAliases([node.name, ...(node.aliases || [])]);
+        const scope = await scopeRepository.create({
+          name: node.name.trim(),
+          slug: projectSlug(`${node.parent_name || ''}-${node.name}`),
+          parent_id: parentId,
+          scope_type: node.scope_type === 'opcion' ? 'model' : 'development',
+          is_active: false,
+          metadata: {
+            compiler_run_id: run.id,
+            compiler_aliases: aliases.map(item => item.alias),
+          },
         });
-        created.push(part.id);
-        await scopeRoutingRepository.createAliases(part.id, uniqueAliases([name]));
-        partsByName.set(normalizeScopeAlias(name), part.id);
-        const originalName = proposedParts[index];
-        if (originalName) partsByName.set(normalizeScopeAlias(originalName), part.id);
+        created.push(scope.id);
+        if (!node.parent_name && !firstProjectId) firstProjectId = scope.id;
+        for (const alias of aliases) scopeByName.set(alias.normalizedAlias, scope.id);
       }
     } catch (error) {
       await rollback();
@@ -361,31 +387,32 @@ export class OnboardingService {
     }
 
     const facts = await documentCompilerRepository.getFacts(run.id);
-    const partEntries = Array.from(partsByName.entries())
+    const scopeEntries = Array.from(scopeByName.entries())
       .sort(([left], [right]) => right.length - left.length);
     const factScopeById = new Map<string, string>();
     for (const fact of facts) {
       const subject = normalizeScopeAlias(fact.subject || '');
       const paddedSubject = ` ${subject} `;
-      const partScope = partEntries.find(([name]) => (
+      const matchedScope = scopeEntries.find(([name]) => (
         subject === name || paddedSubject.includes(` ${name} `)
       ))?.[1];
-      factScopeById.set(fact.id, partScope || project.id);
+      factScopeById.set(fact.id, matchedScope || firstProjectId || ROOT_SCOPE_ID);
     }
-    await documentCompilerRepository.assignRunToStructure(
-      run.id,
-      project.id,
-      factScopeById
-    );
+    await documentCompilerRepository.assignFactsToStructure(run.id, factScopeById);
     await documentCompilerRepository.approveTree(run.id, adminId);
+
+    const projectNames = nodes.filter((node: ProposedNode) => !node.parent_name).map((node: ProposedNode) => node.name);
+    const firstProjectParts = nodes
+      .filter((node: ProposedNode) => node.parent_name === projectName && isSellableScopeType(node.scope_type))
+      .map((node: ProposedNode) => node.name);
 
     return onboardingRepository.update(session.id, {
       step: 3,
-      scopeId: project.id,
+      scopeId: firstProjectId,
       answers: mergeAnswers(session.answers, {
         project_name: projectName,
-        aliases: [projectName],
-        part_names: partNames,
+        aliases: projectNames,
+        part_names: firstProjectParts,
       }),
     });
   }

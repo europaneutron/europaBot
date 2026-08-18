@@ -43,6 +43,7 @@ const extractionSchema = z.object({
     name: z.string().min(1),
     scope_type: z.enum(SCOPE_TYPE_VALUES),
     parent_name: z.string().nullable().default(null),
+    aliases: z.array(z.string().min(1)).default([]),
   })).default([]),
 });
 
@@ -92,11 +93,12 @@ const EXTRACTION_JSON_SCHEMA = {
       items: {
         type: 'object',
         additionalProperties: false,
-        required: ['name', 'scope_type', 'parent_name'],
+        required: ['name', 'scope_type', 'parent_name', 'aliases'],
         properties: {
           name: { type: 'string' },
           scope_type: { type: 'string', enum: SCOPE_TYPE_VALUES as unknown as string[] },
           parent_name: { type: ['string', 'null'] },
+          aliases: { type: 'array', items: { type: 'string' } },
         },
       },
     },
@@ -244,6 +246,21 @@ export class DocumentCompilerService {
         })
       ));
       throw new Error('El material no produjo hechos verificables; revisa si es legible');
+    }
+
+    const unreadableMaterials = materials.filter(material => (
+      !attributableFacts.some(fact => fact.materialId === material.id)
+    ));
+    if (unreadableMaterials.length > 0) {
+      await Promise.all(unreadableMaterials.map(material =>
+        documentCompilerRepository.updateMaterial(material.id, {
+          reading_status: 'unreadable',
+          reading_error: 'Este material no produjo hechos verificables',
+        })
+      ));
+      throw new Error(
+        `No se pudo leer: ${unreadableMaterials.map(material => material.original_filename).join(', ')}`
+      );
     }
 
     await documentCompilerRepository.replaceFacts(run.id, attributableFacts);
@@ -496,7 +513,7 @@ subject dice de qué habla el hecho: el modelo, la etapa o la unidad concreta a 
 
 Usa la misma key para el mismo tipo de dato en todo el material, y nómbrala en el idioma del documento. Descarta cualquier hecho cuya página no puedas atribuir. No resuelvas contradicciones ni elijas un valor: si el material afirma dos valores para el mismo subject, devuelve los dos. material_id debe ser uno de: ${JSON.stringify(materials)}. Las preguntas solo son candidatas; el preset nunca aporta hechos. business_name es la empresa que vende, solo cuando el material la identifica de forma explícita; no uses ahí el nombre del proyecto.
 
-proposed_tree describe únicamente estructura que el material sustenta. Clasifica cada nodo con scope_type: usa proyecto para lo que se comercializa como un todo, opcion para cada variante que un comprador elige y adquiere por separado, amenidad para lo que se comparte y no se vende —alberca, casa club, áreas verdes—, etapa para una fase de construcción o entrega, y otro para lo que no encaje. La distinción que importa es si alguien puede comprar ese nodo por sí solo: si no, no es una opcion.`;
+proposed_tree describe únicamente estructura que el material sustenta y debe incluir todos los desarrollos de todos los archivos. No incluyas a la empresa como nodo: cada desarrollo es un nodo raíz con parent_name null y sus modelos cuelgan de él. Si un desarrollo o modelo tiene otros nombres, conserva el nombre comercial en name y pon los demás en aliases; nunca crees dos nodos para el mismo producto. Clasifica cada nodo con scope_type: usa proyecto para lo que se comercializa como un todo, opcion para cada variante que un comprador elige y adquiere por separado, amenidad para lo que se comparte y no se vende —alberca, casa club, áreas verdes—, etapa para una fase de construcción o entrega, y otro para lo que no encaje. La distinción que importa es si alguien puede comprar ese nodo por sí solo: si no, no es una opcion.`;
   }
 }
 

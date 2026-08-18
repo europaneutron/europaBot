@@ -24,8 +24,21 @@ async function main() {
   let responseId: string | null = null;
   let interruptedRunId: string | null = null;
   let intentId: string | null = null;
+  let adminId: string | null = null;
 
   try {
+    const email = `compiler-integration-${suffix}@example.com`;
+    const { data: authData, error: authError } = await supabaseServer.auth.admin.createUser({
+      email,
+      password: `Local-${randomUUID()}-A1`,
+      email_confirm: true,
+    });
+    if (authError || !authData.user) throw authError || new Error('No se creó el administrador local');
+    adminId = authData.user.id;
+    const { error: adminError } = await supabaseServer.from('admin_users').insert({
+      id: adminId, email, full_name: 'Compiler Integration', role: 'super_admin', is_active: true,
+    });
+    if (adminError) throw adminError;
     const { data: intent, error: intentError } = await supabaseServer
       .from('intent_configurations')
       .insert({
@@ -84,6 +97,7 @@ async function main() {
       .insert({
         scope_id: scopeId,
         material_ids: [material.id],
+        replacement_mode: 'add',
         current_stage: 'review',
         status: 'waiting_content_approval',
         tree_approved_at: new Date().toISOString(),
@@ -134,17 +148,19 @@ async function main() {
       .eq('compiler_proposal_id', proposal.id);
     assert(beforeApproval === 0, 'una propuesta pendiente no llega al runtime');
 
-    const { data: approvedId, error: approvalError } = await supabaseServer.rpc(
-      'approve_compiler_proposal',
-      { proposal_uuid: proposal.id, admin_uuid: null, approved_message: null }
-    );
+    await documentCompilerRepository.publishRun(run.id, adminId);
+    const { data: approvedProposal, error: approvalError } = await supabaseServer
+      .from('compiler_proposals')
+      .select('approved_response_id')
+      .eq('id', proposal.id)
+      .single();
     if (approvalError) throw approvalError;
-    responseId = approvedId;
+    responseId = approvedProposal.approved_response_id;
 
     const { data: approved, error: approvedError } = await supabaseServer
       .from('bot_responses')
       .select('origin, response_fact_dependencies(fact_id)')
-      .eq('id', approvedId)
+      .eq('id', responseId)
       .single();
     if (approvedError) throw approvedError;
     assert(approved.origin === 'compiler', 'la aprobación publica una respuesta con origen compilador');
@@ -195,6 +211,10 @@ async function main() {
     ].filter(Boolean))) as string[];
     await purge('compiler_materials', 'id', materialIds);
     if (intentId) await purge('intent_configurations', 'id', [intentId]);
+    if (adminId) {
+      await purge('admin_users', 'id', [adminId]);
+      await supabaseServer.auth.admin.deleteUser(adminId);
+    }
 
     const { data: leftoverMaterials } = await supabaseServer.from('compiler_materials')
       .select('original_filename').like('original_filename', `%${suffix}%`);

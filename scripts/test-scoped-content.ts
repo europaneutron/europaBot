@@ -1,4 +1,4 @@
-import { randomUUID, createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { config } from 'dotenv';
 import { resolve } from 'node:path';
 
@@ -18,394 +18,349 @@ async function main() {
 
   const { supabaseServer } = await import('../src/services/supabase/server-client');
   const { documentCompilerRepository } = await import('../src/data/repositories/document-compiler.repository');
-  const { ScopeRepository, ROOT_SCOPE_ID } = await import('../src/data/repositories/scope.repository');
-  const { intentDetectionService } = await import('../src/core/intent-engine/intent-detection.service');
+  const { ROOT_SCOPE_ID } = await import('../src/data/repositories/scope.repository');
 
   const suffix = randomUUID().slice(0, 8);
+  const email = `material-replacement-${suffix}@example.com`;
+  const password = `Local-${randomUUID()}-A1`;
   const scopeIds: string[] = [];
   const intentIds: string[] = [];
-  const responseIds: string[] = [];
-  let runId: string | null = null;
-  let materialId: string | null = null;
+  const materialIds: string[] = [];
+  const runIds: string[] = [];
+  let adminId: string | null = null;
+  let leadId: string | null = null;
 
-  try {
-    const insertScope = async (parentId: string, name: string) => {
-      const { data, error } = await supabaseServer.from('scopes').insert({
-        parent_id: parentId,
-        name,
-        slug: `${name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${suffix}`,
-        scope_type: parentId === ROOT_SCOPE_ID ? 'proyecto' : 'opcion',
-      }).select('id').single();
-      if (error) throw error;
-      scopeIds.push(data.id);
-      return data.id as string;
-    };
+  const createScope = async (parentId: string, name: string, active = true, metadata = {}) => {
+    const { data, error } = await supabaseServer.from('scopes').insert({
+      parent_id: parentId,
+      name,
+      slug: `${name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${randomUUID().slice(0, 8)}`,
+      scope_type: parentId === ROOT_SCOPE_ID ? 'development' : 'model',
+      is_active: active,
+      metadata,
+    }).select('id').single();
+    if (error) throw error;
+    scopeIds.push(data.id);
+    return data.id as string;
+  };
 
-    const projectId = await insertScope(ROOT_SCOPE_ID, 'Scoped Project');
-    const modelAId = await insertScope(projectId, 'Scoped Model A');
-    const modelBId = await insertScope(projectId, 'Scoped Model B');
+  const createIntentWithResponse = async (scopeId: string, name: string, edited = false) => {
+    const { data: intent, error: intentError } = await supabaseServer.from('intent_configurations').insert({
+      scope_id: scopeId,
+      intent_name: name,
+      display_name: name,
+      keywords: [name],
+      is_active: true,
+    }).select('id').single();
+    if (intentError) throw intentError;
+    intentIds.push(intent.id);
+    const { data: response, error: responseError } = await supabaseServer.from('bot_responses').insert({
+      intent_id: intent.id,
+      intent_name: name,
+      response_key: 'main',
+      message_text: `Contenido anterior ${name}`,
+      response_type: 'simple',
+      is_active: true,
+      edited_by_human: edited,
+    }).select('id').single();
+    if (responseError) throw responseError;
+    return { intentId: intent.id as string, responseId: response.id as string };
+  };
 
-    const text = `Contenido por alcance ${suffix}`;
-    const { data: material, error: materialError } = await supabaseServer
-      .from('compiler_materials')
-      .insert({
-        scope_id: projectId,
-        material_kind: 'text',
-        original_filename: `scoped-${suffix}.txt`,
-        mime_type: 'text/plain',
-        plain_text: text,
-        reading_status: 'ready',
-        checksum: createHash('sha256').update(text).digest('hex'),
-      })
-      .select('id')
-      .single();
+  const createRunWithProposal = async (input: {
+    scopeId: string;
+    proposalScopeId: string;
+    mode: 'replace' | 'add';
+    intentName: string;
+  }) => {
+    const text = `Material ${input.intentName}`;
+    const { data: material, error: materialError } = await supabaseServer.from('compiler_materials').insert({
+      scope_id: input.scopeId,
+      material_kind: 'text',
+      original_filename: `${input.intentName}.txt`,
+      mime_type: 'text/plain',
+      plain_text: text,
+      reading_status: 'ready',
+      checksum: createHash('sha256').update(text).digest('hex'),
+      created_by: adminId,
+    }).select('id').single();
     if (materialError) throw materialError;
-    materialId = material.id;
+    materialIds.push(material.id);
 
-    const { data: run, error: runError } = await supabaseServer
-      .from('compiler_runs')
-      .insert({
-        scope_id: projectId,
-        material_ids: [material.id],
-        current_stage: 'review',
-        status: 'waiting_content_approval',
-        tree_approved_at: new Date().toISOString(),
-      })
-      .select('id')
-      .single();
+    const { data: run, error: runError } = await supabaseServer.from('compiler_runs').insert({
+      scope_id: input.scopeId,
+      material_ids: [material.id],
+      replacement_mode: input.mode,
+      current_stage: 'review',
+      status: 'waiting_content_approval',
+      tree_approved_at: new Date().toISOString(),
+      tree_approved_by: adminId,
+      created_by: adminId,
+    }).select('id').single();
     if (runError) throw runError;
-    runId = run.id;
+    runIds.push(run.id);
+    await supabaseServer.from('compiler_materials').update({ run_id: run.id }).eq('id', material.id);
 
-    const { data: fact, error: factError } = await supabaseServer
-      .from('compiler_facts')
-      .insert({
-        run_id: run.id,
-        material_id: material.id,
-        scope_id: modelAId,
-        fact_key: 'amenidad',
-        fact_value: 'Casa club',
-        fact_type: 'text',
-        page_number: 1,
-        fingerprint: createHash('sha256').update(`amenidad:${suffix}`).digest('hex'),
-      })
-      .select('id')
-      .single();
+    const { data: fact, error: factError } = await supabaseServer.from('compiler_facts').insert({
+      run_id: run.id,
+      material_id: material.id,
+      scope_id: input.proposalScopeId,
+      fact_key: 'precio',
+      fact_value: '$1,000,000',
+      fact_type: 'money',
+      page_number: 1,
+      fingerprint: createHash('sha256').update(`${run.id}:precio`).digest('hex'),
+    }).select('id').single();
     if (factError) throw factError;
 
-    const intentName = `amenidades_${suffix}`;
-    const { data: coverage, error: coverageError } = await supabaseServer
-      .from('compiler_coverage')
-      .insert({
-        run_id: run.id,
-        scope_id: projectId,
-        intent_name: intentName,
-        question: '¿Qué amenidades tiene?',
-        status: 'covered',
-        fact_ids: [fact.id],
-        source: 'material',
-      })
-      .select('id')
-      .single();
+    const { data: coverage, error: coverageError } = await supabaseServer.from('compiler_coverage').insert({
+      run_id: run.id,
+      scope_id: input.proposalScopeId,
+      intent_name: input.intentName,
+      question: '¿Cuánto cuesta?',
+      status: 'covered',
+      fact_ids: [fact.id],
+      source: 'material',
+    }).select('id').single();
     if (coverageError) throw coverageError;
 
     const [proposal] = await documentCompilerRepository.replaceProposals(run.id, [{
       coverageId: coverage.id,
-      scopeId: modelAId,
+      scopeId: input.proposalScopeId,
       intentId: null,
-      intentName,
-      displayName: 'Amenidades',
+      intentName: input.intentName,
+      displayName: 'Precio',
       minConfidence: 0.6,
       priority: 20,
-      responseKey: `compiler_${intentName}`,
-      messageText: { fragments: [{ type: 'text', content: 'Incluye casa club.', delay: 0 }] },
-      matcherPatterns: {
-        keywords: ['amenidades'],
-        synonyms: ['servicios'],
-        typos: [],
-        phrases: ['qué amenidades tiene'],
-      },
+      responseKey: `compiler_${input.intentName}`,
+      messageText: { fragments: [{ type: 'text', content: 'Precio nuevo.', delay: 0 }] },
+      matcherPatterns: { keywords: ['precio'], synonyms: [], typos: [], phrases: ['cuánto cuesta'] },
       signals: [],
       factIds: [fact.id],
     }]);
-    assert(Boolean(proposal), 'crea la propuesta en el alcance destino');
+    intentIds.push(proposal.intent_id);
+    return { runId: run.id as string, proposalId: proposal.id as string };
+  };
 
-    const { data: createdIntent, error: createdIntentError } = await supabaseServer
-      .from('intent_configurations')
-      .select('id, scope_id, is_active')
-      .eq('scope_id', modelAId)
-      .eq('intent_name', intentName)
-      .single();
-    if (createdIntentError) throw createdIntentError;
-    intentIds.push(createdIntent.id);
-    assert(createdIntent.scope_id === modelAId, 'crea la intención que falta en el modelo, no en la raíz');
-    assert(!createdIntent.is_active, 'la intención que nadie ha aprobado nace apagada');
-
-    // Generar contenido es automatico. Si la intencion naciera encendida, el
-    // lead que hace justo esa pregunta seria entendido por el matcher y
-    // recibiria una cortesia vacia, porque todavia no hay respuesta publicada.
-    const beforeApproval = await intentDetectionService.detect(
-      '¿Qué amenidades tiene?',
-      supabaseServer,
-      modelAId
-    );
-    assert(
-      beforeApproval.intent?.intent_name !== intentName,
-      'el vocabulario propuesto no llega al matcher antes de aprobarse'
-    );
-
-    const badIntentName = `atomic_${suffix}`;
-    let atomicFailureObserved = false;
-    try {
-      await documentCompilerRepository.replaceProposals(run.id, [
-        {
-          coverageId: coverage.id,
-          scopeId: modelBId,
-          intentId: null,
-          intentName: badIntentName,
-          displayName: 'Atomicidad',
-          minConfidence: 0.6,
-          priority: 1,
-          responseKey: 'compiler_atomic',
-          messageText: { fragments: [{ type: 'text', content: 'Temporal', delay: 0 }] },
-          matcherPatterns: { keywords: ['atomicidad'], synonyms: [], typos: [], phrases: [] },
-          signals: [],
-          factIds: [randomUUID()],
-        },
-      ]);
-    } catch {
-      atomicFailureObserved = true;
-    }
-    assert(atomicFailureObserved, 'un fallo a media escritura aborta el intento');
-    const { count: orphanIntentCount } = await supabaseServer
-      .from('intent_configurations')
-      .select('id', { count: 'exact', head: true })
-      .eq('scope_id', modelBId)
-      .eq('intent_name', badIntentName);
-    assert(orphanIntentCount === 0, 'la transacción no deja intenciones huérfanas');
-    const { count: preservedProposalCount } = await supabaseServer
-      .from('compiler_proposals')
-      .select('id', { count: 'exact', head: true })
-      .eq('id', proposal.id);
-    assert(preservedProposalCount === 1, 'la transacción fallida conserva la revisión anterior');
-
-    const { data: oldResponse, error: oldResponseError } = await supabaseServer
-      .from('bot_responses')
-      .insert({
-        intent_id: createdIntent.id,
-        intent_name: intentName,
-        response_key: 'main',
-        message_text: 'Texto redactado por una persona.',
-        response_type: 'simple',
-        is_active: true,
-        edited_by_human: true,
-      })
-      .select('id')
-      .single();
-    if (oldResponseError) throw oldResponseError;
-    responseIds.push(oldResponse.id);
-
-    const { data: siblingIntent, error: siblingIntentError } = await supabaseServer
-      .from('intent_configurations')
-      .insert({
-        scope_id: modelBId,
-        intent_name: intentName,
-        display_name: 'Amenidades',
-        keywords: ['amenidades'],
-        is_active: true,
-      })
-      .select('id')
-      .single();
-    if (siblingIntentError) throw siblingIntentError;
-    intentIds.push(siblingIntent.id);
-    const { data: siblingResponse, error: siblingResponseError } = await supabaseServer
-      .from('bot_responses')
-      .insert({
-        intent_id: siblingIntent.id,
-        intent_name: intentName,
-        response_key: 'main',
-        message_text: 'Respuesta del modelo hermano.',
-        response_type: 'simple',
-        is_active: true,
-      })
-      .select('id')
-      .single();
-    if (siblingResponseError) throw siblingResponseError;
-    responseIds.push(siblingResponse.id);
-
-    const { error: confirmationError } = await supabaseServer.rpc('approve_compiler_proposal', {
-      proposal_uuid: proposal.id,
-      admin_uuid: null,
-      approved_message: null,
-      confirm_replacement: false,
+  try {
+    const { data: authData, error: authError } = await supabaseServer.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
     });
+    if (authError || !authData.user) throw authError || new Error('No se creó el administrador local');
+    adminId = authData.user.id;
+    const { error: adminError } = await supabaseServer.from('admin_users').insert({
+      id: adminId,
+      email,
+      full_name: 'Material Replacement Test',
+      role: 'super_admin',
+      is_active: true,
+    });
+    if (adminError) throw adminError;
+
+    const projectId = await createScope(ROOT_SCOPE_ID, `Proyecto ${suffix}`);
+    const retiredModelId = await createScope(projectId, `Modelo viejo ${suffix}`);
+    const newModelId = await createScope(projectId, `Modelo nuevo ${suffix}`, false);
+    // La pregunta que el material nuevo tambien cubre: su contenido anterior
+    // tiene que desaparecer aunque lo haya escrito una persona.
+    const oldAtProject = await createIntentWithResponse(projectId, `precio_nuevo_${suffix}`, true);
+    const oldAtModel = await createIntentWithResponse(retiredModelId, `precio_nuevo_${suffix}`);
+    // Preguntas de las que el material no habla. `saludo` y `cita` las nombra
+    // el runtime por su nombre y ningun preset las produce: si la sustitucion
+    // se las llevara, el bot dejaria de saludar y de poder agendar para
+    // siempre. `despedida` no esta cableada y se pierde igual de callada.
+    const greeting = await createIntentWithResponse(projectId, 'saludo');
+    const appointment = await createIntentWithResponse(projectId, 'cita');
+    const farewell = await createIntentWithResponse(projectId, 'despedida');
+    const { count: configCountBefore } = await supabaseServer.from('bot_config')
+      .select('id', { count: 'exact', head: true });
+    const { data: lead, error: leadError } = await supabaseServer.from('users').insert({
+      phone_number: `replacement-${suffix}`,
+      name: 'Lead Replacement',
+    }).select('id').single();
+    if (leadError) throw leadError;
+    leadId = lead.id;
+    const now = new Date().toISOString();
+    const { error: sessionError } = await supabaseServer.from('user_sessions').insert({
+      user_id: lead.id,
+      current_scope_id: retiredModelId,
+      scope_focus_updated_at: now,
+    });
+    if (sessionError) throw sessionError;
+    const { error: progressError } = await supabaseServer.from('user_progress').insert({
+      user_id: lead.id,
+    });
+    if (progressError) throw progressError;
+    const { error: scopedProgressError } = await supabaseServer.from('user_scope_progress').insert({
+      user_id: lead.id,
+      scope_id: retiredModelId,
+      lead_score: 10,
+      lead_status: 'warm',
+    });
+    if (scopedProgressError) throw scopedProgressError;
+    const { error: conversationError } = await supabaseServer.from('conversations').insert({
+      user_id: lead.id,
+      direction: 'inbound',
+      message_text: 'Quiero información',
+      scope_id: retiredModelId,
+    });
+    if (conversationError) throw conversationError;
+    const { error: appointmentError } = await supabaseServer.from('appointments').insert({
+      user_id: lead.id,
+      appointment_date: '2030-01-15',
+      time_slot: 'morning',
+      time_slot_start: '09:00',
+      time_slot_end: '10:00',
+      scope_id: retiredModelId,
+    });
+    if (appointmentError) throw appointmentError;
+    const replacement = await createRunWithProposal({
+      scopeId: projectId,
+      proposalScopeId: newModelId,
+      mode: 'replace',
+      intentName: `precio_nuevo_${suffix}`,
+    });
+
+    // Un modelo que la corrida propuso y al que no le toco ninguna propuesta.
+    // Antes nacia y moria en la misma publicacion.
+    const emptyModelId = await createScope(projectId, `Modelo sin contenido ${suffix}`, false);
+    await supabaseServer.from('scopes').update({
+      metadata: { compiler_run_id: replacement.runId, compiler_aliases: [] },
+    }).eq('id', emptyModelId);
+
+    await supabaseServer.from('scopes').update({
+      metadata: {
+        compiler_run_id: replacement.runId,
+        compiler_aliases: ['x'.repeat(170)],
+      },
+    }).eq('id', newModelId);
+
+    const { error: failedPublish } = await supabaseServer.rpc('publish_compiler_run', {
+      run_uuid: replacement.runId,
+      admin_uuid: adminId,
+    });
+    assert(Boolean(failedPublish), 'un fallo a media publicación revierte la transacción');
+    const { data: preservedOld } = await supabaseServer.from('bot_responses')
+      .select('is_active').eq('id', oldAtProject.responseId).single();
+    assert(preservedOld?.is_active, 'el fallo conserva activo todo el contenido anterior');
+
+    await supabaseServer.from('scopes').update({
+      metadata: {
+        compiler_run_id: replacement.runId,
+        compiler_aliases: [`Nuevo ${suffix}`],
+      },
+    }).eq('id', newModelId);
+    const { data: versionBefore } = await supabaseServer.from('scope_tree_version')
+      .select('version').eq('singleton', true).single();
+    await documentCompilerRepository.publishRun(replacement.runId, adminId);
+    const { data: versionAfter } = await supabaseServer.from('scope_tree_version')
+      .select('version').eq('singleton', true).single();
     assert(
-      confirmationError?.message.includes('replacement_confirmation_required'),
-      'una respuesta humana no se sustituye sin confirmación explícita'
+      Number(versionAfter?.version) === Number(versionBefore?.version) + 1,
+      'publicar incrementa una sola vez la versión del contenido'
     );
 
-    const { data: approvedId, error: approvalError } = await supabaseServer.rpc(
-      'approve_compiler_proposal',
-      {
-        proposal_uuid: proposal.id,
-        admin_uuid: null,
-        approved_message: null,
-        confirm_replacement: true,
-      }
+    const { data: oldResponses } = await supabaseServer.from('bot_responses')
+      .select('id, is_active, inactive_reason').in('id', [oldAtProject.responseId, oldAtModel.responseId]);
+    assert(oldResponses?.every(row => !row.is_active && row.inactive_reason === 'material_replacement'), 'sustituir retira todo el contenido anterior, incluso el editado a mano');
+    const { data: scopesAfterReplace } = await supabaseServer.from('scopes')
+      .select('id, is_active').in('id', [projectId, retiredModelId, newModelId]);
+    const activeById = new Map(scopesAfterReplace?.map(scope => [scope.id, scope.is_active]));
+    const { data: survivors } = await supabaseServer.from('bot_responses')
+      .select('intent_name, is_active')
+      .in('id', [greeting.responseId, appointment.responseId, farewell.responseId]);
+    assert(
+      survivors?.every(row => row.is_active),
+      'una pregunta de la que el material no habla conserva su respuesta'
     );
-    if (approvalError) throw approvalError;
-    responseIds.push(approvedId);
+    const { data: survivingIntents } = await supabaseServer.from('intent_configurations')
+      .select('intent_name, is_active')
+      .in('id', [greeting.intentId, appointment.intentId, farewell.intentId]);
+    assert(
+      survivingIntents?.every(row => row.is_active),
+      'saludo, cita y despedida siguen activas tras sustituir'
+    );
 
-    const { data: activeAfterApproval, error: activeAfterApprovalError } = await supabaseServer
-      .from('bot_responses')
-      .select('id')
-      .eq('intent_id', createdIntent.id)
+    assert(activeById.get(projectId) === true, 'la raíz de la corrida nunca se retira');
+    assert(activeById.get(retiredModelId) === false, 'un alcance ausente del material deja de ofrecerse');
+    const { data: emptyModel } = await supabaseServer.from('scopes')
+      .select('is_active').eq('id', emptyModelId).single();
+    assert(
+      emptyModel?.is_active,
+      'un alcance que la corrida propuso sobrevive aunque no le tocara contenido'
+    );
+    assert(activeById.get(newModelId) === true, 'el alcance aprobado se activa al publicar');
+    const { count: activePublished } = await supabaseServer.from('bot_responses')
+      .select('id', { count: 'exact', head: true })
+      .eq('compiler_proposal_id', replacement.proposalId)
       .eq('is_active', true);
-    if (activeAfterApprovalError) throw activeAfterApprovalError;
-    assert(activeAfterApproval.length === 1, 'aprobar deja una sola respuesta activa en la pregunta y alcance');
-
-    const { data: intentAfterApproval, error: intentAfterApprovalError } = await supabaseServer
-      .from('intent_configurations')
-      .select('is_active')
-      .eq('id', createdIntent.id)
-      .single();
-    if (intentAfterApprovalError) throw intentAfterApprovalError;
-    assert(intentAfterApproval.is_active, 'aprobar enciende la intención junto con su respuesta');
-
-    const { data: replacement, error: replacementError } = await supabaseServer
-      .from('response_replacements')
-      .select('previous_response_id, replacement_response_id')
-      .eq('previous_response_id', oldResponse.id)
-      .single();
-    if (replacementError) throw replacementError;
-    assert(replacement.replacement_response_id === approvedId, 'la sustitución conserva qué respuesta reemplazó a cuál');
-    const { data: siblingAfterReplacement, error: siblingAfterReplacementError } = await supabaseServer
-      .from('bot_responses')
-      .select('is_active')
-      .eq('id', siblingResponse.id)
-      .single();
-    if (siblingAfterReplacementError) throw siblingAfterReplacementError;
-    assert(siblingAfterReplacement.is_active, 'sustituir en un modelo no modifica la respuesta de su hermano');
-
-    const { data: rejectedProposal, error: rejectedProposalError } = await supabaseServer
-      .from('compiler_proposals')
-      .insert({
-        run_id: run.id,
-        coverage_id: coverage.id,
-        scope_id: modelBId,
-        intent_id: siblingIntent.id,
-        response_key: `rejected_${suffix}`,
-        message_text: { fragments: [{ type: 'text', content: 'No debe publicarse.', delay: 0 }] },
-      })
-      .select('id')
-      .single();
-    if (rejectedProposalError) throw rejectedProposalError;
-    await documentCompilerRepository.rejectProposal(rejectedProposal.id);
-    const { data: siblingAfterRejection, error: siblingAfterRejectionError } = await supabaseServer
-      .from('bot_responses')
-      .select('is_active')
-      .eq('id', siblingResponse.id)
-      .single();
-    if (siblingAfterRejectionError) throw siblingAfterRejectionError;
-    assert(siblingAfterRejection.is_active, 'rechazar una propuesta conserva la respuesta activa');
-
-    const collisionIntentName = `seguimiento_${suffix}`;
-    const { data: collisionIntent, error: collisionIntentError } = await supabaseServer
-      .from('intent_configurations')
-      .insert({
-        scope_id: projectId,
-        intent_name: collisionIntentName,
-        display_name: 'Seguimiento',
-        keywords: [collisionIntentName],
-        is_active: true,
-      })
-      .select('id')
-      .single();
-    if (collisionIntentError) throw collisionIntentError;
-    intentIds.push(collisionIntent.id);
-
-    const { data: collisionResponses, error: collisionResponsesError } = await supabaseServer
-      .from('bot_responses')
-      .insert([
-        { intent_id: collisionIntent.id, intent_name: collisionIntentName, response_key: 'main', message_text: 'Mensaje principal literal.', response_type: 'simple', is_active: true, order_priority: 1 },
-        { intent_id: collisionIntent.id, intent_name: collisionIntentName, response_key: 'followup', message_text: 'Seguimiento literal.', response_type: 'simple', is_active: true, order_priority: 2 },
-      ])
-      .select('id');
-    if (collisionResponsesError) throw collisionResponsesError;
-    responseIds.push(...collisionResponses.map(row => row.id));
-
-    const { data: combinedId, error: combineError } = await supabaseServer.rpc(
-      'resolve_response_collision',
-      {
-        intent_uuid: collisionIntent.id,
-        admin_uuid: null,
-        strategy: 'combine',
-        keep_response_uuid: null,
-        combine_response_uuids: collisionResponses.map(row => row.id),
-      }
-    );
-    if (combineError) throw combineError;
-    responseIds.push(combinedId);
-    const { data: combined, error: combinedError } = await supabaseServer
-      .from('bot_responses')
-      .select('message_text, is_active')
-      .eq('id', combinedId)
-      .single();
-    if (combinedError) throw combinedError;
-    const contents = combined.message_text.fragments.map((fragment: { content: string }) => fragment.content);
+    assert(activePublished === 1, 'la corrida publica una sola respuesta nueva por propuesta');
+    const [leadResult, sessionResult, progressResult, scopedProgressResult, conversationResult, appointmentResult, configResult] = await Promise.all([
+      supabaseServer.from('users').select('id', { count: 'exact', head: true }).eq('id', lead.id),
+      supabaseServer.from('user_sessions').select('id', { count: 'exact', head: true }).eq('user_id', lead.id),
+      supabaseServer.from('user_progress').select('id', { count: 'exact', head: true }).eq('user_id', lead.id),
+      supabaseServer.from('user_scope_progress').select('id', { count: 'exact', head: true }).eq('user_id', lead.id),
+      supabaseServer.from('conversations').select('id', { count: 'exact', head: true }).eq('user_id', lead.id),
+      supabaseServer.from('appointments').select('id', { count: 'exact', head: true }).eq('user_id', lead.id),
+      supabaseServer.from('bot_config').select('id', { count: 'exact', head: true }),
+    ]);
     assert(
-      combined.is_active && contents.join('|') === 'Mensaje principal literal.|Seguimiento literal.',
-      'main y followup se convierten en fragmentos conservando texto y orden'
+      [leadResult, sessionResult, progressResult, scopedProgressResult, conversationResult, appointmentResult]
+        .every(result => result.count === 1)
+      && configResult.count === configCountBefore,
+      'leads, sesiones, progreso, conversaciones, citas y configuración sobreviven'
+    );
+    const { scopeRoutingService } = await import('../src/core/conversation/scope-routing.service');
+    const nextRouting = await scopeRoutingService.resolve({
+      userId: lead.id,
+      message: 'hola',
+    });
+    // Con varias ramas activas el foco suelto vuelve a la raiz del negocio; con
+    // una sola, a esa. La asercion anterior daba por hecho lo segundo, asi que
+    // solo pasaba sobre una base recien reseteada.
+    const branchCount = (await supabaseServer.from('scopes')
+      .select('id', { count: 'exact', head: true })
+      .eq('parent_id', ROOT_SCOPE_ID)
+      .eq('is_active', true)).count || 0;
+    assert(
+      nextRouting.scopeId === (branchCount === 1 ? projectId : ROOT_SCOPE_ID) &&
+      nextRouting.scopeId !== retiredModelId,
+      'un foco retirado se suelta y deja de responder desde el alcance retirado'
     );
 
-    const processA = new ScopeRepository();
-    const processB = new ScopeRepository();
-    await processA.getScopes(supabaseServer);
-    const lateScopeId = await insertScope(projectId, 'Scoped Late Model');
-    const scopesFromOtherProcess = await processB.getScopes(supabaseServer);
-    assert(
-      scopesFromOtherProcess.some(scope => scope.id === lateScopeId),
-      'la versión global invalida el árbol entre procesos sin esperar al TTL'
-    );
-    const { error: deactivateError } = await supabaseServer
-      .from('scopes')
-      .update({ is_active: false })
-      .eq('id', lateScopeId);
-    if (deactivateError) throw deactivateError;
-    const afterDeactivation = await processA.getScopes(supabaseServer);
-    assert(
-      afterDeactivation.find(scope => scope.id === lateScopeId)?.is_active === false,
-      'desactivar un alcance invalida de inmediato el árbol de otra instancia'
-    );
+    const addProjectId = await createScope(ROOT_SCOPE_ID, `Proyecto add ${suffix}`);
+    const existingAdd = await createIntentWithResponse(addProjectId, `existente_add_${suffix}`);
+    const addModelId = await createScope(addProjectId, `Modelo add ${suffix}`, false);
+    const addition = await createRunWithProposal({
+      scopeId: addProjectId,
+      proposalScopeId: addModelId,
+      mode: 'add',
+      intentName: `precio_add_${suffix}`,
+    });
+    await documentCompilerRepository.publishRun(addition.runId, adminId);
+    const { data: preservedAdd } = await supabaseServer.from('bot_responses')
+      .select('is_active').eq('id', existingAdd.responseId).single();
+    assert(preservedAdd?.is_active, 'el modo añadir conserva el contenido existente');
+
   } finally {
-    if (responseIds.length > 0) {
-      const { error: replacementError } = await supabaseServer
-        .from('response_replacements')
-        .delete()
-        .or(`previous_response_id.in.(${responseIds.join(',')}),replacement_response_id.in.(${responseIds.join(',')})`);
-      if (replacementError) throw replacementError;
-      const { error } = await supabaseServer.from('bot_responses').delete().in('id', responseIds);
-      if (error) throw error;
-    }
-    if (runId) {
-      const { error: proposalError } = await supabaseServer
-        .from('compiler_proposals')
-        .delete()
-        .eq('run_id', runId);
-      if (proposalError) throw proposalError;
-      const { error } = await supabaseServer.from('compiler_runs').delete().eq('id', runId);
-      if (error) throw error;
-    }
-    if (materialId) {
-      const { error } = await supabaseServer.from('compiler_materials').delete().eq('id', materialId);
-      if (error) throw error;
-    }
+    if (leadId) await supabaseServer.from('users').delete().eq('id', leadId);
+    if (runIds.length > 0) await supabaseServer.from('compiler_runs').delete().in('id', runIds);
+    if (materialIds.length > 0) await supabaseServer.from('compiler_materials').delete().in('id', materialIds);
     if (intentIds.length > 0) {
-      const { error } = await supabaseServer.from('intent_configurations').delete().in('id', intentIds);
-      if (error) throw error;
+      const { data: responses } = await supabaseServer.from('bot_responses').select('id').in('intent_id', intentIds);
+      const responseIds = (responses || []).map(response => response.id);
+      if (responseIds.length > 0) {
+        await supabaseServer.from('response_replacements').delete()
+          .or(`previous_response_id.in.(${responseIds.join(',')}),replacement_response_id.in.(${responseIds.join(',')})`);
+        await supabaseServer.from('bot_responses').delete().in('id', responseIds);
+      }
+      await supabaseServer.from('intent_configurations').delete().in('id', intentIds);
     }
-    for (const scopeId of scopeIds.reverse()) {
-      const { error } = await supabaseServer.from('scopes').delete().eq('id', scopeId);
-      if (error) throw error;
+    for (const scopeId of scopeIds.reverse()) await supabaseServer.from('scopes').delete().eq('id', scopeId);
+    if (adminId) {
+      await supabaseServer.from('admin_users').delete().eq('id', adminId);
+      await supabaseServer.auth.admin.deleteUser(adminId);
     }
   }
 }

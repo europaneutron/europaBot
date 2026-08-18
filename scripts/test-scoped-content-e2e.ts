@@ -55,8 +55,21 @@ async function main() {
   const phones = models.map((_, index) => `se${suffix}${index}`);
   let materialId: string | null = null;
   let runId: string | null = null;
+  let adminId: string | null = null;
 
   try {
+    const email = `scoped-e2e-${suffix}@example.com`;
+    const { data: authData, error: authError } = await supabaseServer.auth.admin.createUser({
+      email,
+      password: `Local-${randomUUID()}-A1`,
+      email_confirm: true,
+    });
+    if (authError || !authData.user) throw authError || new Error('No se creó el administrador local');
+    adminId = authData.user.id;
+    const { error: adminError } = await supabaseServer.from('admin_users').insert({
+      id: adminId, email, full_name: 'Scoped E2E', role: 'super_admin', is_active: true,
+    });
+    if (adminError) throw adminError;
     const { data: material, error: materialError } = await supabaseServer
       .from('compiler_materials')
       .insert({
@@ -156,15 +169,7 @@ async function main() {
     );
     assert(amenitiesProposal?.scope_id === project.id, 'crea la intención de amenidades que faltaba');
 
-    for (const proposal of proposals || []) {
-      const { error } = await supabaseServer.rpc('approve_compiler_proposal', {
-        proposal_uuid: proposal.id,
-        admin_uuid: null,
-        approved_message: null,
-        confirm_replacement: false,
-      });
-      if (error) throw error;
-    }
+    await documentCompilerRepository.publishRun(run.id, adminId);
 
     intentDetectionService.invalidateAll();
     for (let index = 0; index < models.length; index += 1) {
@@ -273,6 +278,10 @@ async function main() {
     }
     scopeRepository.invalidateCache();
     intentDetectionService.invalidateAll();
+    if (adminId) {
+      await supabaseServer.from('admin_users').delete().eq('id', adminId);
+      await supabaseServer.auth.admin.deleteUser(adminId);
+    }
   }
 }
 

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { documentCompilerRepository } from '@/data/repositories/document-compiler.repository';
 import { documentCompilerService } from '@/core/document-compiler/document-compiler.service';
 import { getAuthenticatedAdmin } from '@/lib/server/authenticated-admin';
+import { intentDetectionService } from '@/core/intent-engine/intent-detection.service';
 
 export async function GET(
   request: NextRequest,
@@ -25,6 +26,11 @@ export async function POST(
   if (!admin) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   try {
     const body = await request.json().catch(() => ({}));
+    if (body.action === 'publish') {
+      const result = await documentCompilerRepository.publishRun(params.runId, admin.id);
+      intentDetectionService.invalidateAll();
+      return NextResponse.json({ result });
+    }
     const run = body.action === 'approve_tree'
       ? await documentCompilerRepository.approveTree(params.runId, admin.id)
       : await documentCompilerService.runNextStage(params.runId);

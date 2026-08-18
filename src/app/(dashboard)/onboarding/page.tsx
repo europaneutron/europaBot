@@ -52,7 +52,8 @@ export default function OnboardingPage() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [materialText, setMaterialText] = useState('');
-  const [materialFile, setMaterialFile] = useState<File | null>(null);
+  const [materialFiles, setMaterialFiles] = useState<File[]>([]);
+  const [replacementMode, setReplacementMode] = useState<'replace' | 'add'>('replace');
   const [projectName, setProjectName] = useState('');
   const [aliases, setAliases] = useState('');
   const [partNames, setPartNames] = useState('');
@@ -120,7 +121,7 @@ export default function OnboardingPage() {
   }
 
   async function submitMaterial() {
-    if (!materialFile && !materialText.trim()) {
+    if (materialFiles.length === 0 && !materialText.trim()) {
       setMessage('Agrega un archivo o pega el texto de tu material.');
       return;
     }
@@ -128,12 +129,13 @@ export default function OnboardingPage() {
     setMessage(null);
     try {
       const form = new FormData();
-      if (materialFile) form.set('file', materialFile);
-      else form.set('text', materialText);
+      for (const file of materialFiles) form.append('files', file);
+      form.set('replacementMode', replacementMode);
+      if (materialFiles.length === 0) form.set('text', materialText);
       const response = await fetch('/api/onboarding', { method: 'POST', body: form });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error);
-      setMaterialFile(null);
+      setMaterialFiles([]);
       setMaterialText('');
       await mutate();
     } catch (submitError) {
@@ -232,13 +234,34 @@ export default function OnboardingPage() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="material-file">Archivo</Label>
-              <Input id="material-file" type="file" accept=".pdf,.doc,.docx,.txt" onChange={event => setMaterialFile(event.target.files?.[0] || null)} />
+              <Input id="material-file" type="file" multiple accept=".pdf,.doc,.docx,.txt" onChange={event => setMaterialFiles(Array.from(event.target.files || []))} />
+              {materialFiles.length > 0 ? (
+                <ul className="space-y-1 text-sm text-muted-foreground">
+                  {materialFiles.map(file => <li key={`${file.name}-${file.size}`}>{file.name}</li>)}
+                </ul>
+              ) : null}
             </div>
             <div className="space-y-2">
               <Label htmlFor="material-text">O pega el texto</Label>
-              <Textarea id="material-text" rows={7} value={materialText} onChange={event => setMaterialText(event.target.value)} disabled={Boolean(materialFile)} />
+              <Textarea id="material-text" rows={7} value={materialText} onChange={event => setMaterialText(event.target.value)} disabled={materialFiles.length > 0} />
             </div>
-            <Button disabled={busy || (!materialFile && !materialText.trim())} onClick={submitMaterial}>
+            <div className="space-y-2 rounded-md border p-4">
+              <div className="font-medium">Qué hacer con el contenido actual</div>
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" size="sm" variant={replacementMode === 'replace' ? 'default' : 'outline'} onClick={() => setReplacementMode('replace')}>
+                  Sustituir
+                </Button>
+                <Button type="button" size="sm" variant={replacementMode === 'add' ? 'default' : 'outline'} onClick={() => setReplacementMode('add')}>
+                  Añadir
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {replacementMode === 'replace'
+                  ? 'Al publicar, se retirará el contenido anterior que el material ya no incluya.'
+                  : 'Al publicar, se conservará el contenido actual y se agregará lo nuevo.'}
+              </p>
+            </div>
+            <Button disabled={busy || (materialFiles.length === 0 && !materialText.trim())} onClick={submitMaterial}>
               {busy ? <Loader2 className="animate-spin" /> : <FileText />} Agregar material
             </Button>
             <Button variant="ghost" disabled={busy} onClick={() => submit({ action: 'manual_setup' })}>
@@ -264,7 +287,10 @@ export default function OnboardingPage() {
             <section className="space-y-5">
               <div>
                 <Badge variant="secondary">Propuesta lista</Badge>
-                <h2 className="mt-3 text-xl font-semibold">Encontré {projectName || 'un proyecto'}{proposedParts.length ? `, con ${joinNames(proposedParts)}` : ''}. ¿Es así como lo vendes?</h2>
+                <h2 className="mt-3 text-xl font-semibold">
+                  Encontré {joinNames(data.proposedStructure.projectNames || [projectName])}
+                  {proposedParts.length ? `, con ${joinNames(proposedParts)} en ${projectName}` : ''}. ¿Es así como lo vendes?
+                </h2>
                 <p className="text-muted-foreground">Puedes corregir cualquier nombre antes de continuar.</p>
               </div>
               <div className="space-y-2">

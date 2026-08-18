@@ -154,12 +154,12 @@ async function main() {
     const { data: approvedRun, error: approvedError } = await supabaseServer
       .from('compiler_runs').select('scope_id, current_stage, tree_approved_at').eq('id', run.id).single();
     if (approvedError) throw approvedError;
-    assert(approvedRun.scope_id === session.scope_id && approvedRun.current_stage === 'catalog' && approvedRun.tree_approved_at,
-      'la confirmacion humana abre la preparacion del contenido');
+    assert(approvedRun.scope_id === ROOT_SCOPE_ID && approvedRun.current_stage === 'catalog' && approvedRun.tree_approved_at,
+      'la confirmacion conserva la corrida en el negocio completo y abre la preparacion');
 
     const aliases = await scopeRoutingRepository.getActiveAliases();
-    assert(aliases.some(alias => alias.scope_id === veronaScope?.id && alias.alias === missingPartName),
-      'los nombres propuestos quedan disponibles para el ruteo');
+    assert(!aliases.some(alias => alias.scope_id === veronaScope?.id),
+      'los nombres propuestos no llegan al ruteo antes de publicar la corrida');
 
     session = await onboardingService.saveVisitFlow(adminId, {
       choice: 'decided',
@@ -219,8 +219,8 @@ async function main() {
     assert(JSON.stringify(firstAfter) === JSON.stringify(firstBefore), 'un segundo proyecto no altera el primero');
 
     const composedState = await onboardingService.getState(adminId);
-    assert(composedState.composedGreeting.includes(projectName) && composedState.composedGreeting.includes(`Milano ${suffix}`),
-      'el saludo compuesto incorpora proyectos nuevos sin editar un texto');
+    assert(!composedState.composedGreeting.includes(projectName) && composedState.composedGreeting.includes(`Milano ${suffix}`),
+      'el saludo compuesto omite la estructura pendiente e incorpora proyectos publicados');
     const { configRepository } = await import('../src/data/repositories/config.repository');
     const typingWasEnabled = await configRepository.get('typing_indicator_enabled', 'false');
     await configRepository.set('typing_indicator_enabled', 'false');
@@ -264,9 +264,9 @@ async function main() {
     assert(
       typeof greetingText === 'string'
       && greetingText.includes(`Grupo ${suffix}`)
-      && greetingText.includes(projectName)
+      && !greetingText.includes(projectName)
       && greetingText.includes(`Milano ${suffix}`),
-      'un cliente sin saludo propio recibe el compuesto con la identidad y los proyectos actuales'
+      'un cliente sin saludo propio recibe el compuesto solo con proyectos activos'
     );
 
     console.log('Onboarding chat integration verified');

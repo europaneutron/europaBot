@@ -81,24 +81,28 @@ export async function POST(request: NextRequest) {
     const contentType = request.headers.get('content-type') || '';
     if (contentType.includes('multipart/form-data')) {
       const form = await request.formData();
-      const file = form.get('file');
+      const files = form.getAll('files')
+        .filter((value): value is File => value instanceof File && value.size > 0);
       const text = form.get('text');
+      const replacementMode = form.get('replacementMode') === 'add' ? 'add' : 'replace';
       const state = await onboardingService.getState(admin.id);
       if (state.session.status !== 'in_progress' || state.session.run_id) {
         return NextResponse.json({ error: 'Este recorrido ya tiene material' }, { status: 400 });
       }
 
-      const result = file instanceof File && file.size > 0
-        ? await materialIngestionService.ingestFile({
+      const result = files.length > 0
+        ? await materialIngestionService.ingestFiles({
             scopeId: ROOT_SCOPE_ID,
-            file,
+            files,
             adminId: admin.id,
+            replacementMode,
           })
         : await materialIngestionService.ingestText({
             scopeId: ROOT_SCOPE_ID,
             text: typeof text === 'string' ? text : '',
             filename: 'material.txt',
             adminId: admin.id,
+            replacementMode,
           });
       await onboardingService.attachRun(admin.id, result.run.id);
       return NextResponse.json(result, { status: 201 });
