@@ -14,7 +14,7 @@
 -- Por eso se instalan al publicar en vez de protegerse: no sobrevive nada, se
 -- regenera todo.
 
-CREATE FUNCTION public.install_base_conversation_kit(scope_uuid UUID)
+CREATE OR REPLACE FUNCTION public.install_base_conversation_kit(scope_uuid UUID)
 RETURNS VOID
 LANGUAGE plpgsql
 SET search_path = ''
@@ -355,8 +355,12 @@ BEGIN
   END LOOP;
 
   -- Se repone despues de retirar y de publicar, para que ninguna de las dos
-  -- cosas pueda dejar al bot sin saludar ni sin poder agendar.
-  PERFORM public.install_base_conversation_kit(compiler_run.scope_id);
+  -- cosas pueda dejar al bot sin saludar ni sin poder agendar. En modo anadir
+  -- no se retira nada, asi que reponer solo pisaria el vocabulario que el
+  -- cliente hubiera ajustado.
+  IF compiler_run.replacement_mode = 'replace' THEN
+    PERFORM public.install_base_conversation_kit(compiler_run.scope_id);
+  END IF;
 
   UPDATE public.compiler_runs
   SET status = 'completed',

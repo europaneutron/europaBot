@@ -371,17 +371,36 @@ async function main() {
     if (leadId) await supabaseServer.from('users').delete().eq('id', leadId);
     if (runIds.length > 0) await supabaseServer.from('compiler_runs').delete().in('id', runIds);
     if (materialIds.length > 0) await supabaseServer.from('compiler_materials').delete().in('id', materialIds);
-    if (intentIds.length > 0) {
-      const { data: responses } = await supabaseServer.from('bot_responses').select('id').in('intent_id', intentIds);
+    // Por alcance y no por la lista registrada: publicar repone el vocabulario
+    // base, y esas intenciones no las creo esta prueba. Sin ellas el borrado
+    // del alcance fallaba contra la clave foranea y el fallo se tiraba.
+    const { data: scopedIntents } = scopeIds.length > 0
+      ? await supabaseServer.from('intent_configurations').select('id').in('scope_id', scopeIds)
+      : { data: [] };
+    const allIntentIds = Array.from(new Set([
+      ...intentIds,
+      ...(scopedIntents || []).map(intent => intent.id),
+    ]));
+    if (allIntentIds.length > 0) {
+      const { data: responses } = await supabaseServer.from('bot_responses').select('id').in('intent_id', allIntentIds);
       const responseIds = (responses || []).map(response => response.id);
       if (responseIds.length > 0) {
         await supabaseServer.from('response_replacements').delete()
           .or(`previous_response_id.in.(${responseIds.join(',')}),replacement_response_id.in.(${responseIds.join(',')})`);
         await supabaseServer.from('bot_responses').delete().in('id', responseIds);
       }
-      await supabaseServer.from('intent_configurations').delete().in('id', intentIds);
+      await supabaseServer.from('intent_configurations').delete().in('id', allIntentIds);
     }
-    for (const scopeId of scopeIds.reverse()) await supabaseServer.from('scopes').delete().eq('id', scopeId);
+    // El error del borrado se comprueba: una fuga que no se ve es una fuga que
+    // se queda.
+    const leaked: string[] = [];
+    for (const scopeId of scopeIds.reverse()) {
+      const { error } = await supabaseServer.from('scopes').delete().eq('id', scopeId);
+      if (error) leaked.push(`${scopeId}: ${error.message}`);
+    }
+    if (leaked.length > 0) {
+      throw new Error(`La prueba dejó alcances sin borrar:\n  ${leaked.join('\n  ')}`);
+    }
     if (adminId) {
       await supabaseServer.from('admin_users').delete().eq('id', adminId);
       await supabaseServer.auth.admin.deleteUser(adminId);
