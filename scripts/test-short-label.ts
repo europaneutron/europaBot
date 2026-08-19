@@ -47,13 +47,16 @@ async function main() {
   const { ROOT_SCOPE_ID, scopeRepository } = await import('../src/data/repositories/scope.repository');
   const { documentCompilerRepository } = await import('../src/data/repositories/document-compiler.repository');
   const { DocumentCompilerService } = await import('../src/core/document-compiler/document-compiler.service');
+  const { configRepository } = await import('../src/data/repositories/config.repository');
 
   const suffix = randomUUID().slice(0, 8);
   const scopeIds: string[] = [];
   let runId: string | null = null;
   let materialId: string | null = null;
+  let previousContext: string | null = null;
 
   const writingCalls: string[][] = [];
+  const writingPrompts: string[] = [];
   const labelCalls: string[][] = [];
 
   // largo: rotulo demasiado largo en las dos vueltas -> cae al derivado.
@@ -77,6 +80,7 @@ async function main() {
       if (input.includes('Objetivos: ')) {
         const targets = JSON.parse(input.split('Objetivos: ')[1]);
         writingCalls.push(targets.map((t: any) => t.proposal_key));
+        writingPrompts.push(input);
         const proposals = targets.map((target: any) => {
           const caseName = target.intent_name.split('_')[0];
           const shortLabel = caseName === 'largo'
@@ -174,7 +178,31 @@ async function main() {
       if (coverageError) throw coverageError;
     }
 
+    // El contexto del negocio --Ajustes > Inteligencia Artificial-- tiene que
+    // llegar a la instruccion de redaccion, y acotado: es un campo libre.
+    const { data: contextRow } = await supabaseServer
+      .from('bot_config').select('config_value')
+      .eq('config_key', 'ai_business_context').is('scope_id', null).maybeSingle();
+    previousContext = contextRow?.config_value ?? '';
+    const longContext = `Constructora familiar de primera vivienda. ${'Detalle irrelevante. '.repeat(60)}`;
+    // Por el repositorio, no por SQL: es quien invalida su propia cache.
+    await configRepository.set('ai_business_context', longContext);
+
     await new StubbedCompiler().runNextStage(runId as string);
+
+    assert(
+      writingPrompts[0].includes('Constructora familiar de primera vivienda.'),
+      'el contexto del negocio llega a la instruccion de redaccion'
+    );
+    assert(
+      !writingPrompts[0].includes(longContext),
+      'un contexto larguisimo entra recortado, no entero'
+    );
+    assert(
+      writingPrompts[0].includes('no es una fuente de datos')
+      || writingPrompts[0].includes('no una fuente de datos'),
+      'se le dice que el contexto no es una fuente de hechos'
+    );
 
     assert(labelCalls.length === 1, `una sola vuelta de reintento de rotulo: ${labelCalls.length}`);
     assert(
@@ -237,6 +265,9 @@ async function main() {
         await supabaseServer.from('intent_configurations').delete().eq('id', intent.id);
       }
       await supabaseServer.from('scopes').delete().eq('id', scopeId);
+    }
+    if (previousContext !== null) {
+      await configRepository.set('ai_business_context', previousContext);
     }
     if (materialId) await supabaseServer.from('compiler_materials').delete().eq('id', materialId);
     scopeRepository.invalidateCache();

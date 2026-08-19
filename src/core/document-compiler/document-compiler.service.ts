@@ -34,8 +34,13 @@ import { toClientVocabulary, toneInstruction } from '@/core/onboarding/client-vo
 import { scopeRepository } from '@/data/repositories/scope.repository';
 import { catalogValueRepository } from '@/data/repositories/catalog-value.repository';
 import { extractVariableKeys, normalizeVariableKey } from '@/lib/interpolate-message';
+import { configRepository } from '@/data/repositories/config.repository';
 
-const VOCABULARY_GENERATION_VERSION = 9;
+const VOCABULARY_GENERATION_VERSION = 10;
+
+// Cuanto del contexto del negocio entra en la instruccion de redaccion. Es un
+// campo libre del dashboard: sin tope, un texto largo desplaza a los hechos.
+const BUSINESS_CONTEXT_MAX_LENGTH = 600;
 
 // Lo que describe una unidad y acompana bien a su precio. No es vocabulario del
 // sector cableado: son las claves que el propio material produjo, y si un
@@ -637,17 +642,30 @@ export class DocumentCompilerService {
       return targets;
     });
 
-    const [openai, model, brand] = await Promise.all([
+    const [openai, model, brand, businessContext] = await Promise.all([
       this.getWritingClient(),
       getAiModel('writing'),
       clientBrandRepository.get(),
+      configRepository.get('ai_business_context', ''),
     ]);
     const vocabulary = toClientVocabulary(brand);
     const linkedDataInstruction = 'Todo dato de un hecho debe aparecer como un hueco con su key exacta entre llaves, por ejemplo "Desde {precio}". Nunca copies cifras, importes, fechas, medidas ni otros valores dentro de la prosa. required_variables debe enumerar exactamente las keys usadas como huecos en response.';
+    // El contexto del negocio --Ajustes > Inteligencia Artificial-- entra en
+    // la redaccion, no en la extraccion: sirve para saber a quien se le habla
+    // y desde donde, no para sacar hechos. Se dice explicito que no es una
+    // fuente de datos, porque si no el modelo lo trata como material y escribe
+    // cosas que ningun documento respalda.
+    //
+    // Se acota el largo: es un campo libre del dashboard y un texto de mil
+    // lineas desplaza a los hechos, que son lo que importa en esta llamada.
+    const trimmedContext = (businessContext || '').trim().slice(0, BUSINESS_CONTEXT_MAX_LENGTH);
     const brandInstruction = [
       linkedDataInstruction,
       brand.is_configured
         ? `${toneInstruction(brand.tone)} Llama a los proyectos "${vocabulary.plural}" y a uno solo "${vocabulary.singular}".`
+        : '',
+      trimmedContext
+        ? `Asi describe el negocio quien lo opera, para que sepas a quien le escribes: "${trimmedContext}". Es contexto de trato, no una fuente de datos: no menciones nada de ahi como si fuera un hecho del material.`
         : '',
     ].filter(Boolean).join(' ');
     const requestProposals = async (targets: typeof writingTargets) => {
