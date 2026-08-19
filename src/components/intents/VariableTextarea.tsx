@@ -1,0 +1,181 @@
+/**
+ * El textarea del editor de respuestas, con sugerencias al escribir `{`.
+ *
+ * Enlazar un dato era elegirlo en un desplegable aparte y pulsar un botón, que
+ * lo pegaba al final del primer bloque de texto: ni donde estaba el cursor, ni
+ * necesariamente en el bloque que se estaba escribiendo. Aquí se escribe `{`
+ * donde va el dato y la lista sale sola.
+ *
+ * Solo se ofrecen los datos que ese alcance alcanza --los suyos y los que
+ * hereda-- porque son exactamente los que el runtime va a poder rellenar. Un
+ * hueco que no se puede rellenar deja la respuesta sin enviar.
+ */
+
+'use client';
+
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Textarea } from '@/components/ui/textarea';
+
+export interface VariableOption {
+  key: string;
+  preview: string;
+}
+
+interface VariableTextareaProps {
+  id?: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: VariableOption[];
+  placeholder?: string;
+  rows?: number;
+  disabled?: boolean;
+  'aria-label'?: string;
+  className?: string;
+}
+
+/**
+ * Lo que se está escribiendo dentro de una llave todavía sin cerrar, mirando
+ * solo hacia atrás desde el cursor. Si aparece un espacio, un salto o una
+ * llave de cierre antes de la de apertura, no se está nombrando un dato: es
+ * texto normal que casualmente lleva una llave.
+ */
+export function openVariableAt(text: string, caret: number): { start: number; query: string } | null {
+  for (let index = caret - 1; index >= 0; index -= 1) {
+    const character = text[index];
+    if (character === '{') return { start: index, query: text.slice(index + 1, caret) };
+    if (character === '}' || character === '\n' || character === ' ') return null;
+  }
+  return null;
+}
+
+function normalize(value: string): string {
+  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+}
+
+export function VariableTextarea({
+  id,
+  value,
+  onChange,
+  options,
+  placeholder,
+  rows = 3,
+  disabled,
+  className,
+  ...rest
+}: VariableTextareaProps) {
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [caret, setCaret] = useState<number | null>(null);
+  const [highlighted, setHighlighted] = useState(0);
+
+  const open = caret === null ? null : openVariableAt(value, caret);
+  const matches = useMemo(() => {
+    if (!open) return [];
+    const query = normalize(open.query);
+    return options
+      .filter(option => normalize(option.key).includes(query))
+      .slice(0, 8);
+  }, [open, options]);
+
+  useEffect(() => { setHighlighted(0); }, [open?.query]);
+
+  function insert(option: VariableOption) {
+    if (!open || caret === null) return;
+    const before = value.slice(0, open.start);
+    const after = value.slice(caret);
+    const token = `{${option.key}}`;
+    onChange(`${before}${token}${after}`);
+
+    // El cursor queda detrás de la llave de cierre para poder seguir
+    // escribiendo la frase sin tocar el ratón.
+    const nextCaret = before.length + token.length;
+    requestAnimationFrame(() => {
+      const element = textareaRef.current;
+      if (!element) return;
+      element.focus();
+      element.setSelectionRange(nextCaret, nextCaret);
+      setCaret(nextCaret);
+    });
+  }
+
+  const showList = Boolean(open) && matches.length > 0;
+
+  return (
+    <div className="relative">
+      <Textarea
+        {...rest}
+        id={id}
+        ref={textareaRef}
+        value={value}
+        rows={rows}
+        disabled={disabled}
+        placeholder={placeholder}
+        className={className}
+        onChange={event => {
+          onChange(event.target.value);
+          setCaret(event.target.selectionStart);
+        }}
+        onClick={event => setCaret((event.target as HTMLTextAreaElement).selectionStart)}
+        onKeyUp={event => {
+          // Las teclas que mueven la lista no mueven el cursor: si se leyera
+          // la posición aquí, bajar por las opciones cerraría la lista.
+          if (showList && ['ArrowDown', 'ArrowUp', 'Enter', 'Tab', 'Escape'].includes(event.key)) return;
+          setCaret((event.target as HTMLTextAreaElement).selectionStart);
+        }}
+        onBlur={() => {
+          // Con retraso, porque hacer clic en una opción quita el foco antes
+          // de que llegue el clic.
+          setTimeout(() => setCaret(null), 150);
+        }}
+        onKeyDown={event => {
+          if (!showList) return;
+          if (event.key === 'ArrowDown') {
+            event.preventDefault();
+            setHighlighted(current => (current + 1) % matches.length);
+          } else if (event.key === 'ArrowUp') {
+            event.preventDefault();
+            setHighlighted(current => (current - 1 + matches.length) % matches.length);
+          } else if (event.key === 'Enter' || event.key === 'Tab') {
+            event.preventDefault();
+            insert(matches[highlighted]);
+          } else if (event.key === 'Escape') {
+            event.preventDefault();
+            setCaret(null);
+          }
+        }}
+      />
+
+      {showList ? (
+        <ul
+          role="listbox"
+          aria-label="Datos del catálogo"
+          className="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded-md border bg-popover p-1 shadow-md"
+        >
+          {matches.map((option, index) => (
+            <li key={option.key}>
+              <button
+                type="button"
+                role="option"
+                aria-selected={index === highlighted}
+                className={`flex w-full items-center justify-between gap-3 rounded-sm px-2 py-1.5 text-left text-sm ${
+                  index === highlighted ? 'bg-accent text-accent-foreground' : ''
+                }`}
+                onMouseEnter={() => setHighlighted(index)}
+                onMouseDown={event => event.preventDefault()}
+                onClick={() => insert(option)}
+              >
+                <code className="shrink-0">{option.key}</code>
+                <span className="truncate text-muted-foreground">{option.preview}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+
+      {open && matches.length === 0 ? (
+        <p className="mt-1 text-xs text-muted-foreground">
+          Ningún dato de este alcance se llama así. Créalo en Catálogo o revisa el nombre.
+        </p>
+      ) : null}
+    </div>
+  );
+}

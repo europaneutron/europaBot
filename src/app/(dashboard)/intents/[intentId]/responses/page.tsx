@@ -51,7 +51,6 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
   const [blockErrors, setBlockErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [catalogValues, setCatalogValues] = useState<any[]>([]);
-  const [selectedValueKey, setSelectedValueKey] = useState('');
   const [scopeName, setScopeName] = useState<string | null>(null);
 
   const [formData, setFormData] = useState({
@@ -128,23 +127,12 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
     setShowForm(true);
   }
 
-  function insertCatalogValue() {
-    if (!selectedValueKey) return;
-    const token = `{${selectedValueKey}}`;
-    setBlocks(current => {
-      const textIndex = current.findIndex(block => block.type === 'text');
-      if (textIndex === -1) {
-        const block = createTextBlock();
-        return [{ ...block, content: token }, ...current];
-      }
-      return current.map((block, index) => (
-        index === textIndex && block.type === 'text'
-          ? { ...block, content: `${block.content}${block.content ? ' ' : ''}${token}` }
-          : block
-      ));
-    });
-    setSelectedValueKey('');
-  }
+  // Lo que el alcance de esta pregunta alcanza: sus datos propios y los que
+  // hereda. Son exactamente los que el runtime podra rellenar.
+  const variableOptions = catalogValues.map(value => ({
+    key: value.value_key,
+    preview: String(value.display_value ?? value.value ?? ''),
+  }));
 
   function isIncomplete(response: BotResponse): boolean {
     const keys = extractVariableKeys(describeResponse(response));
@@ -447,23 +435,15 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
               <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
                 <div className="space-y-2">
                   <Label>Bloques del mensaje</Label>
-                  <div className="flex flex-col gap-2 rounded-md border bg-muted/30 p-3 sm:flex-row">
-                    <Select value={selectedValueKey} onValueChange={setSelectedValueKey}>
-                      <SelectTrigger className="flex-1" aria-label="Dato del catálogo">
-                        <SelectValue placeholder="Enlazar un dato del catálogo" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {catalogValues.map(value => (
-                          <SelectItem key={value.id} value={value.value_key}>
-                            {value.value_key} · {value.display_value}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <Button type="button" variant="outline" onClick={insertCatalogValue} disabled={!selectedValueKey || saving}>
-                      Enlazar dato
-                    </Button>
-                  </div>
+                  {/* Enlazar un dato se hace escribiendo `{` dentro del texto:
+                      el desplegable de antes pegaba el hueco al final del
+                      primer bloque, no donde estaba el cursor. */}
+                  <p className="text-xs text-muted-foreground">
+                    Escribe <code>{'{'}</code> dentro del texto para enlazar un dato del catálogo.
+                    {catalogValues.length > 0
+                      ? ` Este alcance alcanza ${catalogValues.length} ${catalogValues.length === 1 ? 'dato' : 'datos'}.`
+                      : ' Este alcance todavía no tiene datos: créalos en Catálogo.'}
+                  </p>
                   <ResponseBlockList
                     blocks={blocks}
                     onChange={(next) => {
@@ -472,6 +452,7 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
                     }}
                     disabled={saving}
                     blockErrors={blockErrors}
+                    variableOptions={variableOptions}
                   />
                 </div>
                 {/* La vista previa acompaña el desplazamiento porque la lista de

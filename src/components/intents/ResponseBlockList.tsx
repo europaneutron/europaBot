@@ -29,6 +29,7 @@ import {
 } from '@/lib/constants/response-composer';
 import { uploadMediaFiles } from '@/services/storage/media-upload';
 import ResponseBlockItem from './ResponseBlockItem';
+import type { VariableOption } from './VariableTextarea';
 import MediaLibrary from '@/components/admin/MediaLibrary';
 import { Button } from '@/components/ui/button';
 import { ImageIcon, Video, FileText, Type, Loader2, AlertTriangle, Clock, Upload } from 'lucide-react';
@@ -39,9 +40,11 @@ interface ResponseBlockListProps {
   disabled?: boolean;
   /** Errores por id de bloque, calculados por el llamador al intentar guardar. */
   blockErrors?: Record<string, string>;
+  /** Datos del catalogo que este alcance alcanza, para sugerirlos con `{`. */
+  variableOptions?: VariableOption[];
 }
 
-export default function ResponseBlockList({ blocks, onChange, disabled, blockErrors }: ResponseBlockListProps) {
+export default function ResponseBlockList({ blocks, onChange, disabled, blockErrors, variableOptions = [] }: ResponseBlockListProps) {
   const [showMediaLibrary, setShowMediaLibrary] = useState<'image' | 'video' | 'document' | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadErrors, setUploadErrors] = useState<string[]>([]);
@@ -248,6 +251,7 @@ export default function ResponseBlockList({ blocks, onChange, disabled, blockErr
                 total={blocks.length}
                 error={blockErrors?.[block.id]}
                 disabled={disabled}
+                variableOptions={variableOptions}
                 controlsDisabled={controlsDisabled}
                 onChange={(updated) => updateBlock(index, updated)}
                 onRemove={() => removeBlock(index)}

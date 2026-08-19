@@ -16,7 +16,7 @@ import { EditorBlock } from '@/lib/utils/response-blocks';
 import { BLOCK_DELAY_OPTIONS } from '@/lib/constants/response-composer';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
+import { VariableTextarea, type VariableOption } from '@/components/intents/VariableTextarea';
 import { Badge } from '@/components/ui/badge';
 import {
   Select,
@@ -60,6 +60,8 @@ interface ResponseBlockItemProps {
   total: number;
   error?: string;
   disabled?: boolean;
+  /** Datos que este alcance alcanza, para sugerirlos al escribir `{`. */
+  variableOptions: VariableOption[];
   controlsDisabled?: boolean;
   onChange: (block: EditorBlock) => void;
   onRemove: () => void;
@@ -88,6 +90,7 @@ export default function ResponseBlockItem({
   error,
   disabled,
   controlsDisabled,
+  variableOptions,
   onChange,
   onRemove,
   onMoveUp,
@@ -223,11 +226,12 @@ export default function ResponseBlockItem({
 
       <div className="space-y-2 p-3">
         {block.type === 'text' && (
-          <Textarea
+          <VariableTextarea
             id={`block-content-${block.id}`}
             value={block.content}
-            onChange={(e) => onChange({ ...block, content: e.target.value })}
-            placeholder="Escribe el texto de este mensaje..."
+            onChange={(content) => onChange({ ...block, content })}
+            options={variableOptions}
+            placeholder="Escribe el texto. Con { enlazas un dato del catálogo."
             rows={3}
             disabled={disabled}
             aria-label={`Contenido del bloque ${index + 1}`}
