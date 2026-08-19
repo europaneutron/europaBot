@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import useSWR from 'swr';
-import { Check, Database, ExternalLink, Pencil, X } from 'lucide-react';
+import { Check, Database, ExternalLink, Loader2, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -14,6 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Label } from '@/components/ui/label';
 import {
   Table,
   TableBody,
@@ -24,6 +25,17 @@ import {
 } from '@/components/ui/table';
 
 const ROOT_SCOPE_ID = '00000000-0000-4000-8000-000000000001';
+
+// Los que se usan de verdad al capturar a mano. El resto de tipos existen para
+// lo que extrae el compilador y aqui solo estorbarian.
+const VALUE_TYPES = [
+  { value: 'text', label: 'Texto' },
+  { value: 'money', label: 'Dinero' },
+  { value: 'number', label: 'Numero' },
+  { value: 'date', label: 'Fecha' },
+  { value: 'location', label: 'Ubicacion' },
+  { value: 'contractual', label: 'Condicion' },
+];
 
 async function fetcher(url: string) {
   const response = await fetch(url);
@@ -42,6 +54,10 @@ export default function CatalogPage() {
   const [draft, setDraft] = useState('');
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [newKey, setNewKey] = useState('');
+  const [newValue, setNewValue] = useState('');
+  const [newType, setNewType] = useState('text');
+  const [newUnit, setNewUnit] = useState('');
 
   const selectableScopes = useMemo(
     () => (data?.scopes || []).filter((scope: any) => scope.scope_type === 'root' || scope.parent_id === ROOT_SCOPE_ID),
@@ -68,6 +84,54 @@ export default function CatalogPage() {
       setSaving(false);
     }
   }
+
+  async function addValue() {
+    setSaving(true);
+    setMessage(null);
+    try {
+      const response = await fetch('/api/catalog-values', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          scopeId,
+          valueKey: newKey,
+          value: newValue,
+          valueType: newType,
+          unit: newUnit.trim() || null,
+        }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error);
+      setNewKey('');
+      setNewValue('');
+      setNewUnit('');
+      setMessage('Dato agregado. El bot lo usara en el siguiente mensaje.');
+      await mutate();
+    } catch (addError) {
+      setMessage(addError instanceof Error ? addError.message : 'No fue posible agregar el dato');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function removeValue(row: any) {
+    if (!confirm(`¿Borrar "${row.value_key}" de ${row.scopes?.name || 'este alcance'}? Las respuestas que lo mencionen dejaran de enviarse hasta que exista otra vez.`)) return;
+    setSaving(true);
+    setMessage(null);
+    try {
+      const response = await fetch(`/api/catalog-values/${row.id}`, { method: 'DELETE' });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error);
+      setMessage('Dato borrado.');
+      await mutate();
+    } catch (deleteError) {
+      setMessage(deleteError instanceof Error ? deleteError.message : 'No fue posible borrar el dato');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const scopeName = selectableScopes.find((scope: any) => scope.id === scopeId)?.name || 'este alcance';
 
   return (
     <div className="mx-auto max-w-7xl space-y-6 p-4 md:p-8">
@@ -99,6 +163,40 @@ export default function CatalogPage() {
               ))}
             </SelectContent>
           </Select>
+
+          {/* Escribir un dato nuevo. Hasta ahora el catalogo solo se llenaba
+              compilando: se podia corregir un valor, no crearlo. */}
+          <div className="grid gap-3 rounded-md border p-4 sm:grid-cols-5">
+            <div className="space-y-1">
+              <Label htmlFor="new-key">Dato</Label>
+              <Input id="new-key" value={newKey} onChange={event => setNewKey(event.target.value)} placeholder="precio" disabled={saving} />
+            </div>
+            <div className="space-y-1 sm:col-span-2">
+              <Label htmlFor="new-value">Valor</Label>
+              <Input id="new-value" value={newValue} onChange={event => setNewValue(event.target.value)} placeholder="700000" disabled={saving} />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="new-type">Tipo</Label>
+              <Select value={newType} onValueChange={setNewType}>
+                <SelectTrigger id="new-type"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {VALUE_TYPES.map(type => (
+                    <SelectItem key={type.value} value={type.value}>{type.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="new-unit">Unidad</Label>
+              <Input id="new-unit" value={newUnit} onChange={event => setNewUnit(event.target.value)} placeholder="MXN, m2" disabled={saving} />
+            </div>
+            <div className="sm:col-span-5">
+              <Button disabled={saving || !newKey.trim() || !newValue.trim()} onClick={addValue}>
+                {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
+                Agregar a {scopeName}
+              </Button>
+            </div>
+          </div>
 
           <div className="overflow-x-auto rounded-md border">
             <Table>
@@ -155,14 +253,25 @@ export default function CatalogPage() {
                           </Button>
                         </div>
                       ) : (
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          onClick={() => { setEditingId(row.id); setDraft(String(row.value)); setMessage(null); }}
-                          aria-label={`Editar ${row.value_key}`}
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </Button>
+                        <div className="flex gap-1">
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => { setEditingId(row.id); setDraft(String(row.value)); setMessage(null); }}
+                            aria-label={`Editar ${row.value_key}`}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => removeValue(row)}
+                            disabled={saving}
+                            aria-label={`Borrar ${row.value_key}`}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
                       )}
                     </TableCell>
                   </TableRow>

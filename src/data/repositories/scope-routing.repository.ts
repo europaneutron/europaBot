@@ -30,6 +30,25 @@ export class ScopeRoutingRepository {
     return (data || []) as ScopeAlias[];
   }
 
+  /**
+   * Deja el alcance exactamente con estos alias: los que sobran se borran.
+   * Es lo que espera quien edita una lista en pantalla --quitar una linea la
+   * quita-- a diferencia de `createAliases`, que solo agrega.
+   */
+  async replaceAliases(
+    scopeId: string,
+    aliases: Array<{ alias: string; normalizedAlias: string }>
+  ): Promise<void> {
+    const keep = aliases.map(item => item.normalizedAlias);
+    await this.createAliases(scopeId, aliases);
+
+    let query = supabaseServer.from('scope_aliases').delete().eq('scope_id', scopeId);
+    if (keep.length > 0) query = query.not('normalized_alias', 'in', `(${keep.map(a => `"${a}"`).join(',')})`);
+
+    const { error } = await query;
+    if (error) throw error;
+  }
+
   async findActiveScopeByAd(adId: string): Promise<string | null> {
     const { data, error } = await supabaseServer
       .from('scope_ads')
@@ -41,6 +60,21 @@ export class ScopeRoutingRepository {
     if (!data?.scope_id) return null;
 
     return await scopeRepository.isReachableScope(data.scope_id) ? data.scope_id : null;
+  }
+
+  /**
+   * Todos los alias, tambien los de un alcance retirado. Es la vista de
+   * administracion: quien configura tiene que ver lo que hay, no solo lo que
+   * el runtime usa --para eso esta `getActiveAliases`--.
+   */
+  async getAllAliases(): Promise<ScopeAlias[]> {
+    const { data, error } = await supabaseServer
+      .from('scope_aliases')
+      .select('id, scope_id, alias')
+      .order('alias', { ascending: true });
+
+    if (error) throw error;
+    return (data || []) as ScopeAlias[];
   }
 
   async getActiveAliases(): Promise<ScopeAlias[]> {

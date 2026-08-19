@@ -112,6 +112,29 @@ export class ScopeRepository {
     this.invalidateCache(client);
   }
 
+  /**
+   * Enciende o apaga un alcance. Apagarlo lo retira de la conversacion --el
+   * runtime resuelve sobre alcances alcanzables-- sin perder su contenido, y
+   * arrastra a lo que cuelga de el, que es lo correcto: un desarrollo agotado
+   * no deja vivos a sus modelos.
+   */
+  async setActive(
+    scopeId: string,
+    isActive: boolean,
+    client: any = supabaseServer
+  ): Promise<Scope> {
+    const { data, error } = await client
+      .from('scopes')
+      .update({ is_active: isActive })
+      .eq('id', scopeId)
+      .select('*')
+      .single();
+
+    if (error) throw error;
+    this.invalidateCache(client);
+    return data as Scope;
+  }
+
   async rename(
     scopeId: string,
     name: string,

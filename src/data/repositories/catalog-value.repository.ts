@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { supabaseServer } from '@/services/supabase/server-client';
 import { scopeRepository } from '@/data/repositories/scope.repository';
+import { normalizeVariableKey } from '@/lib/interpolate-message';
 import {
   CATALOG_VALUE_TYPES,
   type CatalogReplacementWarning,
@@ -206,6 +207,54 @@ export class CatalogValueRepository {
       .single();
     if (error) throw error;
     return data as CatalogValue;
+  }
+
+  /**
+   * Un dato escrito a mano. Hasta ahora el catalogo solo se llenaba desde una
+   * corrida del compilador, asi que un negocio de dos desarrollos no podia
+   * teclear sus propios datos: podia corregir un valor, no crearlo.
+   *
+   * `edited_by_human` desde el nacimiento, porque lo es, y sin origen en un
+   * material: nadie lo extrajo de un documento.
+   */
+  async createValue(
+    scopeId: string,
+    valueKey: string,
+    input: CatalogValueInput,
+    adminId: string,
+    client: any = supabaseServer
+  ): Promise<CatalogValue> {
+    const key = normalizeVariableKey(valueKey);
+    if (!key) throw new Error('El nombre del dato no puede quedar vacío');
+
+    const normalized = normalizeInput(input);
+    const { data, error } = await client
+      .from('catalog_values')
+      .insert({
+        scope_id: scopeId,
+        value_key: key,
+        ...normalized,
+        edited_by_human: true,
+        edited_by: adminId,
+        edited_at: new Date().toISOString(),
+      })
+      .select('*')
+      .single();
+
+    if (error) {
+      // `catalog_values_scope_key` es unico por alcance: el mismo dato dos
+      // veces en el mismo sitio no es un error del sistema, es que ya existe.
+      if ((error as any).code === '23505') {
+        throw new Error(`Este alcance ya tiene un dato llamado "${key}"`);
+      }
+      throw error;
+    }
+    return data as CatalogValue;
+  }
+
+  async deleteValue(valueId: string, client: any = supabaseServer): Promise<void> {
+    const { error } = await client.from('catalog_values').delete().eq('id', valueId);
+    if (error) throw error;
   }
 
   async getReplacementWarnings(

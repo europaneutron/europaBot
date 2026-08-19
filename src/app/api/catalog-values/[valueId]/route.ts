@@ -10,6 +10,22 @@ const updateSchema = z.object({
   unit: z.string().nullable().optional(),
 });
 
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: { valueId: string } }
+) {
+  const admin = await getAuthenticatedAdmin(request);
+  if (!admin) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+
+  try {
+    await catalogValueRepository.deleteValue(params.valueId);
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'No fue posible borrar el dato';
+    return NextResponse.json({ error: message }, { status: 400 });
+  }
+}
+
 export async function PATCH(
   request: NextRequest,
   { params }: { params: { valueId: string } }
