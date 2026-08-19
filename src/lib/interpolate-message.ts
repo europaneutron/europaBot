@@ -42,6 +42,34 @@ function normalizeVariables(variables: MessageVariables): MessageVariables {
   return normalized;
 }
 
+/**
+ * El valor del catalogo puede traer ya su unidad --"96 casas", "160 m2"-- y la
+ * prosa repetirla detras: "Tiene {casas} casas" se leia como "Tiene 96 casas
+ * casas". Quien redacta no sabe si la unidad viene dentro del dato, asi que la
+ * repeticion se resuelve al renderizar y no pidiendosela al modelo.
+ *
+ * Solo se colapsa la palabra que sigue a un valor sustituido, nunca una
+ * repeticion que ya estaba escrita en la plantilla: "Ya ya veremos" se queda
+ * como esta.
+ */
+const SUBSTITUTION_MARK = '\u0000';
+
+function collapseRepeatedUnit(text: string): string {
+  const marked = new RegExp(
+    `${SUBSTITUTION_MARK}(.*?)${SUBSTITUTION_MARK}(\\s+)([0-9A-Za-z\\u00C0-\\u024F]+)`,
+    'g'
+  );
+  return text
+    .replace(marked, (match, value: string, space: string, nextWord: string) => {
+      const lastWord = value.split(/\s+/).pop() || '';
+      return lastWord.toLowerCase() === nextWord.toLowerCase()
+        ? value
+        : `${value}${space}${nextWord}`;
+    })
+    .split(SUBSTITUTION_MARK)
+    .join('');
+}
+
 export function interpolateMessage(
   template: string,
   variables: MessageVariables = {}
@@ -51,13 +79,15 @@ export function interpolateMessage(
   const missingKeys = keys.filter(key => (
     normalizedVariables[key] === null || normalizedVariables[key] === undefined
   ));
-  const value = template.replace(VARIABLE_PATTERN, (match, key: string) => {
+  const substituted = template.replace(VARIABLE_PATTERN, (match, key: string) => {
     const value = normalizedVariables[normalizeVariableKey(key)];
-    return value === null || value === undefined ? match : String(value);
+    return value === null || value === undefined
+      ? match
+      : `${SUBSTITUTION_MARK}${String(value)}${SUBSTITUTION_MARK}`;
   });
 
   return {
-    value,
+    value: collapseRepeatedUnit(substituted),
     missingKeys,
     hadVariables: keys.length > 0,
     complete: missingKeys.length === 0,

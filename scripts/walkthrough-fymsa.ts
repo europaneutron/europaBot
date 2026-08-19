@@ -79,10 +79,18 @@ async function main() {
 
   // El camino real: la persona confirma cada desarrollo con sus opciones y el
   // onboarding materializa el arbol entero.
-  const { data: admin2 } = await supabaseServer.from('admin_users').select('id').limit(1).single();
-  const { data: session } = await supabaseServer.from('onboarding_sessions')
-    .insert({ admin_id: admin2!.id, run_id: run.id, current_step: 2, status: 'in_progress' })
+  // Una sesion vieja a medias --de otro guion, o de un recorrido interrumpido--
+  // se queda activa y `requireActiveSession` la elige: el confirmar reventaba
+  // con "Primero agrega el material" porque esa sesion no tiene corrida. Se
+  // retira antes, y el alta se comprueba en vez de darse por hecha.
+  await supabaseServer.from('onboarding_sessions')
+    .update({ status: 'abandoned' })
+    .eq('admin_id', admin.id)
+    .eq('status', 'in_progress');
+  const { data: session, error: sessionError } = await supabaseServer.from('onboarding_sessions')
+    .insert({ admin_id: admin.id, run_id: run.id, current_step: 2, status: 'in_progress' })
     .select('id').single();
+  if (sessionError) throw sessionError;
   await onboardingService.confirmProposedStructure(admin.id, {
     projectName: structure!.projects[0].name,
     partNames: structure!.projects[0].partNames,

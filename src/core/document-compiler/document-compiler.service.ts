@@ -697,7 +697,18 @@ export class DocumentCompilerService {
           : [];
       });
 
-      if (missingVariables.length > 0 || declarationMismatch.length > 0 || unlinkedRequiredKeys.length > 0) {
+      // No mencionar un dato no es un defecto: el material trae cifras que la
+      // respuesta no tiene por que decir --la superficie del parque lineal en
+      // una respuesta de amenidades-- y exigir que todas se enlacen bloqueaba
+      // preguntas enteras. En la corrida de FYMSA dejo sin `amenidades` y sin
+      // `creditos` a los dos desarrollos: el lead preguntaba y recibia el
+      // fallback. Lo que si es un defecto es escribir la cifra dentro del
+      // texto en vez de enlazarla, y de eso se ocupa `literal_catalog_value`.
+      // Declarar un dato que luego no se menciona tampoco rompe nada: lo que
+      // importa es que los huecos del texto se puedan rellenar, y de eso se
+      // ocupa `missingVariables`. Exigir que la lista declarada coincidiera
+      // exactamente con el texto dejo a los dos desarrollos sin `creditos`.
+      if (missingVariables.length > 0) {
         signals.push('missing_catalog_value');
       }
       if (literalValues.length > 0) signals.push('literal_catalog_value');
@@ -750,8 +761,6 @@ export class DocumentCompilerService {
           && !offerTargetMissing
           && !branchReason
           && missingVariables.length === 0
-          && declarationMismatch.length === 0
-          && unlinkedRequiredKeys.length === 0
           && literalValues.length === 0,
         reviewDetails: {
           vocabulary_version: VOCABULARY_GENERATION_VERSION,
@@ -776,8 +785,6 @@ export class DocumentCompilerService {
               ? `Faltan valores del catálogo: ${missingVariables.join(', ')}.`
               : declarationMismatch.length > 0
                 ? `La declaración de huecos no coincide: ${declarationMismatch.join(', ')}.`
-                : unlinkedRequiredKeys.length > 0
-                  ? `Estos datos deben enlazarse en la prosa: ${unlinkedRequiredKeys.join(', ')}.`
                 : literalValues.length > 0
                   ? 'La respuesta copia un dato literal que debe enlazarse al catálogo.'
                   : null,
