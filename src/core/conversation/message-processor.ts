@@ -37,6 +37,8 @@ import {
   resolveLevelAnswer,
   MAX_LIST_OPTIONS,
 } from './scope-enumeration.service';
+import { MAX_BUTTON_OPTIONS } from './scope-enumeration.service';
+import { intentConfigRepository } from '@/data/repositories/intent-config.repository';
 import {
   isPendingOfferFresh,
   resolvePendingOfferSelection,
@@ -59,6 +61,28 @@ const RESUMING_FOCUS_SOURCES: ScopeFocusSource[] = ['alias', 'referral', 'overri
 //   recorrido real del compilador: "hola" y luego "me interesa Europa"
 //   devolvía el saludo entero en vez del precio de Europa.
 const NON_REPEATABLE_INTENT_NAMES = new Set(['cita', 'saludo', 'despedida']);
+
+/**
+ * El rotulo de un boton nombra el tema, no repite la pregunta. El compilador
+ * guarda como `display_name` la pregunta entera --"¿Cuántas recámaras y baños
+ * tiene?"-- y recortada a veinte caracteres se queda en "¿Cuántas recámaras y".
+ * Cuando el nombre para mostrar es una pregunta se arma desde la clave, que ya
+ * viene en palabras: `banos_completos_medio_bano` da "Baños completos".
+ */
+function buttonLabel(displayName: string | null | undefined, intentName: string): string {
+  const shown = (displayName || '').trim();
+  if (shown && !shown.startsWith('¿') && shown.length <= 20) return shown;
+
+  const words = intentName.replace(/_/g, ' ').split(/\s+/).filter(Boolean);
+  let label = '';
+  for (const word of words) {
+    const next = label ? `${label} ${word}` : word;
+    if (next.length > 20) break;
+    label = next;
+  }
+  const fallback = (label || words[0] || intentName).slice(0, 20);
+  return fallback.charAt(0).toUpperCase() + fallback.slice(1);
+}
 
 function isPendingQuestionFresh(session: UserSession | null): boolean {
   if (!session?.pending_scope_message || !session.pending_scope_updated_at) return false;
@@ -701,6 +725,68 @@ export class MessageProcessor {
   }
 
   /**
+   * Las preguntas que se pueden ofrecer despues de contestar una, en el alcance
+   * desde el que se contesto: las que estan vivas ahi --propias o heredadas--
+   * menos la que se acaba de contestar y las que no son preguntas (saludo,
+   * despedida). Agendar va siempre al final, que es a donde lleva todo.
+   *
+   * Se limitan a tres porque WhatsApp manda botones hasta tres; mas seria una
+   * lista, y una lista para "¿que mas te cuento?" es demasiada ceremonia.
+   */
+  private async composeOfferOptions(
+    userId: string,
+    answeredIntentName: string,
+    scopeId: string,
+    declaredOffer: string | null
+  ): Promise<PendingOfferOption[]> {
+    if (NON_REPEATABLE_INTENT_NAMES.has(answeredIntentName)) return [];
+
+    const order = await scopeRepository.getResolutionOrder(scopeId);
+    const rank = new Map(order.map((id, index) => [id, index]));
+    const all = await intentConfigRepository.getAll();
+    const byName = new Map<string, { name: string; scopeId: string; label: string; rank: number }>();
+    for (const candidate of all) {
+      if (!candidate.is_active) continue;
+      const candidateRank = rank.get(candidate.scope_id ?? null);
+      if (candidateRank === undefined) continue;
+      if (candidate.intent_name === answeredIntentName) continue;
+      if (NON_REPEATABLE_INTENT_NAMES.has(candidate.intent_name)) continue;
+      const existing = byName.get(candidate.intent_name);
+      if (existing && existing.rank <= candidateRank) continue;
+      byName.set(candidate.intent_name, {
+        name: candidate.intent_name,
+        scopeId,
+        label: buttonLabel(candidate.display_name, candidate.intent_name),
+        rank: candidateRank,
+      });
+    }
+
+    const declaredFirst = declaredOffer && byName.has(declaredOffer)
+      ? [byName.get(declaredOffer)!]
+      : [];
+    const rest = Array.from(byName.values())
+      .filter(option => option.name !== declaredOffer)
+      .sort((left, right) => left.rank - right.rank || left.label.localeCompare(right.label));
+
+    const chosen = [...declaredFirst, ...rest].slice(0, MAX_BUTTON_OPTIONS - 1);
+    const options: PendingOfferOption[] = chosen.map(option => ({
+      id: `intent:${option.name}:${option.scopeId}`,
+      scopeId: option.scopeId,
+      label: option.label,
+      intentName: option.name,
+    }));
+
+    const appointmentLabel = await this.offerLabel('cita');
+    options.push({
+      id: `intent:cita:${scopeId}`,
+      scopeId,
+      label: appointmentLabel,
+      intentName: 'cita',
+    });
+    return options;
+  }
+
+  /**
    * Como se llama un boton de oferta. El nombre para mostrar de la intencion
    * si lo tiene --"Amenidades", "Precio y Costos"--, y si no, la clave puesta
    * en palabras. `cita` no es una pregunta sino un flujo, y su boton lo dice.
@@ -870,27 +956,29 @@ export class MessageProcessor {
     // Una respuesta compilada que termina en pregunta de sí/no declara qué
     // ofrece: deja constancia para que el afirmativo del lead se resuelva
     // contra ella en vez de caer al matcher.
+    // El paso siguiente lo compone el sistema, no lo redacta el modelo.
+    //
+    // Se intento pidiendole que declarara que ofrecia --`offers_intent_name`--
+    // y no lo declara nunca: las respuestas salian cerrando con "¿te comparto
+    // la siguiente opcion?" y detras no habia nada, que es justo el callejon
+    // que la regla queria evitar. Y no hacia falta preguntarselo: el sistema ya
+    // sabe que preguntas tiene vivas en ese alcance, y son exactamente las que
+    // puede ofrecer. Deterministico, sin modelo, y el toque llega como
+    // identificador.
     const declaredOffer = await conversationRepository.getResponseOffer(responseIntentIds);
-    if (declaredOffer) {
-      // Con etiqueta y con la pregunta dentro del identificador: asi la oferta
-      // sale como un boton que el lead toca, y el toque llega como
-      // `intent:amenidades:<alcance>` en vez de como texto que haya que
-      // interpretar. Es lo que convierte "¿te muestro las amenidades?" en algo
-      // que el bot puede resolver sin adivinar.
-      const offered = await intentDetectionService.resolveByName(
-        declaredOffer,
-        supabaseServer,
-        resolvedScopeId
+    const offerOptions = await this.composeOfferOptions(
+      userId,
+      intent.intent_name,
+      resolvedScopeId,
+      declaredOffer
+    );
+    if (offerOptions.length > 0) {
+      await userRepository.setPendingOffer(
+        userId,
+        declaredOffer || offerOptions[0].intentName || '',
+        null,
+        offerOptions
       );
-      const label = await this.offerLabel(declaredOffer, offered?.intent_id);
-      await userRepository.setPendingOffer(userId, declaredOffer, null, [
-        {
-          id: `intent:${declaredOffer}:${resolvedScopeId}`,
-          scopeId: resolvedScopeId,
-          label,
-          intentName: declaredOffer,
-        },
-      ]);
     }
 
     // Verificar si debe ofrecer cita (configurable desde BD)
