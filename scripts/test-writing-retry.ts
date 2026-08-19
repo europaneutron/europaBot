@@ -25,6 +25,7 @@ function proposalFor(target: any) {
   return {
     proposal_key: target.proposal_key,
     intent_name: target.intent_name,
+    short_label: 'Precio',
     response: `Desde {precio_desde}.`,
     required_variables: ['precio_desde'],
     keywords: ['precio', 'costo'],

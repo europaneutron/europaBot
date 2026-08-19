@@ -136,10 +136,11 @@ const WRITING_JSON_SCHEMA = {
       items: {
         type: 'object',
         additionalProperties: false,
-        required: ['proposal_key', 'intent_name', 'response', 'required_variables', 'keywords', 'synonyms', 'typos', 'phrases', 'question_variants', 'offers_intent_name'],
+        required: ['proposal_key', 'intent_name', 'short_label', 'response', 'required_variables', 'keywords', 'synonyms', 'typos', 'phrases', 'question_variants', 'offers_intent_name'],
         properties: {
           proposal_key: { type: 'string' },
           intent_name: { type: 'string' },
+          short_label: { type: 'string' },
           response: { type: 'string' },
           required_variables: { type: 'array', items: { type: 'string' } },
           keywords: { type: 'array', minItems: 2, items: { type: 'string' } },
@@ -158,6 +159,7 @@ const writingSchema = z.object({
   proposals: z.array(z.object({
     proposal_key: z.string(),
     intent_name: z.string(),
+    short_label: z.string().min(1),
     response: z.string().min(1),
     required_variables: z.array(z.string().min(1)),
     keywords: z.array(z.string().min(1)).min(2),
@@ -575,7 +577,7 @@ export class DocumentCompilerService {
       const response = await this.askModelToWrite(openai, {
       model,
       store: false,
-      input: `Redacta exactamente una respuesta de WhatsApp por cada objetivo usando exclusivamente sus hechos. Conserva proposal_key e intent_name literalmente. No inventes y no uses emojis. Una respuesta corta pero completa: si el objetivo trae varios hechos sobre lo mismo --precio, recamaras, banos, construccion, terreno-- dilos todos en la misma respuesta, porque el lead no tiene por que preguntarlos uno a uno. No mezcles objetivos distintos: lo que pertenece a otra pregunta se queda en esa. Cuando un dato venga repetido con la misma clave --varias amenidades, varios creditos aceptados-- es una lista y su hueco se escribe UNA sola vez: el sistema la enumera entera. ${brandInstruction} Para cada objetivo genera tambien el vocabulario con el que un lead preguntaria eso por WhatsApp. Las palabras deben salir de los hechos y del material de este cliente: no uses una lista fija del sector. keywords lleva al menos 2 palabras principales, synonyms al menos 2 formas equivalentes, typos al menos 1 errata probable y phrases al menos 3 preguntas completas y naturales. question_variants lleva 2 reformulaciones breves que funcionen como mensaje autonomo, sin nombre de empresa, desarrollo, modelo ni producto concreto; por ejemplo, para una pregunta de precio una variante seria "cuanto cuesta" y no "cuanto cuesta el modelo X". El nombre intent_name no cuenta como vocabulario y no debes copiarlo para completar listas. Termina ofreciendo el paso siguiente cuando haya uno natural: otra pregunta de esta misma lista que el lead querria despues, o agendar una visita. La oferta se convierte en un boton, asi que la pregunta puede ser de si o no; lo que no puede es quedar sin declarar. Pon en offers_intent_name el intent_name de lo que ofreces --uno de los objetivos de esta lista, o "cita" para agendar-- y deja offers_intent_name en null solo cuando la respuesta no ofrezca nada. Devuelve JSON con {"proposals":[{"proposal_key":"...","intent_name":"...","response":"...","keywords":["..."],"synonyms":["..."],"typos":["..."],"phrases":["..."],"question_variants":["..."],"offers_intent_name":null}]}.\n\nObjetivos: ${JSON.stringify(targets.map(target => ({ proposal_key: target.proposalKey, intent_name: target.coverage.intent_name, question: target.coverage.question, scope_id: target.scopeId, facts: target.facts.map(fact => ({ id: fact.id, key: fact.key, subject: fact.subject, value: fact.value })) })))}`,
+      input: `Redacta exactamente una respuesta de WhatsApp por cada objetivo usando exclusivamente sus hechos. Conserva proposal_key e intent_name literalmente. short_label es como se llama ese tema en un boton: de una a tres palabras, sustantivo, en el idioma del material, sin signos de interrogacion y sin pasar de 20 caracteres --"Recamaras y banos", "Ubicacion", "Creditos"--; no es la pregunta ni una frase. No inventes y no uses emojis. Una respuesta corta pero completa: si el objetivo trae varios hechos sobre lo mismo --precio, recamaras, banos, construccion, terreno-- dilos todos en la misma respuesta, porque el lead no tiene por que preguntarlos uno a uno. No mezcles objetivos distintos: lo que pertenece a otra pregunta se queda en esa. Cuando un dato venga repetido con la misma clave --varias amenidades, varios creditos aceptados-- es una lista y su hueco se escribe UNA sola vez: el sistema la enumera entera. ${brandInstruction} Para cada objetivo genera tambien el vocabulario con el que un lead preguntaria eso por WhatsApp. Las palabras deben salir de los hechos y del material de este cliente: no uses una lista fija del sector. keywords lleva al menos 2 palabras principales, synonyms al menos 2 formas equivalentes, typos al menos 1 errata probable y phrases al menos 3 preguntas completas y naturales. question_variants lleva 2 reformulaciones breves que funcionen como mensaje autonomo, sin nombre de empresa, desarrollo, modelo ni producto concreto; por ejemplo, para una pregunta de precio una variante seria "cuanto cuesta" y no "cuanto cuesta el modelo X". El nombre intent_name no cuenta como vocabulario y no debes copiarlo para completar listas. Termina ofreciendo el paso siguiente cuando haya uno natural: otra pregunta de esta misma lista que el lead querria despues, o agendar una visita. La oferta se convierte en un boton, asi que la pregunta puede ser de si o no; lo que no puede es quedar sin declarar. Pon en offers_intent_name el intent_name de lo que ofreces --uno de los objetivos de esta lista, o "cita" para agendar-- y deja offers_intent_name en null solo cuando la respuesta no ofrezca nada. Devuelve JSON con {"proposals":[{"proposal_key":"...","intent_name":"...","response":"...","keywords":["..."],"synonyms":["..."],"typos":["..."],"phrases":["..."],"question_variants":["..."],"offers_intent_name":null}]}.\n\nObjetivos: ${JSON.stringify(targets.map(target => ({ proposal_key: target.proposalKey, intent_name: target.coverage.intent_name, question: target.coverage.question, scope_id: target.scopeId, facts: target.facts.map(fact => ({ id: fact.id, key: fact.key, subject: fact.subject, value: fact.value })) })))}`,
       text: {
         format: {
           type: 'json_schema',
@@ -778,7 +780,9 @@ export class DocumentCompilerService {
         scopeId: target.scopeId,
         intentId: exactIntent?.id || null,
         intentName: target.coverage.intent_name,
-        displayName: template?.display_name || target.coverage.question,
+        // El rotulo corto manda sobre lo que hubiera: es lo unico que el lead
+        // ve de este nombre cuando la pregunta se ofrece como boton.
+        displayName: proposal.short_label?.trim() || template?.display_name || target.coverage.question,
         minConfidence: Number(template?.min_confidence ?? 0.6),
         priority: Number(template?.priority ?? 0),
         responseKey: `compiler_${target.coverage.intent_name}`,

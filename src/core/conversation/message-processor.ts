@@ -70,17 +70,26 @@ const NON_REPEATABLE_INTENT_NAMES = new Set(['cita', 'saludo', 'despedida']);
  * viene en palabras: `banos_completos_medio_bano` da "Baños completos".
  */
 function buttonLabel(displayName: string | null | undefined, intentName: string): string {
-  const shown = (displayName || '').trim();
-  if (shown && !shown.startsWith('¿') && shown.length <= 20) return shown;
+  const fitWords = (text: string) => {
+    let fitted = '';
+    for (const word of text.split(/\s+/).filter(Boolean)) {
+      const next = fitted ? `${fitted} ${word}` : word;
+      if (next.length > 20) break;
+      fitted = next;
+    }
+    return fitted;
+  };
 
-  const words = intentName.replace(/_/g, ' ').split(/\s+/).filter(Boolean);
-  let label = '';
-  for (const word of words) {
-    const next = label ? `${label} ${word}` : word;
-    if (next.length > 20) break;
-    label = next;
+  const shown = (displayName || '').trim();
+  // El nombre para mostrar manda salvo que sea la pregunta entera. Si no cabe,
+  // se recorta por palabras: "Terreno y construcción" vale mas que la clave.
+  if (shown && !shown.startsWith('¿')) {
+    const fitted = shown.length <= 20 ? shown : fitWords(shown);
+    if (fitted.length >= 3) return fitted;
   }
-  const fallback = (label || words[0] || intentName).slice(0, 20);
+
+  const words = intentName.replace(/_/g, ' ');
+  const fallback = (fitWords(words) || words).slice(0, 20);
   return fallback.charAt(0).toUpperCase() + fallback.slice(1);
 }
 
