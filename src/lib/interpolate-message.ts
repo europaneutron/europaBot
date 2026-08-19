@@ -76,7 +76,11 @@ const SUBSTITUTION_MARK = '\u0000';
 const WORD_SOURCE = '[0-9A-Za-z\\u00C0-\\u024F]+';
 
 function collapseRepeatedUnit(text: string): string {
-  const marker = new RegExp(`${SUBSTITUTION_MARK}(.*?)${SUBSTITUTION_MARK}`, 'g');
+  // `s` para que `.` cruce saltos de linea. Sin el, un valor de varias
+  // lineas --la lista de desarrollos de {alcances}-- no casaba con las marcas,
+  // asi que se quedaban puestas y el lead recibia dos caracteres nulos
+  // envolviendo la lista.
+  const marker = new RegExp(`${SUBSTITUTION_MARK}(.*?)${SUBSTITUTION_MARK}`, 'gs');
 
   let result = '';
   let cursor = 0;

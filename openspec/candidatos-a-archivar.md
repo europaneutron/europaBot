@@ -40,12 +40,36 @@ obliga a decidir qué pasa con la procedencia de lo ya publicado.
   el ciclo de regeneración. A mano, el vocabulario se escribe y se prueba con
   el probador de frases.
 - **Ya resuelto antes de archivar el onboarding:** la identidad del negocio
-  --nombre, cómo se llaman los proyectos, tono, saludo automático-- vivía solo
-  ahí. Ahora se edita en Ajustes → El negocio. Lo que queda del onboarding es
-  el recorrido guiado del compilador, que sí se va con él.
+  --nombre, cómo se llaman los proyectos-- vivía solo ahí. Ahora se edita en
+  Ajustes → El negocio. Lo que queda del onboarding es el recorrido guiado del
+  compilador, que sí se va con él.
+- **El saludo automático se retiró.** Eran dos saludos que nadie pidió, y el
+  compuesto además borraba la respuesta escrita para `saludo` sin decirlo.
+  Saludar es una pregunta como las demás. La columna
+  `client_brand.use_composed_greeting` sigue en la tabla --las migraciones son
+  aditivas-- y ya no la lee nadie; `composeBusinessGreeting` se queda sin
+  consumidor y se va con el onboarding.
 - **`ai_business_context`, `ai_extraction_model`, `ai_writing_model`** en
   Ajustes → Inteligencia Artificial: si no hay compilador, no hay a qué
   aplicarlos. La clave de OpenAI en Vault deja de hacer falta.
+
+## Los mensajes del sistema, después de la simplificación
+
+De once quedan dos editables: `scope_disambiguation_message` y
+`offer_appointment_label`. Los otros nueve se borraron de `bot_config` en la
+migración `20260819120000`, y los momentos que seguían existiendo pasaron a
+texto fijo en el código.
+
+La razón no era ahorrar campos: el bot preguntaba "¿de cuál te platico?"
+mirando una sola cosa --si dos desarrollos pueden contestar-- sin mirar nunca
+si el nivel de la conversación ya tenía respuesta escrita. Con esa regla
+puesta, seis de esos mensajes dejaron de tener momento en el que salir.
+
+**Ojo con el kit base.** La migración 002 siembra `precio`, `ubicacion`,
+`modelo`, `creditos`, `seguridad` y `brochure` en la raíz **con respuesta**, y
+esos textos son de otro negocio ("departamentos en Europa desde $XXX,XXX").
+Con la regla nueva, esas respuestas ya no se saltan: se mandan. Hay que
+reescribirlas o retirarlas antes de que el bot vea tráfico.
 
 ## Deuda ya identificada, sin dueño
 

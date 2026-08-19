@@ -237,7 +237,19 @@ async function main(): Promise<void> {
       'Unknown Ad Test',
       { referralAdId: `unknown-${suffix}` }
     );
-    assert(unknownAd.responses[0]?.toString().includes('¿De cuál'), 'Unknown ad must fall through to disambiguation');
+    // Contra el mensaje configurado, no contra un texto de fabrica: el
+    // mensaje de desambiguacion se escribe en Ajustes, y esta prueba se
+    // quedaba clavada al valor sembrado cada vez que se reescribia.
+    const { resolveConfiguredTemplate } = await import('../src/core/messaging/configured-message');
+    const disambiguationTemplate = await resolveConfiguredTemplate(
+      'scope_disambiguation_message',
+      '¿De cuál te gustaría recibir información?'
+    );
+    const disambiguationHead = disambiguationTemplate.split(/[{\n]/)[0].trim();
+    assert(
+      unknownAd.responses[0]?.toString().includes(disambiguationHead),
+      `Unknown ad must fall through to disambiguation: ${JSON.stringify(unknownAd.responses)}`
+    );
 
     const resumed = await messageProcessor.processMessage(
       phones.unknownAd,
@@ -258,8 +270,8 @@ async function main(): Promise<void> {
       'Supersede Test'
     );
     assert(
-      superseding.responses[0]?.toString().includes('¿De cuál'),
-      'A scope-dependent question without focus must ask which scope'
+      superseding.responses[0]?.toString().includes(disambiguationHead),
+      `A scope-dependent question without focus must ask which scope: ${JSON.stringify(superseding.responses)}`
     );
     const superseded = await messageProcessor.processMessage(
       phones.supersede,
@@ -291,7 +303,7 @@ async function main(): Promise<void> {
       `stale-ask-${suffix}`,
       'Stale Test'
     );
-    assert(staleAsk.responses[0]?.toString().includes('¿De cuál'), 'Stale case must start from a disambiguation');
+    assert(staleAsk.responses[0]?.toString().includes(disambiguationHead), `Stale case must start from a disambiguation: ${JSON.stringify(staleAsk.responses)}`);
     const staleUserId = (await supabaseServer.from('users').select('id').eq('phone_number', phones.stale).single()).data!.id;
     await supabaseServer.from('user_sessions').update({
       pending_scope_updated_at: new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString(),
@@ -333,46 +345,32 @@ async function main(): Promise<void> {
       .update({ message_text: `alpha-response-${suffix}`, variables: null })
       .eq('intent_id', alphaPriceIntent.id);
 
-    // El saludo tiene dos formas y la marca decide cual. Esta prueba fijaba
-    // solo los alcances y daba por buena la marca que hubiera en la base, asi
-    // que se ponia roja cuando otro cambiaba el saludo a compuesto: rojo por
-    // configuracion de al lado, no por comportamiento. Ahora fija cada una y
-    // comprueba las dos, que ademas es lo que faltaba: la compuesta no la
-    // verificaba nadie.
-    await setBrandComposedGreeting(false);
+    // El saludo ya no se arma solo. Eran dos saludos automaticos que nadie
+    // pidio --uno compuesto con el nombre del negocio y la lista de
+    // desarrollos, otro que le pegaba la lista detras-- y el compuesto ademas
+    // borraba la respuesta escrita para `saludo` sin decirlo.
+    //
+    // La marca sigue en la tabla porque las migraciones son aditivas, pero ya
+    // no la lee nadie: la prueba la enciende y comprueba que da igual.
+    await setBrandComposedGreeting(true, `Inmobiliaria ${suffix}`);
     const greeting = await messageProcessor.processMessage(
       phones.greeting,
       'hola',
       `greeting-${suffix}`,
       'Greeting Test'
     );
-    assert(greeting.responses.length === 2, 'Greeting without focus must append the configured scope presentation');
     assert(
-      greeting.responses.some(response => typeof response === 'string' && response.includes(`Alpha ${suffix}`) && response.includes(`Beta ${suffix}`)),
-      'Greeting must compose the active scope names from data'
+      greeting.responses.length === 1,
+      `Greeting must be the authored answer alone: ${JSON.stringify(greeting.responses)}`
+    );
+    assert(
+      !greeting.responses.some(response =>
+        typeof response === 'string' &&
+        (response.includes(`Inmobiliaria ${suffix}`) || (response.includes(`Alpha ${suffix}`) && response.includes(`Beta ${suffix}`)))
+      ),
+      `Greeting must not compose the business name or the list of scopes: ${JSON.stringify(greeting.responses)}`
     );
 
-    await supabaseServer.from('users').delete().eq('phone_number', phones.composedGreeting);
-    await setBrandComposedGreeting(true, `Inmobiliaria ${suffix}`);
-    const composedGreeting = await messageProcessor.processMessage(
-      phones.composedGreeting,
-      'hola',
-      `composed-greeting-${suffix}`,
-      'Composed Greeting Test'
-    );
-    assert(
-      composedGreeting.responses.length === 1,
-      `Composed greeting must replace the presentation instead of appending it: ${JSON.stringify(composedGreeting.responses)}`
-    );
-    assert(
-      composedGreeting.responses.some(response =>
-        typeof response === 'string' &&
-        response.includes(`Inmobiliaria ${suffix}`) &&
-        response.includes(`Alpha ${suffix}`) &&
-        response.includes(`Beta ${suffix}`)
-      ),
-      'Composed greeting must name the business and its active scopes'
-    );
     await setBrandComposedGreeting(false);
 
     const { data: expiryUser, error: expiryUserError } = await supabaseServer

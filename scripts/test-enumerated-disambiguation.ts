@@ -65,6 +65,20 @@ async function main(): Promise<void> {
     if (respError) throw respError;
   };
 
+  /**
+   * La pregunta existe en la rama pero la respuesta vive en los modelos: es
+   * la forma que produce el compilador de verdad. Sin fila en la rama, con el
+   * foco puesto ahi la pregunta ni siquiera se detecta.
+   */
+  const question = async (scopeId: string, intentName: string, keywords: string[]) => {
+    const { data: intent, error } = await supabaseServer.from('intent_configurations').insert({
+      intent_name: intentName, display_name: intentName, scope_id: scopeId,
+      keywords, synonyms: [], typos: [], phrases: [], priority: 10, is_active: true,
+    }).select('id').single();
+    if (error) throw error;
+    createdIntentIds.push(intent.id);
+  };
+
   try {
     const { data: existing } = await supabaseServer
       .from('scopes').select('id, is_active').eq('parent_id', ROOT_SCOPE_ID).eq('is_active', true);
@@ -88,14 +102,27 @@ async function main(): Promise<void> {
     );
     scopeRepository.invalidateCache();
 
+    // Nombres propios de la prueba, no los del kit base: la migracion 002
+    // siembra `precio` y `ubicacion` en la raiz con respuesta, y con la regla
+    // nueva un nivel que ya contesta no pregunta. Usarlos aqui medía el kit
+    // sembrado, no lo que esta prueba dice medir.
+    const priceIntent = `enum_price_${suffix}`;
+    const locIntent = `enum_place_${suffix}`;
+    // Solo los modelos la contestan: es la pregunta con la que se prueba el
+    // formato de lista, y tiene que seguir siendo una duda de verdad con el
+    // foco puesto en devA. La de precio ya no lo es: devA la contesta.
+    const modelIntent = `enum_model_${suffix}`;
     const priceKw = [`precio${suffix}`];
     const locKw = [`ubicados${suffix}`];
-    await content(devA, 'precio', priceKw, `DevA general ${suffix}`);
-    await content(devB, 'precio', priceKw, `DevB general ${suffix}`);
-    await content(devA, 'ubicacion', locKw, `DevA direccion ${suffix}`);
-    await content(devB, 'ubicacion', locKw, `DevB direccion ${suffix}`);
+    const modelKw = [`azulejo${suffix}`];
+    await content(devA, priceIntent, priceKw, `DevA general ${suffix}`);
+    await content(devB, priceIntent, priceKw, `DevB general ${suffix}`);
+    await content(devA, locIntent, locKw, `DevA direccion ${suffix}`);
+    await content(devB, locIntent, locKw, `DevB direccion ${suffix}`);
+    await question(devA, modelIntent, modelKw);
     for (let i = 0; i < models.length; i++) {
-      await content(models[i], 'precio', priceKw, `Model${i + 1} precio ${suffix}`);
+      await content(models[i], priceIntent, priceKw, `Model${i + 1} precio ${suffix}`);
+      await content(models[i], modelIntent, modelKw, `Model${i + 1} azulejo ${suffix}`);
     }
     scopeRepository.invalidateCache();
     intentDetectionService.invalidateAll();
@@ -103,17 +130,34 @@ async function main(): Promise<void> {
     // --- 4.4 / 3.5: dos desarrollos como botones (precio sin foco).
     // Los mensajes de la enumeración son de ruteo, y los mensajes de ruteo se
     // editan desde Ajustes. Vivían solo como valor por omisión en código.
+    // Queda uno. Los otros ocho decian lo mismo en momentos que el lead no
+    // distingue, y ninguno se podia ver entero antes de mandarlo; los que
+    // sobrevivian como texto de una linea pasaron a texto fijo en el codigo.
     const ENUMERATION_MESSAGE_KEYS = [
       'scope_disambiguation_message',
+      'offer_appointment_label',
+    ];
+    const RETIRED_MESSAGE_KEYS = [
+      'scope_catalog_summary_message',
       'scope_disambiguation_followup_message',
       'scope_next_level_message',
       'scope_only_presentation_message',
+      'scope_presentation_message',
       'sibling_message',
       'sibling_up_message',
       'sibling_none_message',
       'pending_offer_repeat_message',
       'unanchored_affirmative_message',
     ];
+    const { data: retiredRows, error: retiredError } = await supabaseServer
+      .from('bot_config')
+      .select('config_key')
+      .in('config_key', RETIRED_MESSAGE_KEYS);
+    if (retiredError) throw retiredError;
+    assert(
+      (retiredRows || []).length === 0,
+      `Retired messages must not remain editable in settings: ${JSON.stringify(retiredRows)}`
+    );
     const { data: configuredMessages, error: configuredMessagesError } = await supabaseServer
       .from('bot_config')
       .select('config_key, is_editable')
@@ -161,10 +205,10 @@ async function main(): Promise<void> {
       'Choosing an option must resume the original pending question'
     );
 
-    // --- 4.4: cinco modelos como lista, al preguntar el precio con foco en
-    // devA (los modelos tienen precio propio distinto).
+    // --- 4.4: cinco modelos como lista, al preguntar con foco en devA algo
+    // que solo los modelos contestan.
     const fiveModelsTurn = await messageProcessor.processMessage(
-      phone, `precio${suffix}`, `t3-${suffix}`, 'Test'
+      phone, modelKw[0], `t3-${suffix}`, 'Test'
     );
     session = await userRepository.getSession(userId);
     assert(session?.pending_offer_options?.length === 5, `Five models must offer five options: ${JSON.stringify(session?.pending_offer_options)}`);
@@ -229,13 +273,15 @@ async function main(): Promise<void> {
       `A bare mention must repeat the last answered question at the new focus: ${JSON.stringify(mentionSibling.responses)}`
     );
 
-    // --- 6.3 / 6.7: saludar suelta el foco, la pregunta retenida, y vuelve
-    // a ofrecer los desarrollos.
+    // --- 6.3 / 6.7: saludar suelta el foco y la pregunta retenida.
     const greet = await messageProcessor.processMessage(phone, 'hola', `t8-${suffix}`, 'Test');
     assert(greet.scopeId === ROOT_SCOPE_ID, `Greeting must clear focus back to root: ${JSON.stringify(greet)}`);
+    // El saludo ya no se arma solo. Eran dos saludos automaticos que nadie
+    // pidio, y el compuesto ademas borraba la respuesta escrita para `saludo`
+    // sin decirlo. Lo que sale es esa respuesta, tal cual.
     assert(
-      greet.responses.some(r => typeof r === 'string' && r.includes('DevA') && r.includes('DevB')),
-      `Greeting after losing focus must offer the developments again: ${JSON.stringify(greet.responses)}`
+      !greet.responses.some(r => typeof r === 'string' && r.includes('DevA') && r.includes('DevB')),
+      `Greeting must send the authored answer, not a composed list of developments: ${JSON.stringify(greet.responses)}`
     );
     session = await userRepository.getSession(userId);
     assert(!session?.current_scope_id, 'Greeting must clear the persisted scope focus');

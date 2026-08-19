@@ -1,6 +1,5 @@
 /**
- * La identidad del negocio: cómo se llama, cómo llama a sus proyectos, cómo
- * habla y cómo saluda.
+ * La identidad del negocio: cómo se llama y cómo llama a sus proyectos.
  *
  * Vivía solo dentro del recorrido guiado, que es parte del compilador. Con el
  * bot configurado a mano se quedaba sin sitio, y no es un detalle: el nombre
@@ -9,7 +8,9 @@
  *
  * El tono no esta aqui a proposito: solo lo lee el prompt de redaccion del
  * compilador. Con los mensajes escritos a mano no cambia nada, y una opcion
- * que no hace nada confunde mas que ayudar.
+ * que no hace nada confunde mas que ayudar. El saludo automatico se fue por
+ * lo mismo y por algo peor: encendido, borraba la respuesta escrita para
+ * `saludo` sin decirlo. Ahora saludar es una pregunta como las demas.
  */
 
 'use client';
@@ -20,7 +21,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Loader2 } from 'lucide-react';
 
 const fetcher = async (url: string) => {
@@ -34,7 +34,6 @@ export function BrandSection() {
   const [businessName, setBusinessName] = useState('');
   const [singular, setSingular] = useState('');
   const [plural, setPlural] = useState('');
-  const [composedGreeting, setComposedGreeting] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -43,7 +42,6 @@ export function BrandSection() {
     setBusinessName(data.brand.business_name || '');
     setSingular(data.vocabulary?.singular || '');
     setPlural(data.vocabulary?.plural || '');
-    setComposedGreeting(Boolean(data.brand.use_composed_greeting));
   }, [data]);
 
   async function save() {
@@ -57,7 +55,6 @@ export function BrandSection() {
           businessName,
           projectSingular: singular,
           projectPlural: plural,
-          useComposedGreeting: composedGreeting,
         }),
       });
       const body = await response.json();
@@ -76,8 +73,8 @@ export function BrandSection() {
       <CardHeader>
         <CardTitle>El negocio</CardTitle>
         <CardDescription>
-          Cómo se llama, cómo llama a sus proyectos y cómo habla. Estas palabras salen en los
-          mensajes del bot.
+          Cómo se llama y cómo llama a sus proyectos. Estas palabras salen en los mensajes del
+          bot. El saludo se escribe en la pregunta <strong>saludo</strong>, como cualquier otra.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -91,7 +88,7 @@ export function BrandSection() {
             disabled={saving}
           />
           <p className="text-xs text-muted-foreground">
-            Es lo que sale como <code>{'{business_name}'}</code> y en el saludo.
+            Es lo que sale como <code>{'{business_name}'}</code> en los mensajes del bot.
           </p>
         </div>
 
@@ -120,24 +117,6 @@ export function BrandSection() {
         <p className="text-xs text-muted-foreground">
           Salen como <code>{'{project_singular}'}</code> y <code>{'{project_plural}'}</code>.
         </p>
-
-        <div className="flex items-start gap-2 rounded-md border p-3">
-          <Checkbox
-            id="composed-greeting"
-            checked={composedGreeting}
-            onCheckedChange={(checked: boolean) => setComposedGreeting(checked)}
-            disabled={saving}
-          />
-          <div className="space-y-1">
-            <Label htmlFor="composed-greeting">Saludo automático</Label>
-            <p className="text-xs text-muted-foreground">
-              El bot arma el saludo con el nombre del negocio y la lista de {plural || 'proyectos'},
-              y se actualiza solo cuando das de alta uno nuevo. Si lo apagas, el saludo es la
-              respuesta que escribas en la pregunta <strong>saludo</strong>, más el mensaje
-              &quot;Saludo: lista de {plural || 'proyectos'}&quot; de esta misma pantalla.
-            </p>
-          </div>
-        </div>
 
         {message ? <p className="text-sm text-muted-foreground">{message}</p> : null}
 

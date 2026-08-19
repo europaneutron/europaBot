@@ -27,14 +27,11 @@ import type { User, UserSession, PendingOfferOption } from '@/data/models/user.m
 import { scopeRoutingRepository } from '@/data/repositories/scope-routing.repository';
 import { interpolateMessage } from '@/lib/interpolate-message';
 import { resolveConfiguredMessage } from '@/core/messaging/configured-message';
-import { clientBrandRepository } from '@/data/repositories/client-brand.repository';
-import { composeBusinessGreeting, toClientVocabulary } from '@/core/onboarding/client-vocabulary';
 import { withContentVersionScope } from '@/lib/server/content-version-scope';
 import { isAffirmative, isPureAffirmative } from './affirmative-phrases';
 import { isSiblingRequest } from './sibling-request';
 import {
   buildScopeOptions,
-  resolveLevelAnswer,
   MAX_LIST_OPTIONS,
 } from './scope-enumeration.service';
 import { MAX_BUTTON_OPTIONS } from './scope-enumeration.service';
@@ -435,10 +432,10 @@ export class MessageProcessor {
       // 3.91. Pedir otro es pedir los hermanos del alcance en foco, no el
       // catálogo entero.
       if (isSiblingRequest(messageText)) {
-        return {
-          ...await this.presentSiblings(user, routing),
-          scopeId,
-        };
+        // El alcance sale de dentro: con un solo hermano, pedir otro cambia
+        // el foco, y anteponer aqui el del ruteo lo tiraba en el camino.
+        const presented = await this.presentSiblings(user, routing);
+        return { scopeId, ...presented };
       }
 
       // 4. Detectar intención con fuzzy matching
@@ -635,10 +632,18 @@ export class MessageProcessor {
   }
 
   /**
-   * Construye la pregunta de desambiguación: lo cierto en el nivel de la
-   * duda primero, las opciones enumeradas después. `null` cuando hay más
-   * opciones de las que WhatsApp permite enumerar y el catálogo no tiene
-   * ningún criterio para estrechar.
+   * La pregunta de desambiguación: un mensaje y las opciones debajo. `null`
+   * cuando hay más opciones de las que WhatsApp permite enumerar.
+   *
+   * Un solo mensaje, y escrito a mano. Antes eran tres --un adelanto
+   * compuesto con los datos del catálogo, la respuesta del nivel si la había,
+   * y una coletilla distinta según cuál de los dos hubiera salido--, así que
+   * el mismo momento sonaba de tres maneras y ninguna se podía ver entera
+   * antes de mandarla. El adelanto además repetía en prosa exactamente lo que
+   * iba en los botones de abajo.
+   *
+   * Y ya no hace falta cubrir el hueco de "el nivel tiene algo que decir":
+   * si lo tiene, `findScopeDependency` no llega hasta aquí.
    */
   private async buildDisambiguationPlan(
     intentName: string,
@@ -646,45 +651,19 @@ export class MessageProcessor {
   ): Promise<{ bodyText: string; options: PendingOfferOption[] } | null> {
     if (dependency.candidateIds.length > MAX_LIST_OPTIONS) return null;
 
-    const [resolvedPreface, options] = await Promise.all([
-      resolveLevelAnswer(intentName, dependency.level),
-      buildScopeOptions(dependency.candidateIds, intentName),
-    ]);
+    const options = await buildScopeOptions(dependency.candidateIds, intentName);
     if (options.length === 0) return null;
 
-    // El resumen compuesto cubre un hueco, no sustituye a nadie: si el nivel
-    // tiene respuesta propia --escrita por el cliente o compilada de su
-    // material-- esa manda. Componerlo por encima descartaba en silencio lo
-    // aprobado y, ademas, repetia en prosa exactamente lo que iba en los
-    // botones de abajo.
-    //
-    // Tampoco depende del nombre de la intencion: lo que lo habilita es que
-    // todas las opciones traigan su dato distintivo, venga de donde venga.
-    const detailedOptions = options.filter(option => option.label.includes(' · '));
-    const preface = resolvedPreface
-      || (detailedOptions.length === options.length
-        ? await resolveConfiguredMessage(
-            'scope_catalog_summary_message',
-            'Esto es lo que hay: {opciones}.',
-            { opciones: detailedOptions.map(option => option.label).join('; ') }
-          )
-        : null);
+    const bodyText = await resolveConfiguredMessage(
+      'scope_disambiguation_message',
+      '¿De cuál te gustaría recibir información?',
+      // La descripcion de este mensaje ya prometia {alcances} y el codigo
+      // no se lo pasaba: quien lo escribia siguiendo la ayuda veia
+      // "{alcances}" en el mensaje del lead.
+      { alcances: await this.getAvailableScopeList() }
+    );
 
-    const prompt = preface
-      ? await resolveConfiguredMessage('scope_disambiguation_followup_message', '¿Cuál te muestro?')
-      : await resolveConfiguredMessage(
-          'scope_disambiguation_message',
-          '¿De cuál te gustaría recibir información?',
-          // La descripcion de este mensaje ya prometia {alcances} y el codigo
-          // no se lo pasaba: quien lo escribia siguiendo la ayuda veia
-          // "{alcances}" en el mensaje del lead.
-          { alcances: await this.getAvailableScopeList() }
-        );
-
-    return {
-      bodyText: [preface, prompt].filter(Boolean).join('\n\n'),
-      options,
-    };
+    return { bodyText, options };
   }
 
   /**
@@ -705,11 +684,15 @@ export class MessageProcessor {
         offer.pending_offer_level || null,
         options
       );
-      const bodyText = await resolveConfiguredMessage(
-        'pending_offer_repeat_message',
-        'No elige por sí sola: ¿cuál de estas te muestro?'
-      );
-      return { responses: [bodyText], shouldSend: true, wasDetected: true, isFallback: false, scopeId: offer.current_scope_id ?? undefined };
+      // Texto fijo: es repetir la pregunta que acaba de salir, y el mensaje
+      // que la lleva ya lo escribió el cliente.
+      return {
+        responses: ['¿Cuál de estas te muestro?'],
+        shouldSend: true,
+        wasDetected: true,
+        isFallback: false,
+        scopeId: offer.current_scope_id ?? undefined,
+      };
     }
 
     const option = options[0];
@@ -833,8 +816,17 @@ export class MessageProcessor {
   }
 
   /**
-   * Pedir otro es pedir los hermanos del alcance en foco. Sin hermanos, sube
-   * un nivel y ofrece lo que sí hay; sin foco, enumera el primer nivel.
+   * Pedir otro es pedir los hermanos del alcance en foco. Sin hermanos, se
+   * ofrece lo que sí hay; sin foco, el primer nivel.
+   *
+   * Con un solo hermano no se pregunta: se cambia el foco y se presenta. Un
+   * botón no es una elección. Con dos desarrollos, "¿y el otro?" desde uno de
+   * ellos siempre dejaba exactamente una opción, así que el bot enseñaba un
+   * botón con la única respuesta posible y esperaba a que lo tocaran para
+   * hacer justo lo que ya iba a hacer.
+   *
+   * Con dos o más, esto es desambiguación con otro disparador: mismo mensaje,
+   * el que se escribe en Ajustes.
    */
   private async presentSiblings(
     user: User,
@@ -844,7 +836,6 @@ export class MessageProcessor {
     let siblings = routing.hasFocus
       ? await scopeRoutingRepository.getSiblingScopes(routing.scopeId)
       : [];
-    const hadNoSiblings = routing.hasFocus && siblings.length === 0;
 
     if (siblings.length === 0) {
       siblings = (await scopeRoutingRepository.getAvailableScopes())
@@ -852,11 +843,14 @@ export class MessageProcessor {
     }
 
     if (siblings.length === 0) {
-      const bodyText = await resolveConfiguredMessage(
-        'sibling_none_message',
-        'No tengo más opciones que mostrarte por ahora. ¿En qué más puedo ayudarte?'
-      );
-      return { responses: [bodyText], shouldSend: true, wasDetected: true, isFallback: false };
+      // Texto fijo: solo se llega aquí sin ningún otro desarrollo dado de
+      // alta, y entonces no hay conversación que ajustar.
+      return {
+        responses: ['Por ahora no tengo más que mostrarte. ¿Te ayudo con algo más?'],
+        shouldSend: true,
+        wasDetected: true,
+        isFallback: false,
+      };
     }
 
     const options: PendingOfferOption[] = siblings.map(scope => ({
@@ -864,21 +858,30 @@ export class MessageProcessor {
       scopeId: scope.id,
       label: scope.name,
     }));
-    await userRepository.setPendingOffer(user.id, '', null, options);
 
     if (reason === 'unanchored_affirmative') {
-      const bodyText = await resolveConfiguredMessage(
-        'unanchored_affirmative_message',
-        '¿Sí a qué? Esto es lo que tengo disponible:'
-      );
-      return { responses: [bodyText], shouldSend: true, wasDetected: true, isFallback: false };
+      // Un "sí" sin oferta no se resuelve solo aunque quede una sola opción:
+      // lo que falta no es cuál desarrollo, es a qué dijo que sí.
+      await userRepository.setPendingOffer(user.id, '', null, options);
+      return {
+        responses: ['¡Claro! ¿A cuál te refieres?'],
+        shouldSend: true,
+        wasDetected: true,
+        isFallback: false,
+      };
     }
 
+    if (options.length === 1) {
+      const only = options[0];
+      await userRepository.setScopeFocus(user.id, only.scopeId, routing.hasFocus ? routing.scopeId : null);
+      return { ...await this.presentFocusedScope(user, only.scopeId), scopeId: only.scopeId };
+    }
+
+    await userRepository.setPendingOffer(user.id, '', null, options);
     const bodyText = await resolveConfiguredMessage(
-      hadNoSiblings ? 'sibling_up_message' : 'sibling_message',
-      hadNoSiblings
-        ? 'No tengo más para ese; esto es lo que sí tengo:'
-        : '¿Cuál de estas te interesa?'
+      'scope_disambiguation_message',
+      '¿De cuál te gustaría recibir información?',
+      { alcances: await this.getAvailableScopeList() }
     );
     return { responses: [bodyText], shouldSend: true, wasDetected: true, isFallback: false };
   }
@@ -897,13 +900,15 @@ export class MessageProcessor {
       .filter(candidate => candidate.parent_id === scopeId && candidate.is_active && reachable.has(candidate.id))
       .sort((a, b) => a.created_at.localeCompare(b.created_at));
 
+    // Texto fijo. Quien quiera decir algo propio al nombrar un desarrollo lo
+    // escribe donde se ve: en la respuesta de ese alcance.
     if (children.length === 0) {
-      const bodyText = await resolveConfiguredMessage(
-        'scope_only_presentation_message',
-        '{alcance}. ¿En qué más puedo ayudarte?',
-        { alcance: name }
-      );
-      return { responses: [bodyText], shouldSend: true, wasDetected: true, isFallback: false };
+      return {
+        responses: [`¡Claro! Te platico de ${name}. ¿Qué te gustaría saber?`],
+        shouldSend: true,
+        wasDetected: true,
+        isFallback: false,
+      };
     }
 
     const options: PendingOfferOption[] = children.map(child => ({
@@ -913,12 +918,13 @@ export class MessageProcessor {
     }));
     await userRepository.setPendingOffer(user.id, '', scopeId, options);
 
-    const bodyText = await resolveConfiguredMessage(
-      'scope_next_level_message',
-      '{alcance}. ¿Cuál te muestro?',
-      { alcance: name }
-    );
-    return { responses: [bodyText], shouldSend: true, wasDetected: true, isFallback: false };
+    // Texto fijo: con dos niveles --negocio y desarrollos-- no se llega aquí.
+    return {
+      responses: [`${name}. ¿Cuál te muestro?`],
+      shouldSend: true,
+      wasDetected: true,
+      isFallback: false,
+    };
   }
 
   /**
@@ -1056,26 +1062,13 @@ export class MessageProcessor {
       // para asegurar que el estado ya está guardado en BD
     }
 
-    if (intent.intent_name === 'saludo') {
-      const scopes = await scopeRoutingRepository.getAvailableScopes();
-      const brand = await clientBrandRepository.get();
-      if (brand.use_composed_greeting && brand.business_name) {
-        const projectNames = scopes
-          .filter(scope => scope.id !== ROOT_SCOPE_ID)
-          .map(scope => scope.name);
-        responses.splice(0, responses.length, composeBusinessGreeting(
-          brand.business_name,
-          projectNames,
-          toClientVocabulary(brand)
-        ));
-      } else if (!hasFocus && scopes.length > 1) {
-        responses.push(await resolveConfiguredMessage(
-          'scope_presentation_message',
-          '{project_plural_title} disponibles:\n\n{alcances}\n\n¿Cuál te interesa?',
-          { alcances: scopeList }
-        ));
-      }
-    }
+    // El saludo ya no se arma solo. Eran dos saludos automáticos que nadie
+    // pidió --uno compuesto con el nombre del negocio y la lista de
+    // desarrollos, otro que le pegaba la lista detrás-- y el compuesto además
+    // borraba la respuesta escrita para `saludo` sin decirlo.
+    //
+    // Saludar es una pregunta como las demás: lo que se manda es su respuesta,
+    // con los botones que lleve. Se edita donde se ven las otras.
 
     return responses;
   }

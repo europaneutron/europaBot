@@ -201,7 +201,25 @@ export class ScopeRoutingRepository {
       return answer;
     };
 
-    let level = fromScopeId ?? ROOT_SCOPE_ID;
+    // La regla: si el nivel donde esta la conversacion ya tiene respuesta
+    // propia, no hay nada que preguntar. Se manda esa respuesta y son sus
+    // botones los que deciden el paso siguiente.
+    //
+    // Antes esta funcion decidia mirando una sola cosa --si dos o mas
+    // desarrollos pueden contestar-- y nunca miraba si el nivel de la
+    // conversacion contestaba por si mismo. Con una respuesta escrita en la
+    // raiz --"lotes desde $700 mil en los dos fraccionamientos"-- el lead
+    // preguntaba el precio y recibia "¿de cual te platico?", ignorando lo que
+    // el cliente habia escrito precisamente para ese momento.
+    //
+    // Se comprueba solo en el nivel de entrada porque es desde donde se
+    // resuelve la respuesta despues (`handleIntent` usa el foco, no el nivel
+    // al que baje este recorrido). Mas abajo, una respuesta propia no llega a
+    // mandarse, asi que ahi la duda sigue siendo real.
+    const startLevel = fromScopeId ?? ROOT_SCOPE_ID;
+    if (scopesWithOwnContent.has(startLevel)) return null;
+
+    let level = startLevel;
     const visited = new Set<string>();
 
     while (true) {

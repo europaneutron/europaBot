@@ -35,6 +35,19 @@ function main() {
     `sin repeticion no hay nada que colapsar: "${result.value}"`
   );
 
+  // Un valor de varias lineas no casaba con las marcas de sustitucion --el
+  // punto de la expresion no cruza saltos de linea-- asi que se quedaban
+  // puestas y el lead recibia dos caracteres nulos envolviendo la lista. Es
+  // justo la forma de {alcances}, la variable del unico mensaje del sistema
+  // que sigue escribiendose a mano.
+  result = interpolateMessage('Manejamos {alcances}. ¿Cual?', {
+    alcances: '- Europa\n- Malasia',
+  });
+  assert(
+    result.value === 'Manejamos - Europa\n- Malasia. ¿Cual?',
+    `un valor de varias lineas sale limpio: ${JSON.stringify(result.value)}`
+  );
+
   console.log('\nTodas las pruebas de colapso de unidad pasaron.');
 }
 
