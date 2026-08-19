@@ -26,6 +26,13 @@ export interface IntentConfiguration {
   updated_at: string;
 }
 
+export interface ResponseButton {
+  /** Lo que se lee en el boton. WhatsApp admite veinte caracteres. */
+  label: string;
+  /** La pregunta que dispara, o "cita" para abrir el flujo de agendamiento. */
+  intentName: string;
+}
+
 export interface BotResponse {
   id: string;
   intent_id: string;
@@ -40,6 +47,11 @@ export interface BotResponse {
   origin: 'manual' | 'compiler';
   compiler_proposal_id: string | null;
   review_signals: string[];
+  /**
+   * Botones declarados por quien escribio la respuesta. `null` deja que el
+   * sistema los componga con las preguntas vivas del alcance.
+   */
+  buttons: ResponseButton[] | null;
   edited_by_human: boolean;
   superseded_by_response_id: string | null;
   deactivated_at: string | null;

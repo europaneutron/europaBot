@@ -16,13 +16,21 @@ import { interpolateMessage, type MessageVariables } from '@/lib/interpolate-mes
 interface ResponsePreviewProps {
   blocks: EditorBlock[];
   variables?: MessageVariables;
+  /**
+   * Los botones cuelgan del ultimo mensaje, no son un mensaje aparte: asi los
+   * manda WhatsApp y asi hay que verlos, para no escribir un cierre que no
+   * case con lo que el lead va a poder tocar.
+   */
+  buttons?: Array<{ label: string; intentName: string }>;
 }
 
 function formatDelay(ms: number): string {
   return ms >= 1000 ? `${(ms / 1000).toFixed(1)} s` : `${ms} ms`;
 }
 
-export default function ResponsePreview({ blocks, variables = {} }: ResponsePreviewProps) {
+export default function ResponsePreview({ blocks, variables = {}, buttons = [] }: ResponsePreviewProps) {
+  const lastBlockId = blocks[blocks.length - 1]?.id;
+
   if (blocks.length === 0) {
     return (
       <div className="flex min-h-[12rem] items-center justify-center rounded-lg border border-dashed">
@@ -92,6 +100,21 @@ export default function ResponsePreview({ blocks, variables = {} }: ResponsePrev
                   {captionInterpolation && <p className="break-words text-sm">{captionInterpolation.value}</p>}
                 </>
               )}
+
+              {/* Pegados al ultimo mensaje, que es donde WhatsApp los pone. */}
+              {buttons.length > 0 && block.id === lastBlockId ? (
+                <div className="-mx-3 -mb-2 mt-2 divide-y border-t">
+                  {buttons.map(button => (
+                    <div
+                      key={`${button.intentName}-${button.label}`}
+                      className="px-3 py-2 text-center text-sm font-medium text-[#00a5f4]"
+                      title={`Al tocarlo, el bot contesta: ${button.intentName}`}
+                    >
+                      {button.label}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
             </div>
           </div>
         </div>

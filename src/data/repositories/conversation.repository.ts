@@ -304,6 +304,45 @@ export class ConversationRepository {
   }
 
   /**
+   * Los botones que declara la respuesta que `getBotResponses` resolvería
+   * para estos mismos `intentIds`, con la misma resolución por orden.
+   *
+   * `null` cuando la respuesta no declara ninguno, que es el caso normal: ahí
+   * los compone el sistema con las preguntas vivas del alcance. Cuando sí los
+   * declara, mandan ellos: quien escribió la respuesta sabe mejor que una
+   * regla cuál es el paso siguiente de esa conversación.
+   */
+  async getResponseButtons(
+    intentIds: string | string[]
+  ): Promise<Array<{ label: string; intentName: string }> | null> {
+    const resolutionIds = Array.isArray(intentIds) ? intentIds : [intentIds];
+    const { data, error } = await supabaseServer
+      .from('bot_responses')
+      .select('intent_id, buttons, order_priority')
+      .in('intent_id', resolutionIds)
+      .eq('is_active', true)
+      .order('order_priority', { ascending: true });
+
+    if (error || !data) return null;
+
+    const resolvedIntentId = resolutionIds.find(
+      intentId => data.some(row => row.intent_id === intentId)
+    );
+    if (!resolvedIntentId) return null;
+
+    const row = data.find(candidate => candidate.intent_id === resolvedIntentId);
+    const buttons = row?.buttons;
+    if (!Array.isArray(buttons) || buttons.length === 0) return null;
+
+    return buttons
+      .filter((button: any) => button?.label?.trim() && button?.intentName?.trim())
+      .map((button: any) => ({
+        label: String(button.label).trim(),
+        intentName: String(button.intentName).trim(),
+      }));
+  }
+
+  /**
    * Detectar tipo de archivo por extensión
    */
   private detectMediaType(url: string): 'image' | 'document' | 'video' | undefined {

@@ -65,7 +65,12 @@ export function formatCatalogValue(value: Pick<CatalogValue, 'value' | 'value_ty
   if (bareNumber !== null && (value.value_type === 'money' || value.value_type === 'number')) {
     return formatCatalogValue({ ...value, value: bareNumber });
   }
-  if (typeof value.value === 'string') return value.value;
+  // La unidad tambien acompana a un valor de texto. Antes solo se anadia al
+  // final --a los numeros-- asi que "98" con unidad "m2" salia como "98": si
+  // la pantalla deja escribir una unidad, tiene que aparecer.
+  if (typeof value.value === 'string') {
+    return value.unit ? `${value.value} ${value.unit}` : value.value;
+  }
 
   if (typeof value.value === 'number' && value.value_type === 'money') {
     const currency = value.unit && /^[A-Z]{3}$/.test(value.unit) ? value.unit : 'MXN';

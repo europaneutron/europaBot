@@ -975,12 +975,24 @@ export class MessageProcessor {
     // puede ofrecer. Deterministico, sin modelo, y el toque llega como
     // identificador.
     const declaredOffer = await conversationRepository.getResponseOffer(responseIntentIds);
-    const offerOptions = await this.composeOfferOptions(
-      userId,
-      intent.intent_name,
-      resolvedScopeId,
-      declaredOffer
-    );
+
+    // Los botones escritos a mano mandan sobre los compuestos. Quien redacto
+    // la respuesta sabe mejor que una regla cual es el paso siguiente de esa
+    // conversacion; el sistema solo compone cuando nadie lo dijo.
+    const authoredButtons = await conversationRepository.getResponseButtons(responseIntentIds);
+    const offerOptions = authoredButtons?.length
+      ? authoredButtons.slice(0, MAX_BUTTON_OPTIONS).map(button => ({
+          id: `intent:${button.intentName}:${resolvedScopeId}`,
+          scopeId: resolvedScopeId,
+          label: button.label,
+          intentName: button.intentName,
+        }))
+      : await this.composeOfferOptions(
+          userId,
+          intent.intent_name,
+          resolvedScopeId,
+          declaredOffer
+        );
     if (offerOptions.length > 0) {
       await userRepository.setPendingOffer(
         userId,

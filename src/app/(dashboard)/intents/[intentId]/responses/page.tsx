@@ -9,6 +9,12 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import {
+  ResponseButtonsEditor,
+  cleanButtons,
+  type ResponseButtonDraft,
+  type ButtonTarget,
+} from '@/components/intents/ResponseButtonsEditor';
 import { intentConfigRepositoryClient, IntentConfiguration, BotResponse } from '@/data/repositories/intent-config.repository.client';
 import {
   EditorBlock,
@@ -52,6 +58,8 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
   const [formError, setFormError] = useState<string | null>(null);
   const [catalogValues, setCatalogValues] = useState<any[]>([]);
   const [scopeName, setScopeName] = useState<string | null>(null);
+  const [buttons, setButtons] = useState<ResponseButtonDraft[]>([]);
+  const [buttonTargets, setButtonTargets] = useState<ButtonTarget[]>([]);
 
   const [formData, setFormData] = useState({
     response_key: '',
@@ -85,6 +93,22 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
       const scope = (catalogBody.scopes || []).find((item: any) => item.id === intentData.scope_id);
       setScopeName(scope?.name || (intentData.scope_id ? null : 'General'));
 
+      // Con que se puede encadenar: las demas preguntas vivas, mas el flujo
+      // de cita, que no es una pregunta sino un proceso del propio bot.
+      const allIntents = await intentConfigRepositoryClient.getAll();
+      const byName = new Map<string, string>();
+      for (const candidate of allIntents) {
+        if (!candidate.is_active) continue;
+        if (candidate.intent_name === intentData.intent_name) continue;
+        if (candidate.intent_name === 'cita') continue;
+        if (!byName.has(candidate.intent_name)) byName.set(candidate.intent_name, candidate.display_name);
+      }
+      setButtonTargets([
+        { intentName: 'cita', label: 'Agendar una visita' },
+        ...Array.from(byName, ([intentName, label]) => ({ intentName, label }))
+          .sort((a, b) => a.label.localeCompare(b.label)),
+      ]);
+
     } catch (error) {
       console.error('Error loading data:', error);
       setMessage({ type: 'error', text: 'Error al cargar datos' });
@@ -95,6 +119,7 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
 
   function handleNewResponse() {
     setEditingResponse(null);
+    setButtons([]);
     setBlocks([]);
     setBlockErrors({});
     setFormError(null);
@@ -109,6 +134,7 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
 
   function handleEditResponse(response: BotResponse) {
     setEditingResponse(response);
+    setButtons(response.buttons || []);
     setBlocks(
       responseRowToBlocks({
         message_text: response.message_text,
@@ -184,6 +210,7 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
         response_type: 'fragmented',
         order_priority: formData.order_priority,
         is_active: formData.is_active,
+        buttons: cleanButtons(buttons),
         variables: formData.variables
       };
 
@@ -454,6 +481,12 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
                     blockErrors={blockErrors}
                     variableOptions={variableOptions}
                   />
+                  <ResponseButtonsEditor
+                    buttons={buttons}
+                    onChange={setButtons}
+                    targets={buttonTargets}
+                    disabled={saving}
+                  />
                 </div>
                 {/* La vista previa acompaña el desplazamiento porque la lista de
                     bloques puede ser mas alta que la ventana. */}
@@ -462,6 +495,7 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
                   <ResponsePreview
                     blocks={blocks}
                     variables={Object.fromEntries(catalogValues.map(value => [value.value_key, value.display_value]))}
+                    buttons={cleanButtons(buttons) || []}
                   />
                 </div>
               </div>
