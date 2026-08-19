@@ -26,12 +26,13 @@ export interface VariableOption {
    */
   from?: string | null;
   /**
-   * Falso cuando el dato vive por debajo --en un hijo-- y este alcance no lo
-   * alcanza. La herencia va de hijo a padre: un padre no ve lo de sus hijos.
-   * Se ofrece igual, pero marcado, porque escribirlo dejaria la respuesta sin
-   * enviarse: el hueco no se puede rellenar.
+   * Falso cuando el dato vive en otro alcance que este no hereda. Se ofrece
+   * igual: se escribe citando su procedencia, y entonces se resuelve venga de
+   * donde venga.
    */
   reachable?: boolean;
+  /** Como se escribe cuando hay que citar su procedencia: `europa.precio`. */
+  qualifiedKey?: string;
 }
 
 interface VariableTextareaProps {
@@ -44,7 +45,6 @@ interface VariableTextareaProps {
    * "quiero el precio desde en el negocio, y vive en los desarrollos": en vez
    * de escribir un hueco que nunca se rellena, el dato pasa a existir aqui.
    */
-  onAdoptValue?: (option: VariableOption) => void;
   placeholder?: string;
   rows?: number;
   disabled?: boolean;
@@ -76,7 +76,6 @@ export function VariableTextarea({
   value,
   onChange,
   options,
-  onAdoptValue,
   placeholder,
   rows = 3,
   disabled,
@@ -103,16 +102,12 @@ export function VariableTextarea({
 
   function insert(option: VariableOption) {
     if (!open || caret === null) return;
-    // Un dato de un hijo no se puede escribir tal cual: primero tiene que
-    // existir aqui. Quien decide es el llamador, que sabe a que alcance
-    // copiarlo.
-    if (option.reachable === false) {
-      onAdoptValue?.(option);
-      return;
-    }
+
     const before = value.slice(0, open.start);
     const after = value.slice(caret);
-    const token = `{${option.key}}`;
+    // Un dato de otro alcance se escribe con su procedencia --{europa.precio}--
+    // porque la herencia no lo trae hasta aqui. Lo demas va tal cual.
+    const token = `{${option.reachable === false && option.qualifiedKey ? option.qualifiedKey : option.key}}`;
     onChange(`${before}${token}${after}`);
 
     // El cursor queda detrás de la llave de cierre para poder seguir
@@ -197,7 +192,7 @@ export function VariableTextarea({
                 <span className="truncate text-muted-foreground">{option.preview}</span>
                 <span className="shrink-0 text-xs text-muted-foreground">
                   {option.reachable === false
-                    ? `en ${option.from} · copiar aquí`
+                    ? `de ${option.from}`
                     : option.from
                       ? `hereda de ${option.from}`
                       : 'propio'}

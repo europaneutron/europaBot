@@ -62,8 +62,6 @@ interface ResponseBlockItemProps {
   disabled?: boolean;
   /** Datos que este alcance alcanza, para sugerirlos al escribir `{`. */
   variableOptions: VariableOption[];
-  /** Copiar a este alcance un dato que vive en un hijo. */
-  onAdoptValue?: (option: VariableOption) => void;
   controlsDisabled?: boolean;
   onChange: (block: EditorBlock) => void;
   onRemove: () => void;
@@ -93,7 +91,6 @@ export default function ResponseBlockItem({
   disabled,
   controlsDisabled,
   variableOptions,
-  onAdoptValue,
   onChange,
   onRemove,
   onMoveUp,
@@ -234,7 +231,6 @@ export default function ResponseBlockItem({
             value={block.content}
             onChange={(content) => onChange({ ...block, content })}
             options={variableOptions}
-            onAdoptValue={onAdoptValue}
             placeholder="Escribe el texto. Con { enlazas un dato del catálogo."
             rows={3}
             disabled={disabled}

@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { supabaseServer } from '@/services/supabase/server-client';
 import { scopeRepository } from '@/data/repositories/scope.repository';
-import { normalizeVariableKey } from '@/lib/interpolate-message';
+import { normalizeVariableKey, qualifyScopeName } from '@/lib/interpolate-message';
 import {
   CATALOG_VALUE_TYPES,
   type CatalogReplacementWarning,
@@ -167,6 +167,50 @@ export class CatalogValueRepository {
   ): Promise<Record<string, string>> {
     const values = await this.getResolvedValues(scopeId, client);
     return Object.fromEntries(values.map(value => [value.value_key, formatCatalogValueForProse(value)]));
+  }
+
+  /**
+   * Los datos de cualquier alcance, nombrados con su procedencia:
+   * `{europa.precio}`, `{malasia.compra_minima}`.
+   *
+   * La herencia solo va de hijo a padre, asi que sin esto un mensaje del
+   * negocio no puede citar el precio de un desarrollo. Aqui no hay herencia
+   * que valga: quien escribe dice de donde sale el dato y se acabo la
+   * ambiguedad. Es solo para componer el texto; no cambia donde vive el dato
+   * ni que alcance esta contestando.
+   *
+   * El nombre del alcance vale como calificador, y tambien cada uno de sus
+   * alias. Asi renombrar un desarrollo no rompe los mensajes que lo citan,
+   * porque los alias sobreviven al renombrado.
+   */
+  async getQualifiedVariables(client: any = supabaseServer): Promise<Record<string, string>> {
+    const { scopeRoutingRepository } = await import('@/data/repositories/scope-routing.repository');
+    const [rows, scopes, aliases] = await Promise.all([
+      this.listAll(client),
+      scopeRepository.getScopes(client),
+      scopeRoutingRepository.getAllAliases(),
+    ]);
+
+    const qualifiersByScope = new Map<string, Set<string>>();
+    const remember = (scopeId: string, text: string) => {
+      const qualifier = qualifyScopeName(text);
+      if (!qualifier) return;
+      const set = qualifiersByScope.get(scopeId) || new Set<string>();
+      set.add(qualifier);
+      qualifiersByScope.set(scopeId, set);
+    };
+    for (const scope of scopes) remember(scope.id, scope.name);
+    for (const alias of aliases) remember(alias.scope_id, alias.alias);
+
+    const variables: Record<string, string> = {};
+    for (const row of rows) {
+      const rendered = formatCatalogValueForProse(row);
+      const qualifiers = Array.from(qualifiersByScope.get(row.scope_id) || []);
+      for (const qualifier of qualifiers) {
+        variables[`${qualifier}.${row.value_key}`] = rendered;
+      }
+    }
+    return variables;
   }
 
   /**

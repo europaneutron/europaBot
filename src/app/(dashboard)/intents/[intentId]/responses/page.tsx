@@ -23,7 +23,7 @@ import {
   blocksToFragmentedResponse,
   createTextBlock,
 } from '@/lib/utils/response-blocks';
-import { extractVariableKeys } from '@/lib/interpolate-message';
+import { qualifyScopeName, extractVariableKeys } from '@/lib/interpolate-message';
 import { validateFragmentedResponse } from '@/types/message-fragments.types';
 import { MAX_RESPONSE_BLOCKS } from '@/lib/constants/response-composer';
 import ResponseBlockList, { validateBlocks } from '@/components/intents/ResponseBlockList';
@@ -201,12 +201,17 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
     }));
     const fromChildren = descendantValues
       .filter(value => !reachableKeys.has(value.value_key))
-      .map(value => ({
-        key: value.value_key,
-        preview: String(value.value ?? ''),
-        from: value.scopes?.name || scopeNames[value.scope_id] || 'otro alcance',
-        reachable: false,
-      }));
+      .map(value => {
+        const scopeName = value.scopes?.name || scopeNames[value.scope_id] || '';
+        return {
+          key: value.value_key,
+          preview: String(value.value ?? ''),
+          from: scopeName || 'otro alcance',
+          reachable: false,
+          // Asi se escribe para que se resuelva desde donde sea.
+          qualifiedKey: `${qualifyScopeName(scopeName)}.${value.value_key}`,
+        };
+      });
     // Un mismo nombre puede existir en varios hijos: se ofrece una vez.
     const seen = new Set<string>();
     return [...own, ...fromChildren].filter(option => {
@@ -215,43 +220,6 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
       return true;
     });
   }, [catalogValues, descendantValues, scopeNames, intent?.scope_id]);
-
-  /**
-   * Copiar a este alcance un dato que vive en un hijo. Se copia el valor tal
-   * como esta: quien escribe decide despues si lo ajusta --"desde $700,000"
-   * para el negocio no tiene por que ser el precio exacto de un desarrollo--.
-   */
-  async function adoptValue(option: { key: string; preview: string; from?: string | null }) {
-    const source = descendantValues.find(value => value.value_key === option.key);
-    if (!source || !intent?.scope_id) return;
-    if (!confirm(
-      `"${option.key}" vive en ${option.from} y este alcance no lo alcanza.\n\n`
-      + `¿Crear aquí una copia con el valor "${source.value}"? Después puedes ajustarla en Catálogo.`
-    )) return;
-
-    try {
-      const response = await fetch('/api/catalog-values', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          scopeId: intent.scope_id,
-          valueKey: source.value_key,
-          value: source.value,
-          valueType: source.value_type,
-          unit: source.unit,
-        }),
-      });
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error);
-      await loadData();
-      setMessage({ type: 'success', text: `"${option.key}" ya existe en este alcance: vuelve a escribirlo.` });
-    } catch (error) {
-      setMessage({
-        type: 'error',
-        text: error instanceof Error ? error.message : 'No fue posible copiar el dato',
-      });
-    }
-  }
 
   function isIncomplete(response: BotResponse): boolean {
     const keys = extractVariableKeys(describeResponse(response));
@@ -580,7 +548,6 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
                     disabled={saving}
                     blockErrors={blockErrors}
                     variableOptions={variableOptions}
-                    onAdoptValue={adoptValue}
                   />
                   <ResponseButtonsEditor
                     buttons={buttons}

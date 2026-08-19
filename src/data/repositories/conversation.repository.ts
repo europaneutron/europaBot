@@ -229,15 +229,21 @@ export class ConversationRepository {
     );
     if (!resolvedIntentId) return [];
 
-    const catalogVariables = scopeId
-      ? await catalogValueRepository.getResolvedVariables(scopeId)
-      : {};
+    // Los datos del alcance donde esta la conversacion, con su herencia, mas
+    // los de cualquier alcance nombrados con su procedencia --{europa.precio}--
+    // para poder componer un mensaje con datos de donde sea. Los dos espacios
+    // de nombres no chocan: uno lleva punto y el otro no.
+    const [catalogVariables, qualifiedVariables] = await Promise.all([
+      scopeId ? catalogValueRepository.getResolvedVariables(scopeId) : Promise.resolve({}),
+      catalogValueRepository.getQualifiedVariables(),
+    ]);
 
     return data.filter(row => row.intent_id === resolvedIntentId).flatMap<
       import('@/types/message-fragments.types').BotResponse
     >(row => {
       const rowVariables = {
         ...toMessageVariables(row.variables),
+        ...qualifiedVariables,
         ...catalogVariables,
         ...variables,
       };

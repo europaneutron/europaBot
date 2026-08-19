@@ -5,13 +5,30 @@
 // bloqueaba por "la declaracion de huecos no coincide". Se reconocen con
 // acentos y se comparan sin ellos, para que `{ubicación}` y `{ubicacion}`
 // nombren el mismo dato.
-const VARIABLE_PATTERN = /\{([0-9A-Za-z_\u00C0-\u024F]+)\}/g;
+// El punto separa el alcance del dato: `{europa.precio}` nombra el precio
+// de Europa desde donde sea. Sin cualificar --`{precio}`-- el dato sale de
+// donde esta la conversacion, con su herencia, que es lo normal.
+const VARIABLE_PATTERN = /\{([0-9A-Za-z_.\u00C0-\u024F]+)\}/g;
 
 export function normalizeVariableKey(key: string): string {
   return key
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '')
     .toLowerCase();
+}
+
+/**
+ * Como se nombra un alcance dentro de un hueco: sin acentos, en minusculas y
+ * con guion bajo donde habia espacios. "Europa Residencial" se cita como
+ * `{europa_residencial.precio}`, y su alias "Europa" como `{europa.precio}`.
+ */
+export function qualifyScopeName(name: string): string {
+  return name
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
 }
 
 export type MessageVariables = Record<string, string | number | null | undefined>;

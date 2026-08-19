@@ -42,11 +42,9 @@ interface ResponseBlockListProps {
   blockErrors?: Record<string, string>;
   /** Datos del catalogo que este alcance alcanza, para sugerirlos con `{`. */
   variableOptions?: VariableOption[];
-  /** Copiar a este alcance un dato que vive en un hijo. */
-  onAdoptValue?: (option: VariableOption) => void;
 }
 
-export default function ResponseBlockList({ blocks, onChange, disabled, blockErrors, variableOptions = [], onAdoptValue }: ResponseBlockListProps) {
+export default function ResponseBlockList({ blocks, onChange, disabled, blockErrors, variableOptions = [] }: ResponseBlockListProps) {
   const [showMediaLibrary, setShowMediaLibrary] = useState<'image' | 'video' | 'document' | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadErrors, setUploadErrors] = useState<string[]>([]);
@@ -254,7 +252,6 @@ export default function ResponseBlockList({ blocks, onChange, disabled, blockErr
                 error={blockErrors?.[block.id]}
                 disabled={disabled}
                 variableOptions={variableOptions}
-                onAdoptValue={onAdoptValue}
                 controlsDisabled={controlsDisabled}
                 onChange={(updated) => updateBlock(index, updated)}
                 onRemove={() => removeBlock(index)}
