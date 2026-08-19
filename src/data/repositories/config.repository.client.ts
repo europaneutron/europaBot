@@ -34,13 +34,19 @@ export interface BotConfig {
   description: string | null;
   category: string;
   is_editable: boolean;
+  scope_id: string | null;
   created_at: string;
   updated_at: string;
 }
 
 export class ConfigRepositoryClient {
   /**
-   * Obtener todas las configuraciones
+   * Obtener todas las configuraciones globales.
+   *
+   * Solo las de `scope_id` nulo: Ajustes edita la configuración del negocio,
+   * no la de un alcance concreto. Sin este filtro, una clave sobrescrita por
+   * un desarrollo apareceria repetida aqui -- y `updateMultiple` la
+   * sobrescribiria por error.
    */
   async getAll(): Promise<BotConfig[]> {
     const cached = getCached<BotConfig[]>('config:__all__');
@@ -49,6 +55,7 @@ export class ConfigRepositoryClient {
     const { data, error } = await supabase
       .from('bot_config')
       .select('*')
+      .is('scope_id', null)
       .order('category', { ascending: true })
       .order('config_key', { ascending: true });
 
@@ -69,11 +76,12 @@ export class ConfigRepositoryClient {
     for (const { key, value } of updates) {
       const { error } = await supabase
         .from('bot_config')
-        .update({ 
+        .update({
           config_value: value,
           updated_at: new Date().toISOString()
         })
-        .eq('config_key', key);
+        .eq('config_key', key)
+        .is('scope_id', null);
 
       if (error) {
         console.error(`Error updating config key "${key}":`, error);

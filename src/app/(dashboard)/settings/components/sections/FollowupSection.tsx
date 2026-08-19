@@ -61,7 +61,8 @@ export function FollowupSection({ configs, onReload }: FollowupSectionProps) {
         const { error } = await supabase
           .from('bot_config')
           .update({ config_value: update.config_value })
-          .eq('config_key', update.config_key);
+          .eq('config_key', update.config_key)
+          .is('scope_id', null);
 
         if (error) throw error;
       }

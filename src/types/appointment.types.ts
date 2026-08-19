@@ -81,9 +81,6 @@ export interface AgentConfig {
   default_agent_phone: string;
   default_agent_name: string;
   notification_template: string;
-  business_hours?: string | null;
-  advisor_phone?: string | null;
-  advisor_email?: string | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;

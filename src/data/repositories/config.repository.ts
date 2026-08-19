@@ -39,6 +39,7 @@ export interface BotConfig {
   description: string | null;
   category: string;
   is_editable: boolean;
+  scope_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -62,7 +63,8 @@ export class ConfigRepository {
     const { data, error } = await supabaseServer
       .from('bot_config')
       .select('config_key, config_value')
-      .in('config_key', keys);
+      .in('config_key', keys)
+      .is('scope_id', null);
 
     if (error) {
       console.error('Error fetching bot configuration values:', error);
@@ -72,6 +74,53 @@ export class ConfigRepository {
     return Object.fromEntries(
       (data || []).map(config => [config.config_key, config.config_value])
     );
+  }
+
+  /**
+   * Igual que `getMany`, pero resuelto por alcance con la misma herencia que
+   * el resto del contenido: el valor mas especifico gana, y la fila global
+   * (`scope_id` NULL) es el ultimo escalon de la cadena.
+   *
+   * Es la unica fuente para `advisor_phone`, `business_hours` y
+   * `advisor_email` -- ver AGENTS.md seccion 6. `agent_config` ya no las
+   * declara.
+   */
+  async getManyByScope(keys: string[], scopeId?: string | null): Promise<Record<string, string>> {
+    if (keys.length === 0) return {};
+
+    const { scopeRepository } = await import('@/data/repositories/scope.repository');
+    const resolutionOrder = await scopeRepository.getResolutionOrder(scopeId);
+    const scopeIds = resolutionOrder.filter((id): id is string => id !== null);
+
+    let query = supabaseServer
+      .from('bot_config')
+      .select('config_key, config_value, scope_id')
+      .in('config_key', keys);
+    query = scopeIds.length > 0
+      ? query.or(`scope_id.is.null,scope_id.in.(${scopeIds.join(',')})`)
+      : query.is('scope_id', null);
+
+    const { data, error } = await query;
+    if (error) {
+      console.error('Error fetching scoped bot configuration values:', error);
+      throw error;
+    }
+
+    const rowsByScope = new Map<string | null, Record<string, string>>();
+    for (const row of data || []) {
+      const bucket = rowsByScope.get(row.scope_id) || {};
+      bucket[row.config_key] = row.config_value;
+      rowsByScope.set(row.scope_id, bucket);
+    }
+
+    const resolved: Record<string, string> = {};
+    for (const resolvedScopeId of resolutionOrder) {
+      const bucket = rowsByScope.get(resolvedScopeId) || {};
+      for (const [key, value] of Object.entries(bucket)) {
+        if (!(key in resolved)) resolved[key] = value;
+      }
+    }
+    return resolved;
   }
 
   /**
@@ -85,6 +134,7 @@ export class ConfigRepository {
       .from('bot_config')
       .select('config_value')
       .eq('config_key', key)
+      .is('scope_id', null)
       .single();
 
     if (error || !data) {
@@ -139,6 +189,7 @@ export class ConfigRepository {
       .from('bot_config')
       .select('is_editable')
       .eq('config_key', key)
+      .is('scope_id', null)
       .maybeSingle();
 
     if (readError) throw readError;
@@ -152,7 +203,8 @@ export class ConfigRepository {
         config_value: value,
         updated_at: new Date().toISOString()
       })
-      .eq('config_key', key);
+      .eq('config_key', key)
+      .is('scope_id', null);
 
     if (error) {
       console.error(`Error updating config key "${key}":`, error);
@@ -172,6 +224,7 @@ export class ConfigRepository {
     const { data, error } = await supabaseServer
       .from('bot_config')
       .select('*')
+      .is('scope_id', null)
       .order('category', { ascending: true })
       .order('config_key', { ascending: true });
 
@@ -183,8 +236,6 @@ export class ConfigRepository {
     const result = data || [];
     setCache('config:__all__', result);
     return result;
-
-    return data || [];
   }
 
   /**
@@ -195,6 +246,7 @@ export class ConfigRepository {
       .from('bot_config')
       .select('*')
       .eq('category', category)
+      .is('scope_id', null)
       .order('config_key', { ascending: true });
 
     if (error) {

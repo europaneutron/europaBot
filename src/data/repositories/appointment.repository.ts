@@ -113,12 +113,14 @@ export class AppointmentRepository {
   async getDefaultAgent(scopeId?: string | null): Promise<ResolvedAgentConfig> {
     let orderedAgents: AgentConfig[] = [];
     let allAgents: AgentConfig[] = [];
-    let globalConfig: Record<string, string> = {};
 
     try {
+      // advisor_phone, business_hours y advisor_email ya no viven aquí: ver
+      // AGENTS.md sección 6. agent_config conserva solo lo que no se
+      // unificó -- el teléfono y nombre del agente asignado, la plantilla.
       const { data, error } = await supabaseServer
         .from('agent_config')
-        .select('id, scope_id, default_agent_phone, default_agent_name, notification_template, business_hours, advisor_phone, advisor_email, is_active, created_at, updated_at')
+        .select('id, scope_id, default_agent_phone, default_agent_name, notification_template, is_active, created_at, updated_at')
         .eq('is_active', true);
 
       if (error) throw error;
@@ -141,14 +143,18 @@ export class AppointmentRepository {
       );
     }
 
+    // Única fuente para el teléfono del asesor, el horario y el correo:
+    // `bot_config` acotado por alcance, con la misma herencia que el resto
+    // del contenido. Un desarrollo con asesor propio deriva al suyo; el que
+    // no tiene hereda el del negocio (scope_id NULL, lo que edita Ajustes).
+    let scopedAdvisorConfig: Record<string, string> = {};
     try {
-      globalConfig = await configRepository.getMany([
-        'advisor_phone',
-        'business_hours',
-        'advisor_email',
-      ]);
-    } catch (globalConfigError) {
-      console.error('Error loading global advisor configuration:', globalConfigError);
+      scopedAdvisorConfig = await configRepository.getManyByScope(
+        ['advisor_phone', 'business_hours', 'advisor_email'],
+        scopeId
+      );
+    } catch (advisorConfigError) {
+      console.error('Error loading scoped advisor configuration:', advisorConfigError);
     }
 
     const firstValue = (
@@ -161,10 +167,6 @@ export class AppointmentRepository {
       return undefined;
     };
 
-    // Precedencia del destino de notificaciones:
-    //   1. advisor_phone del alcance o de sus ancestros: sobrescritura explícita
-    //   2. bot_config.advisor_phone: lo que el administrador configura en Ajustes
-    //
     // default_agent_phone NO participa. Es NOT NULL y viene sembrado por la
     // migración 004 con un número de prueba, así que usarlo como respaldo
     // reproduce exactamente la falla silenciosa que este diseño evita: en una
@@ -173,15 +175,13 @@ export class AppointmentRepository {
     // lo delataría. Además son conceptos distintos: default_agent_phone es el
     // teléfono del agente asignado, no el destino de las notificaciones.
     //
-    // Si no hay teléfono configurado en ninguna parte se lanza un error, y las
-    // rutas que llaman aquí degradan dejando la solicitud registrada.
-    const advisorPhone =
-      firstValue(agent => agent.advisor_phone)
-      || globalConfig.advisor_phone?.trim();
+    // Si no hay teléfono en el alcance ni en sus ancestros, la derivación
+    // falla de forma visible en vez de usar uno por omisión.
+    const advisorPhone = scopedAdvisorConfig.advisor_phone?.trim();
 
     if (!advisorPhone) {
       throw new Error(
-        'No hay teléfono de asesor configurado en agent_config ni en bot_config.advisor_phone'
+        'No hay teléfono de asesor configurado en bot_config para este alcance ni sus ancestros'
       );
     }
 
@@ -190,8 +190,8 @@ export class AppointmentRepository {
       advisor_phone: advisorPhone,
       name: firstValue(agent => agent.default_agent_name),
       template: firstValue(agent => agent.notification_template),
-      business_hours: firstValue(agent => agent.business_hours) || globalConfig.business_hours?.trim() || undefined,
-      advisor_email: firstValue(agent => agent.advisor_email) || globalConfig.advisor_email?.trim() || undefined,
+      business_hours: scopedAdvisorConfig.business_hours?.trim() || undefined,
+      advisor_email: scopedAdvisorConfig.advisor_email?.trim() || undefined,
     };
   }
 

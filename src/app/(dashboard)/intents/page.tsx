@@ -1,11 +1,15 @@
 /**
- * Página de Lista de Intenciones
- * Muestra todas las intenciones configuradas del bot
+ * Página de Lista de Preguntas
+ *
+ * Una fila por pregunta (`intent_name`), no por registro: una pregunta con
+ * respuesta propia en seis alcances es una fila que dice "6 respuestas", no
+ * seis filas idénticas. El árbol de alcances vive dentro de cada pregunta,
+ * en /intents/q/<intentName>.
  */
 
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { intentConfigRepositoryClient, IntentConfiguration } from '@/data/repositories/intent-config.repository.client';
 import { Button } from '@/components/ui/button';
@@ -19,10 +23,67 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { Search, RefreshCw, Archive, ArchiveRestore, Edit, MessageSquare } from 'lucide-react';
+import { Search, RefreshCw, Archive } from 'lucide-react';
+import { supabase } from '@/services/supabase/client';
+import { reachableScopes, TreeScope } from '@/lib/question-tree';
+
+const ROOT_SCOPE_ID = '00000000-0000-4000-8000-000000000001';
+
+interface QuestionRow {
+  intentName: string;
+  displayName: string;
+  scopeCount: number;
+  isCheckpoint: boolean;
+  priority: number;
+  searchText: string;
+}
+
+/**
+ * `reachableIds` acota la cuenta a los alcances vivos, los mismos que el
+ * árbol enseña al abrir la pregunta. Sin esto la fila decía "6 respuestas" y
+ * el árbol enseñaba cuatro, porque dos vivían en alcances retirados por una
+ * sustitución. `null` cuando los alcances no se pudieron leer: mejor contar
+ * de más que esconder preguntas.
+ */
+function groupByQuestion(
+  intents: IntentConfiguration[],
+  reachableIds: Set<string> | null
+): QuestionRow[] {
+  const visible = reachableIds
+    ? intents.filter(intent => intent.scope_id && reachableIds.has(intent.scope_id))
+    : intents;
+  const byName = new Map<string, IntentConfiguration[]>();
+  for (const intent of visible) {
+    const group = byName.get(intent.intent_name) || [];
+    group.push(intent);
+    byName.set(intent.intent_name, group);
+  }
+
+  return Array.from(byName.entries()).filter(([, group]) => group.length > 0).map(([intentName, group]) => {
+    // El rótulo general manda cuando existe: es el que ve el lead que
+    // todavía no llegó a un alcance concreto. Si nadie la responde ahí, la
+    // de mayor prioridad es la mejor aproximación a "la" pregunta.
+    const representative =
+      group.find(intent => intent.scope_id === ROOT_SCOPE_ID) ||
+      [...group].sort((a, b) => b.priority - a.priority)[0];
+
+    return {
+      intentName,
+      displayName: representative.display_name,
+      scopeCount: group.length,
+      isCheckpoint: group.some(intent => intent.is_checkpoint),
+      priority: Math.max(...group.map(intent => intent.priority)),
+      searchText: [
+        intentName,
+        ...group.flatMap(intent => [intent.display_name, ...intent.keywords]),
+      ].join(' ').toLowerCase(),
+    };
+  });
+}
 
 export default function IntentsPage() {
   const [intents, setIntents] = useState<IntentConfiguration[]>([]);
+  const [scopes, setScopes] = useState<TreeScope[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -35,8 +96,12 @@ export default function IntentsPage() {
   async function loadIntents() {
     try {
       setLoading(true);
-      const data = await intentConfigRepositoryClient.getAll();
+      const [data, scopesResult] = await Promise.all([
+        intentConfigRepositoryClient.getAll(),
+        supabase.from('scopes').select('id, parent_id, name, is_active'),
+      ]);
       setIntents(data);
+      setScopes(scopesResult.error ? null : ((scopesResult.data || []) as TreeScope[]));
     } catch (err) {
       console.error('Error loading intents:', err);
       setError('Error al cargar intenciones');
@@ -45,30 +110,28 @@ export default function IntentsPage() {
     }
   }
 
-  async function handleArchive(id: string, currentStatus: boolean) {
-    const action = currentStatus ? 'archivar' : 'restaurar';
-    if (!confirm(`¿Estás seguro de ${action} esta intención?`)) return;
+  const reachableIds = useMemo(
+    () => (scopes ? new Set(reachableScopes(scopes).map(scope => scope.id)) : null),
+    [scopes]
+  );
+  const activeQuestions = useMemo(
+    () => groupByQuestion(intents.filter(intent => intent.is_active), reachableIds),
+    [intents, reachableIds]
+  );
+  const archivedQuestions = useMemo(
+    () => groupByQuestion(intents.filter(intent => !intent.is_active), reachableIds),
+    [intents, reachableIds]
+  );
 
-    try {
-      await intentConfigRepositoryClient.update(id, { is_active: !currentStatus });
-      await loadIntents();
-    } catch (err) {
-      console.error('Error updating intent:', err);
-      alert(`Error al ${action} intención`);
-    }
-  }
-
-  const filteredIntents = intents
-    .filter(intent => showArchived ? !intent.is_active : intent.is_active)
-    .filter(intent => {
+  const questions = showArchived ? archivedQuestions : activeQuestions;
+  // Una pregunta se encuentra una vez, no una vez por alcance: el filtro
+  // corre sobre el texto ya agrupado, no sobre cada registro.
+  const filteredQuestions = questions
+    .filter(question => {
       if (!searchTerm) return true;
-      const search = searchTerm.toLowerCase();
-      return (
-        intent.display_name.toLowerCase().includes(search) ||
-        intent.intent_name.toLowerCase().includes(search) ||
-        intent.keywords.some(k => k.toLowerCase().includes(search))
-      );
-    });
+      return question.searchText.includes(searchTerm.toLowerCase());
+    })
+    .sort((a, b) => b.priority - a.priority || a.displayName.localeCompare(b.displayName));
 
   if (error) {
     return (
@@ -80,19 +143,16 @@ export default function IntentsPage() {
     );
   }
 
-  const activeCount = intents.filter(i => i.is_active).length;
-  const archivedCount = intents.filter(i => !i.is_active).length;
-
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">
-            Intenciones del Bot
+            Preguntas del Bot
           </h1>
           <p className="text-muted-foreground mt-1">
-            {activeCount} activas · {archivedCount} archivadas
+            {activeQuestions.length} preguntas activas · {archivedQuestions.length} archivadas
           </p>
         </div>
         <div className="flex gap-2">
@@ -139,11 +199,11 @@ export default function IntentsPage() {
             {showArchived ? (
               <>
                 <Archive className="h-4 w-4 mr-2" />
-                Archivados ({archivedCount})
+                Archivadas ({archivedQuestions.length})
               </>
             ) : (
               <>
-                Activos ({activeCount})
+                Activas ({activeQuestions.length})
               </>
             )}
           </Button>
@@ -155,85 +215,55 @@ export default function IntentsPage() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Nombre</TableHead>
+              <TableHead>Pregunta</TableHead>
               <TableHead>Checkpoint</TableHead>
               <TableHead className="text-center">Prioridad</TableHead>
-              <TableHead>Keywords</TableHead>
-              <TableHead className="text-right">Acciones</TableHead>
+              <TableHead>Respuestas por alcance</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={5} className="text-center py-8">
+                <TableCell colSpan={4} className="text-center py-8">
                   <div className="flex items-center justify-center gap-2">
                     <RefreshCw className="h-4 w-4 animate-spin" />
                     Cargando...
                   </div>
                 </TableCell>
               </TableRow>
-            ) : filteredIntents.length === 0 ? (
+            ) : filteredQuestions.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
-                  {showArchived ? 'No hay intenciones archivadas' : 'No se encontraron intenciones'}
+                <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
+                  {showArchived ? 'No hay preguntas archivadas' : 'No se encontraron preguntas'}
                 </TableCell>
               </TableRow>
             ) : (
-              filteredIntents.map((intent) => (
-                <TableRow key={intent.id}>
+              filteredQuestions.map((question) => (
+                <TableRow key={question.intentName} className="cursor-pointer hover:bg-muted/50">
                   <TableCell>
-                    <div>
-                      <div className="font-medium">{intent.display_name}</div>
+                    <Link href={`/intents/q/${encodeURIComponent(question.intentName)}`} className="block">
+                      <div className="font-medium">{question.displayName}</div>
                       <div className="text-sm text-muted-foreground">
-                        {intent.intent_name}
+                        {question.intentName}
                       </div>
-                    </div>
+                    </Link>
                   </TableCell>
                   <TableCell>
-                    {intent.is_checkpoint ? (
+                    {question.isCheckpoint ? (
                       <Badge variant="secondary">Checkpoint</Badge>
                     ) : (
                       <span className="text-muted-foreground text-sm">-</span>
                     )}
                   </TableCell>
                   <TableCell className="text-center">
-                    <Badge variant="outline">{intent.priority}</Badge>
+                    <Badge variant="outline">{question.priority}</Badge>
                   </TableCell>
                   <TableCell>
-                    <div className="text-sm">
-                      {intent.keywords.slice(0, 3).join(', ')}
-                      {intent.keywords.length > 3 && (
-                        <span className="text-muted-foreground">
-                          {' '}+{intent.keywords.length - 3}
-                        </span>
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex items-center justify-end gap-2">
-                      <Link href={`/intents/${intent.id}`}>
-                        <Button variant="ghost" size="sm">
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                      </Link>
-                      <Link href={`/intents/${intent.id}/responses`}>
-                        <Button variant="ghost" size="sm">
-                          <MessageSquare className="h-4 w-4" />
-                        </Button>
-                      </Link>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleArchive(intent.id, intent.is_active)}
-                        title={intent.is_active ? 'Archivar' : 'Restaurar'}
-                      >
-                        {intent.is_active ? (
-                          <Archive className="h-4 w-4" />
-                        ) : (
-                          <ArchiveRestore className="h-4 w-4" />
-                        )}
-                      </Button>
-                    </div>
+                    <Link href={`/intents/q/${encodeURIComponent(question.intentName)}`}>
+                      <Badge variant="outline">
+                        {question.scopeCount} {question.scopeCount === 1 ? 'respuesta' : 'respuestas'}
+                      </Badge>
+                    </Link>
                   </TableCell>
                 </TableRow>
               ))

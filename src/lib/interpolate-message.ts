@@ -43,31 +43,69 @@ function normalizeVariables(variables: MessageVariables): MessageVariables {
 }
 
 /**
- * El valor del catalogo puede traer ya su unidad --"96 casas", "160 m2"-- y la
- * prosa repetirla detras: "Tiene {casas} casas" se leia como "Tiene 96 casas
- * casas". Quien redacta no sabe si la unidad viene dentro del dato, asi que la
- * repeticion se resuelve al renderizar y no pidiendosela al modelo.
+ * El valor del catalogo puede traer ya su unidad --"96 casas", "1 medio
+ * bano"-- y la prosa repetirla detras: "{medio_bano} medio bano" se leia
+ * como "1 medio bano medio bano". Quien redacta no sabe si la unidad viene
+ * dentro del dato, asi que la repeticion se resuelve al renderizar y no
+ * pidiendosela al modelo.
  *
- * Solo se colapsa la palabra que sigue a un valor sustituido, nunca una
- * repeticion que ya estaba escrita en la plantilla: "Ya ya veremos" se queda
- * como esta.
+ * Se compara la cola del valor contra el arranque del texto que sigue,
+ * palabra por palabra, y se quita lo que coincida -- puede ser mas de una
+ * palabra ("medio bano"). Solo actua pegado a un valor sustituido: una
+ * repeticion que ya estaba escrita en la plantilla, como "Ya ya veremos",
+ * se respeta.
  */
 const SUBSTITUTION_MARK = '\u0000';
+const WORD_SOURCE = '[0-9A-Za-z\\u00C0-\\u024F]+';
 
 function collapseRepeatedUnit(text: string): string {
-  const marked = new RegExp(
-    `${SUBSTITUTION_MARK}(.*?)${SUBSTITUTION_MARK}(\\s+)([0-9A-Za-z\\u00C0-\\u024F]+)`,
-    'g'
-  );
-  return text
-    .replace(marked, (match, value: string, space: string, nextWord: string) => {
-      const lastWord = value.split(/\s+/).pop() || '';
-      return lastWord.toLowerCase() === nextWord.toLowerCase()
-        ? value
-        : `${value}${space}${nextWord}`;
-    })
-    .split(SUBSTITUTION_MARK)
-    .join('');
+  const marker = new RegExp(`${SUBSTITUTION_MARK}(.*?)${SUBSTITUTION_MARK}`, 'g');
+
+  let result = '';
+  let cursor = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = marker.exec(text)) !== null) {
+    result += text.slice(cursor, match.index);
+    const value = match[1];
+    result += value;
+    cursor = marker.lastIndex;
+
+    const valueWords = value.trim().split(/\s+/).filter(Boolean);
+    if (valueWords.length === 0) continue;
+
+    // Palabras que siguen al valor, tal como estan escritas, tomadas solo
+    // mientras sean contiguas al valor (sin saltar texto intermedio).
+    const leadingWord = new RegExp(`\\s+${WORD_SOURCE}`, 'g');
+    const followingWords: string[] = [];
+    let offset = 0;
+    let wordMatch: RegExpExecArray | null;
+    while (
+      followingWords.length < valueWords.length &&
+      (wordMatch = leadingWord.exec(text.slice(cursor))) !== null
+    ) {
+      if (wordMatch.index !== offset) break;
+      followingWords.push(wordMatch[0]);
+      offset += wordMatch[0].length;
+    }
+
+    let matchedCount = 0;
+    for (let k = Math.min(valueWords.length, followingWords.length); k >= 1; k--) {
+      const tail = valueWords.slice(valueWords.length - k).map(w => w.toLowerCase());
+      const head = followingWords.slice(0, k).map(w => w.trim().toLowerCase());
+      if (tail.join(' ') === head.join(' ')) {
+        matchedCount = k;
+        break;
+      }
+    }
+
+    if (matchedCount > 0) {
+      cursor += followingWords.slice(0, matchedCount).reduce((sum, w) => sum + w.length, 0);
+    }
+  }
+
+  result += text.slice(cursor);
+  return result;
 }
 
 export function interpolateMessage(

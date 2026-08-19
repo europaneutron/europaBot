@@ -106,29 +106,22 @@ src/
 
 ---
 
-## 6. Deuda conocida: configuración duplicada
+## 6. Configuración del asesor: una sola fuente
 
-Tres valores existen en dos tablas a la vez. La migración 009 introdujo el sistema de
-configuración por clave y valor y volvió a declarar lo que la 007 ya tenía como columnas,
-sin retirar lo anterior:
+`advisor_phone`, `business_hours` y `advisor_email` viven en `bot_config`, acotada por
+`scope_id` (migración `20260819050000`). Una fila con `scope_id` nulo es global —la que edita
+el administrador en Ajustes—; una fila con `scope_id` propio la sobrescribe para ese alcance y
+sus descendientes, con la misma herencia que el resto del contenido.
 
-| Valor | `agent_config` (007) | `bot_config` (009) |
-|---|---|---|
-| `advisor_phone` | columna, sembrada con un número de prueba | clave, editable en Ajustes |
-| `business_hours` | columna | clave, editable en Ajustes |
-| `advisor_email` | columna | clave, editable en Ajustes |
+`configRepository.getManyByScope(keys, scopeId)` resuelve esas tres claves por alcance.
+`appointmentRepository.getDefaultAgent(scopeId)` es quien la llama; nada más debe leer estas
+tres claves directamente. `agent_config` ya no las declara (migración `20260819060000`): solo
+guarda lo que no se unificó —el teléfono y nombre del agente asignado, la plantilla de
+notificación—.
 
-**Mientras esto exista, `bot_config` es la fuente de verdad de esos tres valores**, porque es
-la que edita el administrador desde el dashboard. `agent_config` solo puede sobrescribirla
-cuando un alcance define explícitamente el suyo.
-
-Es una trampa silenciosa: nada falla al leer del lado equivocado, simplemente el sistema usa
-un valor mientras el humano edita otro. Ya ocurrió una vez, al acotar `agent_config` por
-alcance.
-
-Antes de tocar cualquier ruta que lea configuración del asesor o de horarios, verificar de
-qué tabla la toma. La unificación —acotar `bot_config` por alcance y retirar las tres
-columnas duplicadas de `agent_config`— está planificada como cambio propio.
+Sin teléfono en el alcance ni en sus ancestros, `getDefaultAgent` lanza en vez de usar un valor
+por omisión: fue así como se detectó la duplicación anterior, con el teléfono de prueba
+sembrado por la migración 007.
 
 ## 7. Pruebas
 

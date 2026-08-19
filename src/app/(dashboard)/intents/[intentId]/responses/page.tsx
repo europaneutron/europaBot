@@ -52,6 +52,7 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
   const [formError, setFormError] = useState<string | null>(null);
   const [catalogValues, setCatalogValues] = useState<any[]>([]);
   const [selectedValueKey, setSelectedValueKey] = useState('');
+  const [scopeName, setScopeName] = useState<string | null>(null);
 
   const [formData, setFormData] = useState({
     response_key: '',
@@ -82,6 +83,8 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
       if (!catalogResponse.ok) throw new Error(catalogBody.error || 'No fue posible cargar el catálogo');
       setCatalogValues(catalogBody.resolvedValues || []);
       setResponses(responsesData);
+      const scope = (catalogBody.scopes || []).find((item: any) => item.id === intentData.scope_id);
+      setScopeName(scope?.name || (intentData.scope_id ? null : 'General'));
 
     } catch (error) {
       console.error('Error loading data:', error);
@@ -277,7 +280,7 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
       <div className="flex items-center justify-between">
         <div>
           <div className="flex items-center gap-2 mb-2">
-            <Link href="/intents">
+            <Link href={`/intents/q/${encodeURIComponent(intent.intent_name)}`}>
               <Button variant="ghost" size="sm">
                 <ArrowLeft className="h-4 w-4" />
               </Button>
@@ -287,7 +290,8 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
             </h1>
           </div>
           <p className="text-muted-foreground">
-            Gestiona los mensajes que el bot enviará cuando detecte esta intención
+            Alcance: <span className="font-medium">{scopeName || 'General'}</span> ·
+            {' '}Gestiona los mensajes que el bot enviará cuando detecte esta pregunta en este alcance
           </p>
         </div>
       </div>

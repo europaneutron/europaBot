@@ -101,6 +101,64 @@ export class IntentConfigRepositoryClient {
   }
 
   /**
+   * Todas las filas de una pregunta, una por alcance. Es el arbol: misma
+   * `intent_name`, distinto `scope_id`.
+   */
+  async getByIntentName(intentName: string): Promise<IntentConfiguration[]> {
+    const { data, error } = await supabase
+      .from('intent_configurations')
+      .select('*')
+      .eq('intent_name', intentName);
+
+    if (error) {
+      console.error(`Error fetching intents for intent_name "${intentName}":`, error);
+      throw error;
+    }
+
+    return data || [];
+  }
+
+  /**
+   * Borra la fila propia de un alcance para una pregunta. A diferencia de
+   * `delete()` -- que archiva, no borra -- esto es lo que hace que el
+   * alcance vuelva a heredar: "hereda" es la ausencia de fila, no una marca.
+   * Arrastra en cascada sus respuestas y sus dependencias de hechos.
+   */
+  async deleteOwnResponse(id: string): Promise<void> {
+    const { error } = await supabase
+      .from('intent_configurations')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      console.error(`Error deleting intent configuration ${id}:`, error);
+      throw error;
+    }
+
+    await this.notifyServerCacheStale();
+  }
+
+  /**
+   * Respuestas de varias intenciones a la vez, para no hacer una consulta por
+   * fila al pintar el arbol completo de una pregunta.
+   */
+  async getResponsesByIntentIds(intentIds: string[]): Promise<BotResponse[]> {
+    if (intentIds.length === 0) return [];
+    const { data, error } = await supabase
+      .from('bot_responses')
+      .select('*, response_fact_dependencies(compiler_facts(material_id, page_number, fact_key, compiler_materials(original_filename)))')
+      .in('intent_id', intentIds)
+      .order('order_priority', { ascending: true });
+
+    if (error) {
+      console.error('Error fetching responses for intent ids:', error);
+      throw error;
+    }
+
+    return data || [];
+  }
+
+  /**
    * Obtener intención por ID
    */
   async getById(id: string): Promise<IntentConfiguration | null> {

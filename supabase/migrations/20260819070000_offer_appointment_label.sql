@@ -10,4 +10,4 @@ INSERT INTO public.bot_config (
   'system_messages',
   true
 )
-ON CONFLICT (config_key) DO NOTHING;
+ON CONFLICT (config_key) WHERE scope_id IS NULL DO NOTHING;

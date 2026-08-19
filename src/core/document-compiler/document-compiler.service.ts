@@ -155,6 +155,37 @@ const WRITING_JSON_SCHEMA = {
   },
 } as const;
 
+// Un boton de WhatsApp admite 20 caracteres. Pedirlo en el prompt no basta
+// --"Terreno y construccion" son 22-- asi que se comprueba antes de publicar.
+const SHORT_LABEL_MAX_LENGTH = 20;
+
+const SHORT_LABEL_JSON_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['labels'],
+  properties: {
+    labels: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['proposal_key', 'short_label'],
+        properties: {
+          proposal_key: { type: 'string' },
+          short_label: { type: 'string' },
+        },
+      },
+    },
+  },
+} as const;
+
+const shortLabelSchema = z.object({
+  labels: z.array(z.object({
+    proposal_key: z.string(),
+    short_label: z.string().min(1),
+  })),
+});
+
 const writingSchema = z.object({
   proposals: z.array(z.object({
     proposal_key: z.string(),
@@ -191,6 +222,52 @@ export function collapseRepeatedHoles(text: string): string {
     /\{([0-9A-Za-z_\u00C0-\u024F]+)\}(?:\s*(?:,|y|,\s*y|;)\s*\{\1\})+/g,
     '{$1}'
   );
+}
+
+function normalizeForLabelComparison(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036F]/g, '')
+    .toLowerCase()
+    .trim();
+}
+
+/**
+ * Un rotulo que cabe en un boton y que no es la pregunta entera. El modelo
+ * puede devolver cualquiera de las dos cosas mal --"Terreno y construccion"
+ * cuelga en un boton, y a veces devuelve la pregunta completa como rotulo--
+ * asi que se comprueba en vez de confiar en que el prompt se cumplio.
+ */
+export function isValidShortLabel(label: string | null | undefined, question: string): boolean {
+  const trimmed = (label || '').trim();
+  if (!trimmed) return false;
+  if (trimmed.length > SHORT_LABEL_MAX_LENGTH) return false;
+  return normalizeForLabelComparison(trimmed) !== normalizeForLabelComparison(question);
+}
+
+/**
+ * Ultimo recurso cuando el modelo no da un rotulo que quepa ni al reintentar:
+ * se deriva de la clave de la pregunta, no de la pregunta misma, porque
+ * recortar la pregunta por palabras deja accidentes como "Terreno y" colgando.
+ */
+export function deriveShortLabelFromKey(intentName: string): string {
+  const words = intentName
+    .replace(/[_-]+/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase());
+
+  let label = '';
+  for (const word of words) {
+    const candidate = label ? `${label} ${word}` : word;
+    if (candidate.length > SHORT_LABEL_MAX_LENGTH) break;
+    label = candidate;
+  }
+
+  if (label) return label;
+  const fallback = words[0] || intentName;
+  return fallback.slice(0, SHORT_LABEL_MAX_LENGTH);
 }
 
 function proposedResolutionChain(
@@ -561,7 +638,7 @@ export class DocumentCompilerService {
     });
 
     const [openai, model, brand] = await Promise.all([
-      getOpenAIClient(),
+      this.getWritingClient(),
       getAiModel('writing'),
       clientBrandRepository.get(),
     ]);
@@ -602,6 +679,57 @@ export class DocumentCompilerService {
     if (missingTargets.length > 0) {
       const retried = await requestProposals(missingTargets);
       retried.forEach((value, key) => generatedByKey.set(key, value));
+    }
+
+    // El rotulo corto se comprueba antes de publicar, no solo se pide: un
+    // boton de WhatsApp admite 20 caracteres y el modelo a veces devuelve la
+    // pregunta entera en vez de un rotulo. Se reintenta una vez solo el
+    // rotulo -- el mismo patron que la propuesta faltante, pero sin volver a
+    // pedir la respuesta completa -- y si el segundo tampoco cabe, se deriva
+    // uno determinista de la clave de la pregunta.
+    const requestShortLabels = async (targets: typeof writingTargets) => {
+      const response = await this.askModelToWrite(openai, {
+        model,
+        store: false,
+        input: `El rotulo que diste para cada pregunta no sirve para un boton de WhatsApp: o pasa de ${SHORT_LABEL_MAX_LENGTH} caracteres o repite la pregunta completa. Da un rotulo nuevo por cada proposal_key: de una a tres palabras, sustantivo, en el idioma de la pregunta, sin signos de interrogacion y sin pasar de ${SHORT_LABEL_MAX_LENGTH} caracteres --"Recamaras y banos", "Ubicacion", "Creditos"--. No es la pregunta ni una frase. Devuelve JSON con {"labels":[{"proposal_key":"...","short_label":"..."}]}.\n\nPreguntas: ${JSON.stringify(targets.map(target => ({ proposal_key: target.proposalKey, question: target.coverage.question })))}`,
+        text: {
+          format: {
+            type: 'json_schema',
+            name: 'compiler_short_label',
+            strict: true,
+            schema: SHORT_LABEL_JSON_SCHEMA as unknown as Record<string, unknown>,
+          },
+        },
+      });
+      const parsed = shortLabelSchema.parse(JSON.parse(response.output_text));
+      return new Map(parsed.labels.map(item => [item.proposal_key, item.short_label]));
+    };
+
+    const invalidLabelTargets = writingTargets.filter(target => {
+      const proposal = generatedByKey.get(target.proposalKey);
+      return Boolean(proposal) && !isValidShortLabel(proposal!.short_label, target.coverage.question);
+    });
+    if (invalidLabelTargets.length > 0) {
+      // Si el reintento falla, no se pierde la corrida: la extraccion y la
+      // redaccion --las dos llamadas caras-- ya estan pagadas, y abajo hay un
+      // rotulo determinista que sirve. Un paso de acabado no puede costar el
+      // trabajo entero.
+      try {
+        const relabeled = await requestShortLabels(invalidLabelTargets);
+        for (const target of invalidLabelTargets) {
+          const proposal = generatedByKey.get(target.proposalKey);
+          const relabel = relabeled.get(target.proposalKey);
+          if (proposal && relabel !== undefined) proposal.short_label = relabel;
+        }
+      } catch (labelError) {
+        console.error('Error al reintentar los rotulos cortos; se derivan de la clave:', labelError);
+      }
+    }
+    for (const target of writingTargets) {
+      const proposal = generatedByKey.get(target.proposalKey);
+      if (proposal && !isValidShortLabel(proposal.short_label, target.coverage.question)) {
+        proposal.short_label = deriveShortLabelFromKey(target.coverage.intent_name);
+      }
     }
 
     const proposals = [];
@@ -876,6 +1004,16 @@ export class DocumentCompilerService {
     request: any
   ): Promise<{ output_text: string }> {
     return openai.responses.create(request);
+  }
+
+  /**
+   * De donde sale el cliente de la redaccion. Es un seam aparte del anterior
+   * porque obtener el cliente exige una clave configurada: un doble que solo
+   * sustituya `askModelToWrite` moria aqui antes de llegar a la llamada, y la
+   * comprobacion del rotulo se quedaba sin prueba posible.
+   */
+  protected async getWritingClient(): Promise<any> {
+    return getOpenAIClient();
   }
 
   private extractionPrompt(materials: Array<{ id: string; filename: string }>): string {
