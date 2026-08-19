@@ -6,6 +6,10 @@
  * bot configurado a mano se quedaba sin sitio, y no es un detalle: el nombre
  * del negocio y las palabras "desarrollo / desarrollos" salen en los mensajes
  * del sistema como {business_name} y {project_singular}.
+ *
+ * El tono no esta aqui a proposito: solo lo lee el prompt de redaccion del
+ * compilador. Con los mensajes escritos a mano no cambia nada, y una opcion
+ * que no hace nada confunde mas que ayudar.
  */
 
 'use client';
@@ -16,21 +20,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Loader2 } from 'lucide-react';
-
-const TONES = [
-  { value: 'friendly', label: 'Cercano' },
-  { value: 'direct', label: 'Directo' },
-  { value: 'formal', label: 'Formal' },
-];
 
 const fetcher = async (url: string) => {
   const response = await fetch(url);
@@ -43,7 +34,6 @@ export function BrandSection() {
   const [businessName, setBusinessName] = useState('');
   const [singular, setSingular] = useState('');
   const [plural, setPlural] = useState('');
-  const [tone, setTone] = useState('friendly');
   const [composedGreeting, setComposedGreeting] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -53,7 +43,6 @@ export function BrandSection() {
     setBusinessName(data.brand.business_name || '');
     setSingular(data.vocabulary?.singular || '');
     setPlural(data.vocabulary?.plural || '');
-    setTone(data.brand.tone || 'friendly');
     setComposedGreeting(Boolean(data.brand.use_composed_greeting));
   }, [data]);
 
@@ -68,7 +57,6 @@ export function BrandSection() {
           businessName,
           projectSingular: singular,
           projectPlural: plural,
-          tone,
           useComposedGreeting: composedGreeting,
         }),
       });
@@ -132,18 +120,6 @@ export function BrandSection() {
         <p className="text-xs text-muted-foreground">
           Salen como <code>{'{project_singular}'}</code> y <code>{'{project_plural}'}</code>.
         </p>
-
-        <div className="space-y-2">
-          <Label htmlFor="tone">Cómo habla</Label>
-          <Select value={tone} onValueChange={setTone} disabled={saving}>
-            <SelectTrigger id="tone" className="max-w-xs"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {TONES.map(item => (
-                <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
 
         <div className="flex items-start gap-2 rounded-md border p-3">
           <Checkbox

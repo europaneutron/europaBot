@@ -2,11 +2,15 @@
  * Sección de Tabs para mensajes personalizables del bot
  */
 
-import { useState } from 'react';
+'use client';
+
+import { useEffect, useState } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
 import { BRAND_VARIABLES, MESSAGE_VARIABLES } from '@/lib/constants/message-variables';
+import { MessagePreview } from '@/components/settings/MessagePreview';
+import useSWR from 'swr';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Loader2, Save } from 'lucide-react';
@@ -23,6 +27,23 @@ interface Props {
  * recibe sale tal cual al lead, asi que la ayuda no es cortesia: es lo que
  * evita mandar "{alcances}" a alguien.
  */
+/**
+ * Los fraccionamientos de verdad, para que la previsualizacion sea la del
+ * negocio y no un ejemplo generico. Si todavia no hay ninguno, dos de
+ * respaldo: sin nombres no se entiende el momento.
+ */
+function useScopeNames(): string[] {
+  const { data } = useSWR('/api/scopes', async (url: string) => {
+    const response = await fetch(url);
+    if (!response.ok) return null;
+    return response.json();
+  });
+  const names = ((data?.scopes || []) as any[])
+    .filter(scope => scope.is_active && scope.parent_id === data?.rootScopeId)
+    .map(scope => scope.name as string);
+  return names.length > 0 ? names : ['Europa Residencial', 'Malasia Residencial'];
+}
+
 function MessageVariableHelp({ configKey }: { configKey: string }) {
   const entry = MESSAGE_VARIABLES[configKey];
   // Sin entrada no se dice nada: enseñar solo las del negocio en un mensaje
@@ -41,6 +62,40 @@ function MessageVariableHelp({ configKey }: { configKey: string }) {
         ))}
       </p>
     </div>
+  );
+}
+
+/**
+ * Como se ve este mensaje cuando el bot lo manda. Lee el textarea de al lado
+ * mientras se escribe, asi que lo que se ve es lo que se acaba de teclear y no
+ * lo ultimo guardado.
+ */
+function MessageScenePreview({ configKey }: { configKey: string }) {
+  const scene = MESSAGE_VARIABLES[configKey]?.scene;
+  const names = useScopeNames();
+  const [draft, setDraft] = useState<string | null>(null);
+
+  useEffect(() => {
+    const field = document.getElementById(configKey) as HTMLTextAreaElement | null;
+    if (!field) return;
+    setDraft(field.value);
+    const onInput = () => setDraft(field.value);
+    field.addEventListener('input', onInput);
+    return () => field.removeEventListener('input', onInput);
+  }, [configKey]);
+
+  if (!scene || draft === null) return null;
+
+  return (
+    <MessagePreview
+      template={draft}
+      scene={{
+        lead: scene.lead,
+        variables: scene.variables(names),
+        buttons: scene.buttons(names),
+        before: scene.before,
+      }}
+    />
   );
 }
 
@@ -98,6 +153,7 @@ export function MessagesTabsSection({ configs, onReload }: Props) {
                     defaultValue={config.config_value}
                     disabled={saving}
                   />
+                  <MessageScenePreview configKey={config.config_key} />
                   <MessageVariableHelp configKey={config.config_key} />
                 </div>
               ))}

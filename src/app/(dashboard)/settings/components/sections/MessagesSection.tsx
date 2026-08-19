@@ -44,17 +44,9 @@ export function MessagesSection({ configs, onReload }: Props) {
         });
       }
 
-      const welcomeCheckbox = e.currentTarget.querySelector('input[name="welcome_message_enabled"]') as HTMLInputElement;
-      if (welcomeCheckbox) {
-        updates.push({ 
-          key: 'welcome_message_enabled', 
-          value: welcomeCheckbox.checked ? 'true' : 'false' 
-        });
-      }
-
       // Manejar textareas (excluir checkboxes ya procesados)
       formData.forEach((value, key) => {
-        if (key !== 'typing_indicator_enabled' && key !== 'welcome_message_enabled') {
+        if (key !== 'typing_indicator_enabled') {
           updates.push({ key, value: value.toString() });
         }
       });
@@ -90,28 +82,8 @@ export function MessagesSection({ configs, onReload }: Props) {
             </Label>
           </div>
 
-          <div className="flex items-center space-x-2">
-            <Checkbox
-              name="welcome_message_enabled"
-              id="welcome_message_enabled"
-              defaultChecked={isConfigChecked('welcome_message_enabled')}
-              disabled={saving}
-            />
-            <Label htmlFor="welcome_message_enabled" className="text-sm font-normal cursor-pointer">
-              Enviar mensaje de bienvenida a nuevos usuarios
-            </Label>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="welcome_message">Mensaje de bienvenida</Label>
-            <Textarea
-              id="welcome_message"
-              name="welcome_message"
-              rows={3}
-              defaultValue={getConfigValue('welcome_message')}
-              disabled={saving}
-            />
-          </div>
+          {/* El mensaje de bienvenida se retiro: ningun codigo lo leia. Quien
+              saluda es la pregunta `saludo`, como cualquier otra. */}
 
           <div className="flex justify-end pt-4">
             <Button type="submit" disabled={saving}>
