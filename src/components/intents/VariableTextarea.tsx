@@ -19,6 +19,19 @@ import { Textarea } from '@/components/ui/textarea';
 export interface VariableOption {
   key: string;
   preview: string;
+  /**
+   * De donde sale el dato: null si es del propio alcance, y el nombre del
+   * alcance si viene de otro sitio. Sin esto, dos datos con el mismo nombre en
+   * ramas distintas son indistinguibles en la lista.
+   */
+  from?: string | null;
+  /**
+   * Falso cuando el dato vive por debajo --en un hijo-- y este alcance no lo
+   * alcanza. La herencia va de hijo a padre: un padre no ve lo de sus hijos.
+   * Se ofrece igual, pero marcado, porque escribirlo dejaria la respuesta sin
+   * enviarse: el hueco no se puede rellenar.
+   */
+  reachable?: boolean;
 }
 
 interface VariableTextareaProps {
@@ -26,6 +39,12 @@ interface VariableTextareaProps {
   value: string;
   onChange: (value: string) => void;
   options: VariableOption[];
+  /**
+   * Copiar un dato de un hijo a este alcance. Es la salida honesta al caso de
+   * "quiero el precio desde en el negocio, y vive en los desarrollos": en vez
+   * de escribir un hueco que nunca se rellena, el dato pasa a existir aqui.
+   */
+  onAdoptValue?: (option: VariableOption) => void;
   placeholder?: string;
   rows?: number;
   disabled?: boolean;
@@ -57,6 +76,7 @@ export function VariableTextarea({
   value,
   onChange,
   options,
+  onAdoptValue,
   placeholder,
   rows = 3,
   disabled,
@@ -73,6 +93,9 @@ export function VariableTextarea({
     const query = normalize(open.query);
     return options
       .filter(option => normalize(option.key).includes(query))
+      // Primero lo que este alcance puede rellenar; lo de los hijos al final,
+      // porque elegirlo pide una decision aparte.
+      .sort((left, right) => Number(right.reachable !== false) - Number(left.reachable !== false))
       .slice(0, 8);
   }, [open, options]);
 
@@ -80,6 +103,13 @@ export function VariableTextarea({
 
   function insert(option: VariableOption) {
     if (!open || caret === null) return;
+    // Un dato de un hijo no se puede escribir tal cual: primero tiene que
+    // existir aqui. Quien decide es el llamador, que sabe a que alcance
+    // copiarlo.
+    if (option.reachable === false) {
+      onAdoptValue?.(option);
+      return;
+    }
     const before = value.slice(0, open.start);
     const after = value.slice(caret);
     const token = `{${option.key}}`;
@@ -165,6 +195,13 @@ export function VariableTextarea({
               >
                 <code className="shrink-0">{option.key}</code>
                 <span className="truncate text-muted-foreground">{option.preview}</span>
+                <span className="shrink-0 text-xs text-muted-foreground">
+                  {option.reachable === false
+                    ? `en ${option.from} · copiar aquí`
+                    : option.from
+                      ? `hereda de ${option.from}`
+                      : 'propio'}
+                </span>
               </button>
             </li>
           ))}

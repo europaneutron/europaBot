@@ -723,6 +723,18 @@ export class MessageProcessor {
 
     await userRepository.setScopeFocus(user.id, option.scopeId, offer.current_scope_id ?? null);
     const responses = await this.handleIntent(user, replay, option.scopeId, true);
+
+    // Sin respuesta detras, el toque devolvia una lista vacia y el bot no
+    // mandaba nada: el lead tocaba lo que se le ofrecio y no pasaba nada. Un
+    // mensaje escrito ya caia al fallback en ese caso; el toque no tenia red,
+    // y es donde mas se nota, porque ahi el lead sabe que hizo lo correcto.
+    if (responses.length === 0) {
+      return {
+        ...await fallbackHandler.handle(user.id, replay.intent_name),
+        scopeId: option.scopeId,
+      };
+    }
+
     return {
       responses,
       shouldSend: true,

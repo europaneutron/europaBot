@@ -8,7 +8,7 @@
 
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   ResponseButtonsEditor,
   cleanButtons,
@@ -60,6 +60,8 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
   const [scopeName, setScopeName] = useState<string | null>(null);
   const [buttons, setButtons] = useState<ResponseButtonDraft[]>([]);
   const [buttonTargets, setButtonTargets] = useState<ButtonTarget[]>([]);
+  const [descendantValues, setDescendantValues] = useState<any[]>([]);
+  const [scopeNames, setScopeNames] = useState<Record<string, string>>({});
 
   const [formData, setFormData] = useState({
     response_key: '',
@@ -89,25 +91,33 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
       const catalogBody = await catalogResponse.json();
       if (!catalogResponse.ok) throw new Error(catalogBody.error || 'No fue posible cargar el catálogo');
       setCatalogValues(catalogBody.resolvedValues || []);
+      // `values` es el arbol: este alcance y todo lo que cuelga de el.
+      setDescendantValues(
+        (catalogBody.values || []).filter((value: any) => value.scope_id !== intentData.scope_id)
+      );
+      setScopeNames(Object.fromEntries(
+        (catalogBody.scopes || []).map((scope: any) => [scope.id, scope.name])
+      ));
       setResponses(responsesData);
       const scope = (catalogBody.scopes || []).find((item: any) => item.id === intentData.scope_id);
       setScopeName(scope?.name || (intentData.scope_id ? null : 'General'));
 
-      // Con que se puede encadenar: las demas preguntas vivas, mas el flujo
-      // de cita, que no es una pregunta sino un proceso del propio bot.
-      const allIntents = await intentConfigRepositoryClient.getAll();
-      const byName = new Map<string, string>();
-      for (const candidate of allIntents) {
-        if (!candidate.is_active) continue;
-        if (candidate.intent_name === intentData.intent_name) continue;
-        if (candidate.intent_name === 'cita') continue;
-        if (!byName.has(candidate.intent_name)) byName.set(candidate.intent_name, candidate.display_name);
-      }
-      setButtonTargets([
-        { intentName: 'cita', label: 'Agendar una visita' },
-        ...Array.from(byName, ([intentName, label]) => ({ intentName, label }))
-          .sort((a, b) => a.label.localeCompare(b.label)),
-      ]);
+      // Con que se puede encadenar. Lo decide el servidor porque depende de la
+      // herencia: este alcance alcanza lo suyo y lo de sus ancestros, nunca lo
+      // de un hermano. Encadenar con un hermano no da error, da otra cosa.
+      const targetsResponse = await fetch(
+        `/api/intents/targets?scopeId=${encodeURIComponent(intentData.scope_id || '')}`
+        + `&exclude=${encodeURIComponent(intentData.intent_name)}`
+      );
+      const targetsBody = await targetsResponse.json();
+      setButtonTargets(
+        (targetsBody.targets || []).map((target: any) => ({
+          intentName: target.intentName,
+          label: target.displayName,
+          inheritedFrom: target.inheritedFrom,
+          hasResponse: target.hasResponse,
+        }))
+      );
 
     } catch (error) {
       console.error('Error loading data:', error);
@@ -117,6 +127,18 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
     }
   }
 
+  /** Una clave libre para esta pregunta: `precio`, `precio_2`, `precio_3`. */
+  function nextResponseKey(): string {
+    const base = intent?.intent_name || 'respuesta';
+    const used = new Set(responses.map(response => response.response_key));
+    if (!used.has(base)) return base;
+    for (let index = 2; index < 100; index += 1) {
+      const candidate = `${base}_${index}`;
+      if (!used.has(candidate)) return candidate;
+    }
+    return `${base}_${Date.now()}`;
+  }
+
   function handleNewResponse() {
     setEditingResponse(null);
     setButtons([]);
@@ -124,7 +146,11 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
     setBlockErrors({});
     setFormError(null);
     setFormData({
-      response_key: '',
+      // La clave es un identificador interno, no una decision del usuario: el
+      // compilador se la pone sola y a mano se la pedia a quien escribe. No
+      // hay indice unico, asi que basta con derivarla de la pregunta y
+      // numerar cuando ya hay otra.
+      response_key: nextResponseKey(),
       order_priority: responses.length + 1,
       is_active: true,
       variables: {}
@@ -153,12 +179,73 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
     setShowForm(true);
   }
 
-  // Lo que el alcance de esta pregunta alcanza: sus datos propios y los que
-  // hereda. Son exactamente los que el runtime podra rellenar.
-  const variableOptions = catalogValues.map(value => ({
-    key: value.value_key,
-    preview: String(value.display_value ?? value.value ?? ''),
-  }));
+  // Lo que este alcance alcanza --lo suyo y lo heredado-- mas lo que vive por
+  // debajo, en sus hijos, marcado como lo que es: la herencia va de hijo a
+  // padre, asi que un padre no puede rellenar un hueco de su hijo. Se ensena
+  // igual porque el caso es real --"precio desde" para el negocio, con los
+  // precios en los desarrollos-- y la salida honesta es copiarlo aqui, no
+  // escribir un hueco que nunca se llena.
+  const variableOptions = useMemo(() => {
+    const reachableKeys = new Set(catalogValues.map(value => value.value_key));
+    const own = catalogValues.map(value => ({
+      key: value.value_key,
+      preview: String(value.display_value ?? value.value ?? ''),
+      from: value.scope_id === intent?.scope_id ? null : (scopeNames[value.scope_id] || null),
+      reachable: true,
+    }));
+    const fromChildren = descendantValues
+      .filter(value => !reachableKeys.has(value.value_key))
+      .map(value => ({
+        key: value.value_key,
+        preview: String(value.value ?? ''),
+        from: value.scopes?.name || scopeNames[value.scope_id] || 'otro alcance',
+        reachable: false,
+      }));
+    // Un mismo nombre puede existir en varios hijos: se ofrece una vez.
+    const seen = new Set<string>();
+    return [...own, ...fromChildren].filter(option => {
+      if (seen.has(option.key)) return false;
+      seen.add(option.key);
+      return true;
+    });
+  }, [catalogValues, descendantValues, scopeNames, intent?.scope_id]);
+
+  /**
+   * Copiar a este alcance un dato que vive en un hijo. Se copia el valor tal
+   * como esta: quien escribe decide despues si lo ajusta --"desde $700,000"
+   * para el negocio no tiene por que ser el precio exacto de un desarrollo--.
+   */
+  async function adoptValue(option: { key: string; preview: string; from?: string | null }) {
+    const source = descendantValues.find(value => value.value_key === option.key);
+    if (!source || !intent?.scope_id) return;
+    if (!confirm(
+      `"${option.key}" vive en ${option.from} y este alcance no lo alcanza.\n\n`
+      + `¿Crear aquí una copia con el valor "${source.value}"? Después puedes ajustarla en Catálogo.`
+    )) return;
+
+    try {
+      const response = await fetch('/api/catalog-values', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          scopeId: intent.scope_id,
+          valueKey: source.value_key,
+          value: source.value,
+          valueType: source.value_type,
+          unit: source.unit,
+        }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error);
+      await loadData();
+      setMessage({ type: 'success', text: `"${option.key}" ya existe en este alcance: vuelve a escribirlo.` });
+    } catch (error) {
+      setMessage({
+        type: 'error',
+        text: error instanceof Error ? error.message : 'No fue posible copiar el dato',
+      });
+    }
+  }
 
   function isIncomplete(response: BotResponse): boolean {
     const keys = extractVariableKeys(describeResponse(response));
@@ -424,17 +511,20 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
           <CardContent>
             <div className="space-y-6">
               <div className="space-y-2">
-                <Label htmlFor="response_key">Response Key *</Label>
+                <Label htmlFor="response_key">Identificador</Label>
                 <Input
                   id="response_key"
                   value={formData.response_key}
-                  onChange={(e) => setFormData({ ...formData, response_key: e.target.value })}
-                  placeholder="main_response"
-                  required
+                  onChange={(e) => {
+                    setFormData({ ...formData, response_key: e.target.value });
+                    setFormError(null);
+                  }}
+                  placeholder={intent?.intent_name || 'respuesta'}
                   disabled={saving}
                 />
                 <p className="text-xs text-muted-foreground">
-                  Identificador único de la respuesta (sin espacios)
+                  Se pone solo. Solo lo cambias si esta pregunta va a tener varias respuestas y
+                  quieres distinguirlas.
                 </p>
               </div>
 
@@ -476,14 +566,22 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
                     onChange={(next) => {
                       setBlocks(next);
                       setBlockErrors({});
+                      // El aviso solo se limpiaba al abrir otra respuesta, asi
+                      // que se quedaba en pantalla mientras se corregia y
+                      // parecia provocado por lo ultimo que se tocaba.
+                      setFormError(null);
                     }}
                     disabled={saving}
                     blockErrors={blockErrors}
                     variableOptions={variableOptions}
+                    onAdoptValue={adoptValue}
                   />
                   <ResponseButtonsEditor
                     buttons={buttons}
-                    onChange={setButtons}
+                    onChange={(next) => {
+                      setButtons(next);
+                      setFormError(null);
+                    }}
                     targets={buttonTargets}
                     disabled={saving}
                   />

@@ -33,6 +33,10 @@ export interface ResponseButtonDraft {
 export interface ButtonTarget {
   intentName: string;
   label: string;
+  /** Null cuando la pregunta es de este alcance; el nombre del ancestro si no. */
+  inheritedFrom?: string | null;
+  /** Falso cuando nadie la contesta: el lead tocaria y no recibiria nada. */
+  hasResponse?: boolean;
 }
 
 /** El límite de WhatsApp para botones de respuesta y para su etiqueta. */
@@ -79,6 +83,7 @@ export function ResponseButtonsEditor({
         const duplicated = buttons.some((other, position) => (
           position !== index && other.intentName && other.intentName === button.intentName
         ));
+        const chosen = targets.find(target => target.intentName === button.intentName);
         return (
           <div key={index} className="space-y-1">
             <div className="flex flex-col gap-2 sm:flex-row">
@@ -101,7 +106,13 @@ export function ResponseButtonsEditor({
                 <SelectContent>
                   {targets.map(target => (
                     <SelectItem key={target.intentName} value={target.intentName}>
-                      {target.label}
+                      <span className="flex items-center gap-2">
+                        {target.label}
+                        <span className="text-xs text-muted-foreground">
+                          {target.inheritedFrom ? `hereda de ${target.inheritedFrom}` : 'propia'}
+                          {target.hasResponse === false ? ' · sin respuesta' : ''}
+                        </span>
+                      </span>
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -127,6 +138,11 @@ export function ResponseButtonsEditor({
                 Otro botón lleva al mismo sitio.
               </p>
             ) : null}
+            {chosen && chosen.hasResponse === false ? (
+              <p className="text-xs text-destructive">
+                {chosen.label} no tiene respuesta todavía: quien toque este botón no recibirá nada.
+              </p>
+            ) : null}
           </div>
         );
       })}
@@ -140,7 +156,9 @@ export function ResponseButtonsEditor({
 
       {targets.length === 0 ? (
         <p className="text-xs text-muted-foreground">
-          Todavía no hay otras preguntas vivas en este alcance con las que encadenar.
+          Todavía no hay otras preguntas que este alcance alcance. Solo se puede encadenar con lo
+          suyo y con lo del negocio, nunca con lo de otro fraccionamiento: el bot no sabría
+          resolverlo y contestaría otra cosa.
         </p>
       ) : null}
     </div>
