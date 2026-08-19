@@ -23,7 +23,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { Search, RefreshCw, Archive } from 'lucide-react';
+import { Search, RefreshCw, Archive, Play } from 'lucide-react';
 import { supabase } from '@/services/supabase/client';
 import { reachableScopes, TreeScope } from '@/lib/question-tree';
 
@@ -165,9 +165,15 @@ export default function IntentsPage() {
             <RefreshCw className="h-4 w-4 mr-2" />
             Actualizar
           </Button>
+          <Link href="/intents/probar">
+            <Button variant="outline" size="sm">
+              <Play className="h-4 w-4 mr-2" />
+              Probar frases
+            </Button>
+          </Link>
           <Link href="/intents/new">
             <Button size="sm">
-              Nueva Intención
+              Nueva pregunta
             </Button>
           </Link>
         </div>

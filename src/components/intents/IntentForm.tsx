@@ -13,6 +13,13 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { ArrowLeft, Save, Loader2, Sparkles } from 'lucide-react';
 import Link from 'next/link';
 import useSWR from 'swr';
@@ -55,6 +62,19 @@ export default function IntentForm({ mode, intentId }: IntentFormProps) {
   const [generating, setGenerating] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
   
+  // De quien es esta pregunta. Sin esto toda pregunta nueva caia en la raiz
+  // --es el valor por defecto de la columna-- y para hacer una de un
+  // fraccionamiento concreto habia que crearla arriba y bajarla desde el arbol.
+  const [scopeId, setScopeId] = useState<string>('');
+  const { data: scopeData } = useSWR(mode === 'create' ? '/api/scopes' : null, brandFetcher);
+  const selectableScopes = ((scopeData?.scopes || []) as any[])
+    .filter(scope => scope.is_active)
+    .filter(scope => !scope.parent_id || scope.parent_id === scopeData?.rootScopeId);
+
+  useEffect(() => {
+    if (!scopeId && scopeData?.rootScopeId) setScopeId(scopeData.rootScopeId);
+  }, [scopeData, scopeId]);
+
   const [formData, setFormData] = useState<FormData>({
     intent_name: '',
     display_name: '',
@@ -176,11 +196,17 @@ export default function IntentForm({ mode, intentId }: IntentFormProps) {
       };
 
       if (mode === 'create') {
-        await intentConfigRepositoryClient.create({
+        const created = await intentConfigRepositoryClient.create({
           intent_name: formData.intent_name.trim(),
+          scope_id: scopeId,
           ...intentData
         });
-        setMessage({ type: 'success', text: 'Intención creada exitosamente' });
+        setMessage({ type: 'success', text: 'Pregunta creada. Ahora escribe su respuesta.' });
+        // Directo al editor de respuestas: una pregunta sin respuesta no
+        // contesta nada, asi que dejar al usuario en la lista lo obligaba a
+        // buscarla de vuelta para terminar el trabajo.
+        setTimeout(() => router.push(`/intents/${created.id}/responses`), 800);
+        return;
       } else {
         await intentConfigRepositoryClient.update(intentId!, intentData);
         setMessage({ type: 'success', text: 'Intención actualizada exitosamente' });
@@ -303,6 +329,24 @@ export default function IntentForm({ mode, intentId }: IntentFormProps) {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            {mode === 'create' && (
+              <div className="space-y-2">
+                <Label htmlFor="scope">¿De quién es esta pregunta?</Label>
+                <Select value={scopeId} onValueChange={setScopeId}>
+                  <SelectTrigger id="scope"><SelectValue placeholder="Elige el alcance" /></SelectTrigger>
+                  <SelectContent>
+                    {selectableScopes.map(scope => (
+                      <SelectItem key={scope.id} value={scope.id}>{scope.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Si la contesta igual para todos, déjala en el negocio: los fraccionamientos la heredan.
+                  Elige uno solo cuando su respuesta sea distinta.
+                </p>
+              </div>
+            )}
+
             {mode === 'edit' && (
               <div className="space-y-2">
                 <Label htmlFor="intent_name">Identificador</Label>
