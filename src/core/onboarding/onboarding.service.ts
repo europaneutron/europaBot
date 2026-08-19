@@ -316,6 +316,7 @@ export class OnboardingService {
       scopeId: scope.id,
       answers: mergeAnswers(session.answers, {
         project_name: name,
+        project_names: [name],
         aliases: aliases.map(item => item.alias),
       }),
     });
@@ -482,6 +483,11 @@ export class OnboardingService {
       scopeId: firstProjectId,
       answers: mergeAnswers(session.answers, {
         project_name: projectName,
+        // Todos los confirmados, no solo el primero. `aliases` lleva lo mismo
+        // por compatibilidad, pero ahi significa otra cosa en el alta manual
+        // --los alias de un unico proyecto--, asi que quien necesite la lista
+        // de desarrollos lee `project_names`.
+        project_names: projectNames,
         aliases: projectNames,
         part_names: firstProjectParts,
       }),

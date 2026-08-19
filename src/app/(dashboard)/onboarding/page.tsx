@@ -171,6 +171,19 @@ export default function OnboardingPage() {
   const step = session.current_step;
   const vocabulary = data.vocabulary;
   const project = session.answers.project_name || projectName || `tu ${vocabulary.singular}`;
+  // El objetivo es de todos los desarrollos confirmados, no del primero.
+  // `project_name` guarda solo uno --contrato de cuando un cliente tenia un
+  // desarrollo-- y con dos en el material la pantalla prometia agendar visitas
+  // a uno y callaba el otro.
+  //
+  // Solo `project_names`: `aliases` guarda los nombres hermanos cuando la
+  // estructura viene del material, pero los alias de un unico proyecto cuando
+  // se da de alta a mano. Leerlo aqui prometeria visitas a "Europa, Residencial
+  // Europa y Europa Res", que son el mismo sitio escrito de tres formas.
+  const confirmedNames: string[] = session.answers.project_names || [];
+  const goalTarget = confirmedNames.length > 3
+    ? `tus ${confirmedNames.length} ${vocabulary.plural}`
+    : joinNames(confirmedNames) || project;
   const proposedParts = partNames.split(',').map(value => value.trim()).filter(Boolean);
   const confirmedProjects = editedProjects
     .filter(project => project.name.trim())
@@ -453,7 +466,7 @@ export default function OnboardingPage() {
           <section className="space-y-5">
             <Badge variant="secondary">Objetivo listo</Badge>
             <div>
-              <h2 className="text-xl font-semibold">Tu bot va a ayudar a agendar visitas a {project}</h2>
+              <h2 className="text-xl font-semibold">Tu bot va a ayudar a agendar visitas a {goalTarget}</h2>
               <p className="text-muted-foreground">También responderá las preguntas que pueda respaldar con tu material.</p>
             </div>
             <Button disabled={busy} onClick={() => submit({ action: 'goal' })}>Continuar</Button>

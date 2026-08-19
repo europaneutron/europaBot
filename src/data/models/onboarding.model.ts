@@ -17,7 +17,16 @@ export type OnboardingStatus = 'in_progress' | 'completed' | 'abandoned';
 export interface OnboardingAnswers {
   manual_setup?: boolean;
   vocabulary?: boolean;
+  /** El primero de los confirmados. Para nombrarlos todos, `project_names`. */
   project_name?: string;
+  /** Todos los desarrollos confirmados, en el orden en que se confirmaron. */
+  project_names?: string[];
+  /**
+   * Alias del proyecto en el alta manual; los nombres de los desarrollos
+   * hermanos cuando la estructura sale del material. Dos significados en la
+   * misma clave: por eso quien quiera la lista de desarrollos lee
+   * `project_names`.
+   */
   aliases?: string[];
   visit_flow?: 'decided' | 'guided' | 'unsure';
   part_names?: string[];

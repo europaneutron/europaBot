@@ -122,6 +122,19 @@ async function main() {
     scopeIds.push(...(created || []).map(scope => scope.id));
     const names = (created || []).map(scope => scope.name);
 
+    // El objetivo de la pantalla siguiente los nombra a todos: con dos
+    // desarrollos en el material, prometer visitas solo al primero deja al
+    // otro fuera de una promesa que el bot si cumple.
+    const { data: confirmedSession } = await supabaseServer
+      .from('onboarding_sessions').select('answers').eq('id', sessionId).single();
+    const confirmedNames = (confirmedSession?.answers as any)?.project_names || [];
+    assert(
+      confirmedNames.length === 2
+      && confirmedNames.includes(`Europa ${suffix}`)
+      && confirmedNames.includes(`Altabrisa ${suffix}`),
+      `los dos desarrollos quedan nombrados en project_names: ${JSON.stringify(confirmedNames)}`
+    );
+
     assert(names.includes(`Europa ${suffix}`), 'el primer desarrollo se crea con el nombre confirmado');
     assert(names.includes(`Altabrisa ${suffix}`), 'el segundo desarrollo también se crea con el nombre confirmado');
     assert(names.includes(`Modelo Cala ${suffix}`), 'las opciones del segundo desarrollo también se renombran');
