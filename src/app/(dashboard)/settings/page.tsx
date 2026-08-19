@@ -10,6 +10,7 @@ import { CheckpointsSection } from './components/sections/CheckpointsSection';
 import { ScoringSection } from './components/sections/ScoringSection';
 import { FallbackSection } from './components/sections/FallbackSection';
 import { ContactSection } from './components/sections/ContactSection';
+import { BrandSection } from './components/sections/BrandSection';
 import { MessagesSection } from './components/sections/MessagesSection';
 import { MessagesTabsSection } from './components/MessagesTabsSection';
 import { FollowupSection } from './components/sections/FollowupSection';
@@ -55,6 +56,7 @@ export default function SettingsPage() {
       )}
 
       {/* Configuraciones generales */}
+      <BrandSection />
       <CheckpointsSection configs={configs.appointments} onReload={loadConfigs} />
       <ScoringSection configs={configs.scoring} onReload={loadConfigs} />
       <FallbackSection configs={configs.fallback} onReload={loadConfigs} />

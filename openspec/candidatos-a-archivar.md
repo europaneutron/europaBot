@@ -39,6 +39,10 @@ obliga a decidir qué pasa con la procedencia de lo ya publicado.
 - **Vocabulario generado por modelo** — `VOCABULARY_GENERATION_VERSION` y todo
   el ciclo de regeneración. A mano, el vocabulario se escribe y se prueba con
   el probador de frases.
+- **Ya resuelto antes de archivar el onboarding:** la identidad del negocio
+  --nombre, cómo se llaman los proyectos, tono, saludo automático-- vivía solo
+  ahí. Ahora se edita en Ajustes → El negocio. Lo que queda del onboarding es
+  el recorrido guiado del compilador, que sí se va con él.
 - **`ai_business_context`, `ai_extraction_model`, `ai_writing_model`** en
   Ajustes → Inteligencia Artificial: si no hay compilador, no hay a qué
   aplicarlos. La clave de OpenAI en Vault deja de hacer falta.

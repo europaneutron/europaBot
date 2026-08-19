@@ -20,7 +20,7 @@ export const BRAND_VARIABLES = [
 export const MESSAGE_VARIABLES: Record<string, { vars: string[]; hint: string }> = {
   scope_presentation_message: {
     vars: ['{alcances}'],
-    hint: 'Solo sale si apagas el saludo compuesto en Configurar bot.',
+    hint: 'Solo sale si apagas el saludo automático, arriba en "El negocio".',
   },
   scope_catalog_summary_message: {
     vars: ['{opciones}'],
