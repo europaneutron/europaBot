@@ -25,13 +25,22 @@ function proposalFor(target: any) {
   return {
     proposal_key: target.proposal_key,
     intent_name: target.intent_name,
-    response: `Respuesta de ${target.intent_name}.`,
+    response: `Desde {precio_desde}.`,
+    required_variables: ['precio_desde'],
     keywords: ['precio', 'costo'],
     synonyms: ['cuanto cuesta', 'valor'],
     typos: ['presio'],
     phrases: ['cuanto cuesta', 'que precio tiene', 'cuanto vale'],
     question_variants: ['cuanto cuesta', 'que precio tiene'],
     offers_intent_name: null,
+  };
+}
+
+function literalProposalFor(target: any) {
+  return {
+    ...proposalFor(target),
+    response: `Desde ${target.facts[0]?.value}.`,
+    required_variables: [],
   };
 }
 
@@ -93,8 +102,10 @@ async function main() {
 
     const { data: models, error: modelsError } = await supabaseServer
       .from('scopes').insert([
-        { parent_id: development.id, name: `Uno ${suffix}`, slug: `uno-${suffix}`, is_active: true },
-        { parent_id: development.id, name: `Dos ${suffix}`, slug: `dos-${suffix}`, is_active: true },
+        // Apagados, como los crea una corrida de verdad: se encienden al
+        // publicar. Con `is_active: true` la prueba no veia el fallo.
+        { parent_id: development.id, name: `Uno ${suffix}`, slug: `uno-${suffix}`, is_active: false },
+        { parent_id: development.id, name: `Dos ${suffix}`, slug: `dos-${suffix}`, is_active: false },
       ]).select('id, name');
     if (modelsError) throw modelsError;
     scopeIds.push(...models.map(model => model.id));
@@ -153,6 +164,12 @@ async function main() {
       `todos los objetivos terminan con propuesta: ${review.proposals.length} de ${calls[0].keys.length}`
     );
     assert(
+      review.proposals
+        .filter((proposal: any) => models.some(model => model.id === proposal.scope_id))
+        .every((proposal: any) => proposal.is_publishable),
+      'la prosa con huecos respaldados queda publicable'
+    );
+    assert(
       review.coverage.every((row: any) => !row.placement_error),
       `un objetivo recuperado no deja hueco anotado: ${JSON.stringify(review.coverage.map((row: any) => row.placement_error))}`
     );
@@ -199,7 +216,7 @@ async function main() {
         const targets = JSON.parse(String(request.input).split('Objetivos: ')[1]);
         calls.push({ keys: targets.map((target: any) => target.proposal_key) });
         return {
-          output_text: JSON.stringify({ proposals: targets.slice(0, -1).map(proposalFor) }),
+          output_text: JSON.stringify({ proposals: targets.slice(0, -1).map(literalProposalFor) }),
         };
       }
     }
@@ -218,6 +235,91 @@ async function main() {
       calls.length === 2,
       `un modelo que insiste igual se reintenta una sola vez: ${calls.length} llamadas`
     );
+    assert(
+      stubbornReview.proposals
+        .filter((proposal: any) => models.some(model => model.id === proposal.scope_id))
+        .every((proposal: any) => (
+        !proposal.is_publishable && proposal.review_signals.includes('literal_catalog_value')
+      )),
+      'la prosa con cifras literales queda bloqueada'
+    );
+
+    // Una propuesta con hueco sobre un alcance todavia apagado tiene que poder
+    // publicarse: su valor esta en los hechos de esta misma corrida. Se
+    // bloqueaba entero --17 de 21 propuestas en la corrida real de FYMSA--
+    // porque la cadena de resolucion no incluye un alcance inactivo.
+    calls = [];
+    const { data: holeRun, error: holeRunError } = await supabaseServer.from('compiler_runs').insert({
+      scope_id: ROOT_SCOPE_ID,
+      material_ids: [material.id],
+      current_stage: 'content',
+      status: 'running',
+      tree_approved_at: new Date().toISOString(),
+      replacement_mode: 'replace',
+    }).select('*').single();
+    if (holeRunError) throw holeRunError;
+    const holeRunId = holeRun.id;
+    await supabaseServer.from('compiler_facts').insert(models.map((model, index) => ({
+      run_id: holeRunId,
+      material_id: material.id,
+      scope_id: model.id,
+      fact_key: 'precio_desde',
+      subject: model.name,
+      fact_value: JSON.stringify(`$${1_000_000 + index * 500_000}`),
+      fact_type: 'money',
+      page_number: 1,
+      provenance_confidence: 1,
+      fingerprint: `hole-${suffix}-${index}`,
+    })));
+    const { data: holeFacts } = await supabaseServer
+      .from('compiler_facts').select('id').eq('run_id', holeRunId);
+    await supabaseServer.from('compiler_coverage').insert({
+      run_id: holeRunId,
+      scope_id: ROOT_SCOPE_ID,
+      intent_name: 'precio',
+      question: '¿Cuál es el precio?',
+      status: 'covered',
+      source: 'preset',
+      fact_ids: (holeFacts || []).map(fact => fact.id),
+    });
+
+    class HoleCompiler extends DocumentCompilerService {
+      protected async askModelToWrite(_openai: any, request: any) {
+        const targets = JSON.parse(String(request.input).split('Objetivos: ')[1]);
+        return {
+          output_text: JSON.stringify({
+            proposals: targets.map((target: any) => ({
+              ...proposalFor(target),
+              response: 'Desde {precio_desde}.',
+              required_variables: ['precio_desde'],
+            })),
+          }),
+        };
+      }
+    }
+    await new HoleCompiler().runNextStage(holeRunId);
+
+    const holeReview = await documentCompilerRepository.getReview(holeRunId);
+    const modelProposals = holeReview.proposals.filter((row: any) =>
+      models.some(model => model.id === row.scope_id)
+    );
+    assert(
+      modelProposals.length > 0,
+      'la corrida tiene propuestas en los alcances nuevos'
+    );
+    assert(
+      modelProposals.every((row: any) => !row.review_signals.includes('missing_catalog_value')),
+      `un hueco respaldado por los hechos de la corrida no falta: ${JSON.stringify(modelProposals.map((row: any) => row.review_details?.catalog))}`
+    );
+    assert(
+      modelProposals.every((row: any) => row.is_publishable),
+      'una propuesta con hueco respaldado se puede publicar'
+    );
+
+    await supabaseServer.from('compiler_proposals').delete().eq('run_id', holeRunId);
+    await supabaseServer.from('compiler_coverage').delete().eq('run_id', holeRunId);
+    await supabaseServer.from('compiler_facts').delete().eq('run_id', holeRunId);
+    await supabaseServer.from('compiler_runs').delete().eq('id', holeRunId);
 
     await supabaseServer.from('compiler_proposals').delete().eq('run_id', stubbornRunId);
     await supabaseServer.from('compiler_coverage').delete().eq('run_id', stubbornRunId);

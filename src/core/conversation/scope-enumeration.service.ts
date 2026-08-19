@@ -3,9 +3,10 @@
  * formato. Las opciones salen del catálogo y de nada más: no hay botones
  * redactados a mano en esta capacidad.
  */
-import { supabaseServer } from '@/services/supabase/server-client';
 import { scopeRepository } from '@/data/repositories/scope.repository';
 import { conversationRepository } from '@/data/repositories/conversation.repository';
+import { intentConfigRepository } from '@/data/repositories/intent-config.repository';
+import { catalogValueRepository } from '@/data/repositories/catalog-value.repository';
 import { isSimpleResponseWithMedia, isFragmentedResponse } from '@/types/message-fragments.types';
 import type { TextFragment } from '@/types/message-fragments.types';
 import type { PendingOfferOption } from '@/data/models/user.model';
@@ -32,58 +33,39 @@ export function chooseEnumerationFormat(optionCount: number): EnumerationFormat 
  * filtrado a alcances alcanzables (activos, con ancestros activos) desde
  * `findScopeDependency`, así que un alcance retirado nunca llega aquí.
  *
- * Cuando el catálogo tiene un dato que distingue la opción —hoy, las
- * variables con las que se interpola su propia respuesta, típicamente el
- * precio— se antepone al nombre. Sin esa variable, la opción es solo el
- * nombre del alcance.
+ * Cuando el catálogo tiene un dato que distingue la opción —típicamente el
+ * precio— se antepone al nombre. Sin ese valor, la opción es solo el nombre.
  */
 export async function buildScopeOptions(
   candidateIds: string[],
-  intentName: string
+  _intentName: string
 ): Promise<ScopeOption[]> {
   if (candidateIds.length === 0) return [];
 
   const scopes = await scopeRepository.getScopes();
   const scopesById = new Map(scopes.map(scope => [scope.id, scope]));
 
-  const { data: intents, error: intentsError } = await supabaseServer
-    .from('intent_configurations')
-    .select('id, scope_id')
-    .eq('intent_name', intentName)
-    .eq('is_active', true)
-    .in('scope_id', candidateIds);
-  if (intentsError) throw intentsError;
-
-  const intentIdByScope = new Map<string, string>(
-    (intents || []).map(intent => [intent.scope_id as string, intent.id as string])
-  );
-  const { data: responses, error: responsesError } = await supabaseServer
-    .from('bot_responses')
-    .select('intent_id, variables')
-    .in('intent_id', Array.from(intentIdByScope.values()))
-    .eq('is_active', true);
-  if (responsesError) throw responsesError;
-
-  const variablesByIntentId = new Map<string, Record<string, unknown>>();
-  for (const response of responses || []) {
-    if (response.variables && !variablesByIntentId.has(response.intent_id)) {
-      variablesByIntentId.set(response.intent_id, response.variables as Record<string, unknown>);
-    }
-  }
+  const details = await Promise.all(candidateIds.map(scopeId =>
+    catalogValueRepository.getDistinctiveDetail(scopeId)
+  ));
+  const detailByScope = new Map(candidateIds.map((scopeId, index) => [scopeId, details[index]]));
+  const branchIds = await Promise.all(candidateIds.map(scopeId => scopeRepository.getBranchId(scopeId)));
+  const distinctBranches = new Set(branchIds.filter(Boolean));
+  const branchByScope = new Map(candidateIds.map((scopeId, index) => [scopeId, branchIds[index]]));
 
   return candidateIds
     .map(scopeId => scopesById.get(scopeId))
     .filter((scope): scope is NonNullable<typeof scope> => Boolean(scope))
     .map(scope => {
-      const intentId = intentIdByScope.get(scope.id);
-      const variables = intentId ? variablesByIntentId.get(intentId) : undefined;
-      const detail = variables
-        ? Object.values(variables).slice(0, 2).map(String).filter(Boolean).join(' · ')
-        : '';
+      const detail = detailByScope.get(scope.id) || '';
+      const branchId = branchByScope.get(scope.id);
+      const branchName = distinctBranches.size > 1 && branchId && branchId !== scope.id
+        ? scopesById.get(branchId)?.name
+        : null;
       return {
         id: scope.id,
         scopeId: scope.id,
-        label: detail ? `${scope.name} · ${detail}` : scope.name,
+        label: [scope.name, branchName, detail].filter(Boolean).join(' · '),
       };
     });
 }
@@ -100,22 +82,18 @@ export async function resolveLevelAnswer(
 ): Promise<string | null> {
   const order = await scopeRepository.getResolutionOrder(level);
 
-  const { data: intents, error } = await supabaseServer
-    .from('intent_configurations')
-    .select('id, scope_id')
-    .eq('intent_name', intentName)
-    .eq('is_active', true);
-  if (error) throw error;
+  const intents = (await intentConfigRepository.getAll())
+    .filter(intent => intent.intent_name === intentName && intent.is_active);
 
   const idByScope = new Map<string | null, string>(
-    (intents || []).map(intent => [intent.scope_id, intent.id])
+    intents.map(intent => [intent.scope_id, intent.id])
   );
   const orderedIds = order
     .map(scopeId => idByScope.get(scopeId))
     .filter((id): id is string => Boolean(id));
   if (orderedIds.length === 0) return null;
 
-  const responses = await conversationRepository.getBotResponses(orderedIds);
+  const responses = await conversationRepository.getBotResponses(orderedIds, {}, level);
   const first = responses[0];
   if (!first) return null;
   if (typeof first === 'string') return first;

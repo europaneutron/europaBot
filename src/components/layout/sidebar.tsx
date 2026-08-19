@@ -13,7 +13,8 @@ import {
   UserCog,
   FileText,
   WandSparkles,
-  MessagesSquare
+  MessagesSquare,
+  Database,
 } from 'lucide-react';
 import {
   Tooltip,
@@ -38,6 +39,7 @@ const navItems: NavItem[] = [
   { href: '/intents', icon: Target, label: 'Intenciones' },
   { href: '/onboarding', icon: WandSparkles, label: 'Configurar bot' },
   { href: '/compiler', icon: FileText, label: 'Contenido' },
+  { href: '/catalog', icon: Database, label: 'Catálogo' },
   ...(process.env.NODE_ENV !== 'production'
     ? [{ href: '/simulator', icon: MessagesSquare, label: 'Simulador' }]
     : []),

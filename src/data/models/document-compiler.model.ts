@@ -18,7 +18,9 @@ export type ReviewSignal =
   | 'poor_vocabulary'
   | 'vocabulary_regression'
   | 'unoffered_yes_no'
-  | 'crosses_branches_unnamed';
+  | 'crosses_branches_unnamed'
+  | 'literal_catalog_value'
+  | 'missing_catalog_value';
 
 export interface MatcherPatterns {
   keywords: string[];
@@ -40,6 +42,7 @@ export interface ExtractedFact {
   subject?: string | null;
   value: unknown;
   type: string;
+  unit?: string | null;
   page: number;
   provenanceConfidence: number;
   fingerprint: string;

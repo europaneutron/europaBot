@@ -142,13 +142,13 @@ export class FallbackHandler {
         confirmationMessage = interpolateMessage(confirmationMessage, {
           nombre: userName,
           horario: agentConfig.business_hours,
-        });
+        }).value;
       } else {
         confirmationMessage = await configRepository.get(
           'derivation_name_confirmed_no_hours',
           'Gracias {nombre}! Un asesor se pondrá en contacto contigo pronto.'
         );
-        confirmationMessage = interpolateMessage(confirmationMessage, { nombre: userName });
+        confirmationMessage = interpolateMessage(confirmationMessage, { nombre: userName }).value;
       }
     } catch (configurationError) {
       console.error('No fue posible resolver la configuración del asesor:', configurationError);
@@ -156,7 +156,7 @@ export class FallbackHandler {
         'derivation_config_unavailable',
         'Gracias {nombre}. Registramos tu solicitud y el equipo de ventas la revisará desde el panel.'
       );
-      confirmationMessage = interpolateMessage(confirmationMessage, { nombre: userName });
+      confirmationMessage = interpolateMessage(confirmationMessage, { nombre: userName }).value;
     }
     
     // El mensaje se guarda en el webhook después de enviarlo exitosamente

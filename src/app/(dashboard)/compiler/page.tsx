@@ -21,6 +21,8 @@ const SIGNAL_LABELS: Record<string, string> = {
   vocabulary_regression: 'Pierde formas de preguntar',
   unoffered_yes_no: 'Pregunta sin oferta declarada',
   crosses_branches_unnamed: 'Mezcla ramas sin nombrarlas',
+  literal_catalog_value: 'Dato literal sin enlazar',
+  missing_catalog_value: 'Falta un dato del catálogo',
 };
 
 async function fetcher(url: string) {
@@ -187,12 +189,22 @@ export default function CompilerPage() {
                 Dejarán de ofrecerse: {impact.retired_scopes.map((scope: any) => scope.name).join(', ')}.
               </div>
             ) : null}
+            {run.replacement_mode === 'replace' && impact?.human_edited_catalog_values?.length > 0 ? (
+              <div className="space-y-2 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm">
+                <div className="font-medium">El material sustituirá correcciones manuales</div>
+                {impact.human_edited_catalog_values.map((warning: any) => (
+                  <div key={warning.catalogValueId}>
+                    {warning.scopeName} · {warning.valueKey}: {warning.currentValue} → {warning.incomingValue}
+                  </div>
+                ))}
+              </div>
+            ) : null}
             <Button disabled={busy || pendingProposals.length === 0} onClick={publishRun}>
               Publicar {publishableCount} {publishableCount === 1 ? 'respuesta' : 'respuestas'}
             </Button>
             {blockedCount > 0 ? (
               <p className="text-sm text-muted-foreground">
-                {blockedCount} {blockedCount === 1 ? 'propuesta quedará fuera' : 'propuestas quedarán fuera'} porque su vocabulario no reconoce la pregunta.
+                {blockedCount} {blockedCount === 1 ? 'propuesta quedará fuera' : 'propuestas quedarán fuera'} porque no cumple las validaciones de publicación.
               </p>
             ) : null}
           </CardContent>
@@ -252,6 +264,12 @@ export default function CompilerPage() {
                             <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm">
                               <div className="font-medium">Ramas mezcladas:</div>
                               <div className="mt-1 text-muted-foreground">{proposal.review_details.branches.reason}</div>
+                            </div>
+                          ) : null}
+                          {proposal.review_details?.catalog?.reason ? (
+                            <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm">
+                              <div className="font-medium">Datos del catálogo:</div>
+                              <div className="mt-1 text-muted-foreground">{proposal.review_details.catalog.reason}</div>
                             </div>
                           ) : null}
                           <Textarea

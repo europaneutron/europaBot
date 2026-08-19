@@ -541,6 +541,13 @@ export class MessageProcessor {
         effectiveHasFocus
       );
 
+      if (responses.length === 0) {
+        return {
+          ...await fallbackHandler.handle(user.id, messageText),
+          scopeId: effectiveScopeId,
+        };
+      }
+
       return {
         responses,
         shouldSend: true,
@@ -575,11 +582,29 @@ export class MessageProcessor {
   ): Promise<{ bodyText: string; options: PendingOfferOption[] } | null> {
     if (dependency.candidateIds.length > MAX_LIST_OPTIONS) return null;
 
-    const [preface, options] = await Promise.all([
+    const [resolvedPreface, options] = await Promise.all([
       resolveLevelAnswer(intentName, dependency.level),
       buildScopeOptions(dependency.candidateIds, intentName),
     ]);
     if (options.length === 0) return null;
+
+    // El resumen compuesto cubre un hueco, no sustituye a nadie: si el nivel
+    // tiene respuesta propia --escrita por el cliente o compilada de su
+    // material-- esa manda. Componerlo por encima descartaba en silencio lo
+    // aprobado y, ademas, repetia en prosa exactamente lo que iba en los
+    // botones de abajo.
+    //
+    // Tampoco depende del nombre de la intencion: lo que lo habilita es que
+    // todas las opciones traigan su dato distintivo, venga de donde venga.
+    const detailedOptions = options.filter(option => option.label.includes(' · '));
+    const preface = resolvedPreface
+      || (detailedOptions.length === options.length
+        ? await resolveConfiguredMessage(
+            'scope_catalog_summary_message',
+            'Esto es lo que hay: {opciones}.',
+            { opciones: detailedOptions.map(option => option.label).join('; ') }
+          )
+        : null);
 
     const prompt = preface
       ? await resolveConfiguredMessage('scope_disambiguation_followup_message', '¿Cuál te muestro?')
@@ -786,7 +811,8 @@ export class MessageProcessor {
     const responseIntentIds = intent.response_intent_ids || intent.intent_id;
     const responses = await conversationRepository.getBotResponses(
       responseIntentIds,
-      { alcances: scopeList, nombre: user.name ?? '', telefono: user.phone_number }
+      { alcances: scopeList, nombre: user.name ?? '', telefono: user.phone_number },
+      resolvedScopeId
     );
 
     // Una respuesta compilada que termina en pregunta de sí/no declara qué
@@ -850,10 +876,6 @@ export class MessageProcessor {
           { alcances: scopeList }
         ));
       }
-    }
-
-    if (responses.length === 0) {
-      return ['Gracias por tu interés. ¿En qué más puedo ayudarte?'];
     }
 
     return responses;

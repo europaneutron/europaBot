@@ -371,7 +371,7 @@ Puedes escribir:
       fecha: dateDisplay,
       hora: timeSlotConfig,
       direccion: address,
-    });
+    }).value;
 
     return {
       step: 'completed',

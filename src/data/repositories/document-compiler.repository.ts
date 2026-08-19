@@ -1,5 +1,7 @@
 import { supabaseServer } from '@/services/supabase/server-client';
 import type { ExtractedFact, MatcherPatterns, ReviewSignal } from '@/data/models/document-compiler.model';
+import { catalogValueRepository } from '@/data/repositories/catalog-value.repository';
+import { extractVariableKeys } from '@/lib/interpolate-message';
 
 export interface CreateMaterialInput {
   scopeId: string;
@@ -222,6 +224,7 @@ export class DocumentCompilerRepository {
         subject: fact.subject ?? null,
         fact_value: fact.value,
         fact_type: fact.type,
+        unit: fact.unit ?? null,
         page_number: fact.page,
         provenance_confidence: fact.provenanceConfidence,
         fingerprint: fact.fingerprint,
@@ -431,12 +434,19 @@ export class DocumentCompilerRepository {
     const proposals = (proposalsResult.data || []).sort((left, right) =>
       right.review_signals.length - left.review_signals.length
     );
+    const [publicationImpact, catalogReplacementWarnings] = await Promise.all([
+      this.getPublicationImpact(run, proposals),
+      catalogValueRepository.getReplacementWarnings(run),
+    ]);
     return {
       run,
       facts: factsResult.data || [],
       coverage: coverageResult.data || [],
       proposals,
-      publication_impact: await this.getPublicationImpact(run, proposals),
+      publication_impact: {
+        ...publicationImpact,
+        human_edited_catalog_values: catalogReplacementWarnings,
+      },
     };
   }
 
@@ -524,9 +534,76 @@ export class DocumentCompilerRepository {
   }
 
   async updateProposal(proposalId: string, messageText: unknown) {
+    const { data: proposal, error: proposalError } = await supabaseServer
+      .from('compiler_proposals')
+      .select('scope_id, review_signals, review_details, compiler_proposal_facts(compiler_facts(scope_id, fact_key, fact_value, fact_type))')
+      .eq('id', proposalId)
+      .eq('approval_status', 'pending')
+      .single();
+    if (proposalError) throw proposalError;
+
+    const serialized = JSON.stringify(messageText);
+    const variableKeys = extractVariableKeys(serialized);
+    const { scopeRepository } = await import('@/data/repositories/scope.repository');
+    const resolutionOrder = new Set(await scopeRepository.getResolutionOrder(proposal.scope_id));
+    const facts = (proposal.compiler_proposal_facts || []).flatMap((dependency: any) => {
+      const fact = dependency.compiler_facts;
+      return fact && resolutionOrder.has(fact.scope_id) ? [fact] : [];
+    });
+    const catalog = await catalogValueRepository.getResolvedVariables(proposal.scope_id);
+    const availableKeys = new Set([...facts.map((fact: any) => fact.fact_key), ...Object.keys(catalog)]);
+    const missing = variableKeys.filter(key => !availableKeys.has(key));
+    const unlinked = Array.from(new Set(
+      facts
+        .filter((fact: any) => ['money', 'number', 'date'].includes(fact.fact_type))
+        .map((fact: any) => fact.fact_key)
+        .filter((key: string) => !variableKeys.includes(key))
+    ));
+    const literalValues = facts.flatMap((fact: any) => {
+      if (!['money', 'number', 'date'].includes(fact.fact_type)) return [];
+      const rendered = typeof fact.fact_value === 'string'
+        ? fact.fact_value.trim()
+        : String(fact.fact_value);
+      return rendered.length >= 2 && serialized.includes(rendered) && !variableKeys.includes(fact.fact_key)
+        ? [rendered]
+        : [];
+    });
+    const reviewDetails = proposal.review_details || {};
+    const baseBlocked = Boolean(
+      reviewDetails.vocabulary?.missed?.length
+      || reviewDetails.offer?.reason
+      || reviewDetails.branches?.reason
+    );
+    const reviewSignals = (proposal.review_signals || []).filter((signal: string) => (
+      signal !== 'missing_catalog_value' && signal !== 'literal_catalog_value'
+    ));
+    if (missing.length > 0 || unlinked.length > 0) reviewSignals.push('missing_catalog_value');
+    if (literalValues.length > 0) reviewSignals.push('literal_catalog_value');
+
     const { error } = await supabaseServer
       .from('compiler_proposals')
-      .update({ message_text: messageText, edited_by_human: true })
+      .update({
+        message_text: messageText,
+        edited_by_human: true,
+        review_signals: reviewSignals,
+        is_publishable: !baseBlocked && missing.length === 0 && unlinked.length === 0 && literalValues.length === 0,
+        review_details: {
+          ...reviewDetails,
+          catalog: {
+            required: variableKeys,
+            missing,
+            unlinked,
+            literal_values: literalValues,
+            reason: missing.length > 0
+              ? `Faltan valores del catálogo: ${missing.join(', ')}.`
+              : unlinked.length > 0
+                ? `Estos datos deben enlazarse en la prosa: ${unlinked.join(', ')}.`
+              : literalValues.length > 0
+                ? 'La respuesta copia un dato literal que debe enlazarse al catálogo.'
+                : null,
+          },
+        },
+      })
       .eq('id', proposalId)
       .eq('approval_status', 'pending');
     if (error) throw error;

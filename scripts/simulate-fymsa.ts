@@ -94,6 +94,18 @@ async function main() {
     }
   }
 
+  async function catalog(scopeId: string, values: Record<string, string | number>) {
+    const { error } = await supabaseServer.from('catalog_values').insert(
+      Object.entries(values).map(([valueKey, value]) => ({
+        scope_id: scopeId,
+        value_key: valueKey,
+        value,
+        value_type: typeof value === 'number' ? 'number' : 'text',
+      }))
+    );
+    if (error) throw error;
+  }
+
   const KEYWORDS: Record<string, string[]> = {
     precio: ['precio', 'precios', 'cuesta', 'cuestan', 'costo', 'vale', 'valen'],
     ubicacion: ['ubicacion', 'donde', 'direccion', 'ubicado', 'queda'],
@@ -140,21 +152,37 @@ async function main() {
     const mare = await scope('Modelo Mare', altabrisa, 'model', ['Mare', 'Modelo Mare']);
     scopeRepository.invalidateCache?.(supabaseServer);
 
+    await catalog(europa, {
+      precio_min_casas: '$1,850,000',
+      precio_min_terrenos: '$780,000',
+      direccion: 'Avenida Ruiz Cortines 1820, Colonia Tamulte',
+    });
+    await catalog(altabrisa, {
+      precio_min_casas: '$1,420,000',
+      direccion: 'Prolongacion Paseo Tabasco 1503',
+    });
+    await catalog(aura, { precio: '$1,850,000', recamaras: 3, banos: 2 });
+    await catalog(vento, { precio: '$2,340,000', recamaras: 3, banos: 3 });
+    await catalog(solara, { precio: '$2,980,000', recamaras: 4, banos: 4 });
+    await catalog(terrenos, { precio: '$780,000', terreno: '160 m2' });
+    await catalog(cala, { precio: '$1,420,000', recamaras: 2 });
+    await catalog(mare, { precio: '$1,780,000', recamaras: 3 });
+
     await content(europa, [
-      { intentName: 'precio', text: 'En Europa las casas van desde $1,850,000 y los terrenos desde $780,000.' },
-      { intentName: 'ubicacion', text: 'Europa esta en Avenida Ruiz Cortines 1820, Colonia Tamulte.' },
+      { intentName: 'precio', text: 'En Europa las casas van desde {precio_min_casas} y los terrenos desde {precio_min_terrenos}.' },
+      { intentName: 'ubicacion', text: 'Europa esta en {direccion}.' },
       { intentName: 'seguridad', text: 'Europa tiene caseta 24/7, alberca semiolimpica y casa club.' },
     ]);
     await content(altabrisa, [
-      { intentName: 'precio', text: 'En Altabrisa las casas van desde $1,420,000.' },
-      { intentName: 'ubicacion', text: 'Altabrisa esta en Prolongacion Paseo Tabasco 1503.' },
+      { intentName: 'precio', text: 'En Altabrisa las casas van desde {precio_min_casas}.' },
+      { intentName: 'ubicacion', text: 'Altabrisa esta en {direccion}.' },
     ]);
-    await content(aura, [{ intentName: 'precio', text: 'Modelo Aura: desde $1,850,000, 3 recamaras y 2 banos.' }]);
-    await content(vento, [{ intentName: 'precio', text: 'Modelo Vento: desde $2,340,000, 3 recamaras y 3 banos.' }]);
-    await content(solara, [{ intentName: 'precio', text: 'Modelo Solara: desde $2,980,000, 4 recamaras y 4 banos.' }]);
-    await content(terrenos, [{ intentName: 'precio', text: 'Terrenos desde $780,000, de 160 m2.' }]);
-    await content(cala, [{ intentName: 'precio', text: 'Modelo Cala: desde $1,420,000, 2 recamaras.' }]);
-    await content(mare, [{ intentName: 'precio', text: 'Modelo Mare: desde $1,780,000, 3 recamaras.' }]);
+    await content(aura, [{ intentName: 'precio', text: 'Modelo Aura: desde {precio}, {recamaras} recamaras y {banos} banos.' }]);
+    await content(vento, [{ intentName: 'precio', text: 'Modelo Vento: desde {precio}, {recamaras} recamaras y {banos} banos.' }]);
+    await content(solara, [{ intentName: 'precio', text: 'Modelo Solara: desde {precio}, {recamaras} recamaras y {banos} banos.' }]);
+    await content(terrenos, [{ intentName: 'precio', text: 'Terrenos desde {precio}, de {terreno}.' }]);
+    await content(cala, [{ intentName: 'precio', text: 'Modelo Cala: desde {precio}, {recamaras} recamaras.' }]);
+    await content(mare, [{ intentName: 'precio', text: 'Modelo Mare: desde {precio}, {recamaras} recamaras.' }]);
 
     const turns = [
       'Hola',
@@ -176,7 +204,8 @@ async function main() {
         phone,
         text,
         `wamid.sim-${suffix}-${index}`,
-        'Simulacion'
+        'Simulacion',
+        { suppressExternalMessages: true }
       );
       const replies = Array.isArray(result?.responses)
         ? result.responses

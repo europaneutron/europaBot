@@ -88,8 +88,8 @@ async function main(): Promise<void> {
     assert(extractedKnown?.referralAdId === `ad-${suffix}`, 'Webhook must preserve referral.source_id');
     assert(extractedPlain?.referralAdId === undefined, 'Webhook without referral must preserve its old contract');
     assert(
-      interpolateMessage('Hola {nombre}, {faltante}', { nombre: 'Ana' }) === 'Hola Ana, ',
-      'Interpolation must replace known variables and hide missing ones'
+      interpolateMessage('Hola {nombre}, {faltante}', { nombre: 'Ana' }).missingKeys[0] === 'faltante',
+      'Interpolation must distinguish a missing variable'
     );
 
     const { data: configRows, error: configError } = await supabaseServer

@@ -14,7 +14,9 @@ import {
   EditorBlock,
   responseRowToBlocks,
   blocksToFragmentedResponse,
+  createTextBlock,
 } from '@/lib/utils/response-blocks';
+import { extractVariableKeys } from '@/lib/interpolate-message';
 import { validateFragmentedResponse } from '@/types/message-fragments.types';
 import { MAX_RESPONSE_BLOCKS } from '@/lib/constants/response-composer';
 import ResponseBlockList, { validateBlocks } from '@/components/intents/ResponseBlockList';
@@ -25,6 +27,13 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { ArrowLeft, Plus, Edit, Trash2, Loader2, Save } from 'lucide-react';
 import Link from 'next/link';
 
@@ -41,6 +50,8 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
   const [blocks, setBlocks] = useState<EditorBlock[]>([]);
   const [blockErrors, setBlockErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
+  const [catalogValues, setCatalogValues] = useState<any[]>([]);
+  const [selectedValueKey, setSelectedValueKey] = useState('');
 
   const [formData, setFormData] = useState({
     response_key: '',
@@ -64,8 +75,12 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
       }
 
       setIntent(intentData);
-
-      const responsesData = await intentConfigRepositoryClient.getResponsesByIntentId(intentData.id);
+      const catalogPromise = fetch(`/api/catalog-values?scopeId=${encodeURIComponent(intentData.scope_id || '00000000-0000-4000-8000-000000000001')}`);
+      const responsesPromise = intentConfigRepositoryClient.getResponsesByIntentId(intentData.id);
+      const [catalogResponse, responsesData] = await Promise.all([catalogPromise, responsesPromise]);
+      const catalogBody = await catalogResponse.json();
+      if (!catalogResponse.ok) throw new Error(catalogBody.error || 'No fue posible cargar el catálogo');
+      setCatalogValues(catalogBody.resolvedValues || []);
       setResponses(responsesData);
 
     } catch (error) {
@@ -108,6 +123,30 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
       variables: response.variables || {}
     });
     setShowForm(true);
+  }
+
+  function insertCatalogValue() {
+    if (!selectedValueKey) return;
+    const token = `{${selectedValueKey}}`;
+    setBlocks(current => {
+      const textIndex = current.findIndex(block => block.type === 'text');
+      if (textIndex === -1) {
+        const block = createTextBlock();
+        return [{ ...block, content: token }, ...current];
+      }
+      return current.map((block, index) => (
+        index === textIndex && block.type === 'text'
+          ? { ...block, content: `${block.content}${block.content ? ' ' : ''}${token}` }
+          : block
+      ));
+    });
+    setSelectedValueKey('');
+  }
+
+  function isIncomplete(response: BotResponse): boolean {
+    const keys = extractVariableKeys(describeResponse(response));
+    const available = new Set(catalogValues.map(value => value.value_key));
+    return keys.some(key => !available.has(key));
   }
 
   async function handleSubmitResponse() {
@@ -300,6 +339,7 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
                         {!response.is_active && (
                           <Badge variant="outline">Inactiva</Badge>
                         )}
+                        {isIncomplete(response) ? <Badge variant="destructive">Incompleta</Badge> : null}
                         {response.review_signals?.map(signal => (
                           <Badge key={signal} variant="destructive">{signal}</Badge>
                         ))}
@@ -403,6 +443,23 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
               <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
                 <div className="space-y-2">
                   <Label>Bloques del mensaje</Label>
+                  <div className="flex flex-col gap-2 rounded-md border bg-muted/30 p-3 sm:flex-row">
+                    <Select value={selectedValueKey} onValueChange={setSelectedValueKey}>
+                      <SelectTrigger className="flex-1" aria-label="Dato del catálogo">
+                        <SelectValue placeholder="Enlazar un dato del catálogo" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {catalogValues.map(value => (
+                          <SelectItem key={value.id} value={value.value_key}>
+                            {value.value_key} · {value.display_value}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button type="button" variant="outline" onClick={insertCatalogValue} disabled={!selectedValueKey || saving}>
+                      Enlazar dato
+                    </Button>
+                  </div>
                   <ResponseBlockList
                     blocks={blocks}
                     onChange={(next) => {
@@ -417,7 +474,10 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
                     bloques puede ser mas alta que la ventana. */}
                 <div className="space-y-2 lg:sticky lg:top-6 lg:self-start">
                   <Label>Vista previa</Label>
-                  <ResponsePreview blocks={blocks} />
+                  <ResponsePreview
+                    blocks={blocks}
+                    variables={Object.fromEntries(catalogValues.map(value => [value.value_key, value.display_value]))}
+                  />
                 </div>
               </div>
 

@@ -21,7 +21,7 @@ export async function resolveConfiguredMessage(
   variables: MessageVariables = {}
 ): Promise<string> {
   const template = await resolveConfiguredTemplate(key, fallback);
-  return interpolateMessage(template, variables);
+  return interpolateMessage(template, variables).value;
 }
 
 /**

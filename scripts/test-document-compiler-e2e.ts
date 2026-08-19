@@ -120,6 +120,8 @@ async function main() {
 
     await supabaseServer.from('compiler_runs').update({ current_stage: 'consolidate_facts' }).eq('id', runId!);
     await documentCompilerService.runNextStage(runId!);
+    const consolidatedFacts = await documentCompilerRepository.getFacts(runId!);
+    assert(consolidatedFacts.length > 0, 'la consolidación conserva hechos publicables');
 
     // Primera compuerta. La impone la propia base: un CHECK impide siquiera
     // mover la ejecución a una etapa de contenido sin el árbol aprobado, así
@@ -146,12 +148,18 @@ async function main() {
 
     await documentCompilerService.runNextStage(runId!);
     const { data: proposals } = await supabaseServer.from('compiler_proposals')
-      .select('id, intent_id, message_text, review_signals, approval_status').eq('run_id', runId!);
+      .select('id, scope_id, intent_id, message_text, review_signals, approval_status, is_publishable').eq('run_id', runId!);
     assert((proposals || []).length > 0, 'la compilación produce propuestas de respuesta');
+    const publishableProposals = (proposals || []).filter(item => item.is_publishable);
+    assert(publishableProposals.length > 0, 'la compilación produce propuestas publicables');
+    assert(
+      publishableProposals.every(item => JSON.stringify(item.message_text).includes('{')),
+      'las respuestas publicables enlazan datos con huecos'
+    );
     const withSignals = (proposals || []).filter(p => (p.review_signals || []).length > 0);
     console.log(`   ${proposals!.length} propuestas, ${withSignals.length} con señales de revisión`);
 
-    const proposal = proposals![0];
+    const proposal = publishableProposals[0];
     const rendered = JSON.stringify(proposal.message_text).toLowerCase();
     assert(
       !/(agend|programar una (visita|cita))/.test(rendered),
@@ -174,13 +182,21 @@ async function main() {
     assert(!!responseId, 'aprobar publica la respuesta');
 
     const { data: published } = await supabaseServer.from('bot_responses')
-      .select('id, origin, intent_id, response_fact_dependencies(fact_id)')
+      .select('id, origin, intent_id, response_fact_dependencies(fact_id), response_catalog_dependencies(value_key)')
       .eq('id', responseId!).single();
     assert(published?.origin === 'compiler', 'la respuesta publicada queda marcada como compilada');
     assert(
       (published?.response_fact_dependencies || []).length > 0,
       'la respuesta publicada conserva de qué hechos depende'
     );
+    assert(
+      (published?.response_catalog_dependencies || []).length > 0,
+      'la respuesta publicada declara los valores del catálogo que necesita'
+    );
+    const { count: catalogCount } = await supabaseServer.from('catalog_values')
+      .select('id', { count: 'exact', head: true })
+      .in('source_fact_id', consolidatedFacts.map((fact: any) => fact.id));
+    assert((catalogCount || 0) > 0, 'publicar escribe los hechos en el catálogo vigente');
 
     // El lead recibe la respuesta compilada por el matcher, sin compilador de por medio.
     intentDetectionService.invalidateAll();
@@ -197,7 +213,7 @@ async function main() {
       trigger,
       `e2e-${suffix}`,
       'E2E',
-      { scopeId: testScopeId!, suppressExternalMessages: true }
+      { scopeId: proposal.scope_id, suppressExternalMessages: true }
     );
     assert(!result.isFallback, `un lead que pregunta "${trigger}" recibe respuesta, no fallback`);
     assert(result.responses.length > 0, 'la respuesta llega por el camino normal del bot');

@@ -104,7 +104,7 @@ export class FollowupSender {
         const nombre = messageVariables.nombre || user.name || 'Hola!';
         const telefono = user.phone_number;
 
-        const finalMessage = interpolateMessage(template, { nombre, telefono });
+        const finalMessage = interpolateMessage(template, { nombre, telefono }).value;
 
         // 5.3. Enviar mensaje por WhatsApp
         console.log(`[FollowupSender] Enviando mensaje a ${telefono}...`);

@@ -11,6 +11,7 @@ import {
   toMessageVariables,
   type MessageVariables,
 } from '@/lib/interpolate-message';
+import { catalogValueRepository } from '@/data/repositories/catalog-value.repository';
 
 export class ConversationRepository {
   /**
@@ -170,7 +171,8 @@ export class ConversationRepository {
   async getBotResponse(
     intentIds: string | string[],
     responseKey: string = 'main',
-    variables: MessageVariables = {}
+    variables: MessageVariables = {},
+    scopeId?: string | null
   ): Promise<string | null> {
     const resolutionIds = Array.isArray(intentIds) ? intentIds : [intentIds];
     const { data, error } = await supabaseServer
@@ -187,10 +189,15 @@ export class ConversationRepository {
       .find(Boolean);
     if (!resolved) return null;
 
-    return interpolateMessage(resolved.message_text, {
+    const catalogVariables = scopeId
+      ? await catalogValueRepository.getResolvedVariables(scopeId)
+      : {};
+    const interpolation = interpolateMessage(resolved.message_text, {
       ...toMessageVariables(resolved.variables),
+      ...catalogVariables,
       ...variables,
     });
+    return interpolation.complete ? interpolation.value : null;
   }
 
   /**
@@ -204,7 +211,8 @@ export class ConversationRepository {
    */
   async getBotResponses(
     intentIds: string | string[],
-    variables: MessageVariables = {}
+    variables: MessageVariables = {},
+    scopeId?: string | null
   ): Promise<import('@/types/message-fragments.types').BotResponse[]> {
     const resolutionIds = Array.isArray(intentIds) ? intentIds : [intentIds];
     const { data, error } = await supabaseServer
@@ -221,35 +229,51 @@ export class ConversationRepository {
     );
     if (!resolvedIntentId) return [];
 
-    return data.filter(row => row.intent_id === resolvedIntentId).map(row => {
-      const rowVariables = { ...toMessageVariables(row.variables), ...variables };
+    const catalogVariables = scopeId
+      ? await catalogValueRepository.getResolvedVariables(scopeId)
+      : {};
+
+    return data.filter(row => row.intent_id === resolvedIntentId).flatMap<
+      import('@/types/message-fragments.types').BotResponse
+    >(row => {
+      const rowVariables = {
+        ...toMessageVariables(row.variables),
+        ...catalogVariables,
+        ...variables,
+      };
 
       // Si es fragmentado, message_text ya es un objeto JSONB
       if (row.response_type === 'fragmented') {
-        return interpolateMessageValue(
+        const interpolation = interpolateMessageValue(
           row.message_text,
           rowVariables
-        ) as import('@/types/message-fragments.types').FragmentedResponse;
+        );
+        return interpolation.complete
+          ? [interpolation.value as import('@/types/message-fragments.types').FragmentedResponse]
+          : [];
       }
 
       // Si tiene media_url, crear SimpleResponseWithMedia
       if (row.media_url && typeof row.media_url === 'string' && row.media_url.trim()) {
-        return {
-          text: typeof row.message_text === 'string'
-            ? interpolateMessage(row.message_text, rowVariables)
-            : null,
+        const interpolation = typeof row.message_text === 'string'
+          ? interpolateMessage(row.message_text, rowVariables)
+          : null;
+        if (interpolation && !interpolation.complete) return [];
+        return [{
+          text: interpolation?.value ?? null,
           media_url: row.media_url,
           media_type: this.detectMediaType(row.media_url)
-        } as import('@/types/message-fragments.types').SimpleResponseWithMedia;
+        } as import('@/types/message-fragments.types').SimpleResponseWithMedia];
       }
 
       // Si es simple sin media, message_text es un string
       if (typeof row.message_text === 'string') {
-        return interpolateMessage(row.message_text, rowVariables);
+        const interpolation = interpolateMessage(row.message_text, rowVariables);
+        return interpolation.complete ? [interpolation.value] : [];
       }
 
       // Si PostgreSQL lo devolvió como string JSON, parsearlo
-      return String(row.message_text);
+      return [String(row.message_text)];
     });
   }
 

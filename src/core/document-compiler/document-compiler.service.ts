@@ -32,6 +32,8 @@ import { getCompilerMaterialModelSource } from '@/services/storage/compiler-mate
 import { clientBrandRepository } from '@/data/repositories/client-brand.repository';
 import { toClientVocabulary, toneInstruction } from '@/core/onboarding/client-vocabulary';
 import { scopeRepository } from '@/data/repositories/scope.repository';
+import { catalogValueRepository } from '@/data/repositories/catalog-value.repository';
+import { extractVariableKeys, normalizeVariableKey } from '@/lib/interpolate-message';
 
 const VOCABULARY_GENERATION_VERSION = 7;
 
@@ -42,6 +44,7 @@ const extractionSchema = z.object({
     subject: z.string().nullable().optional(),
     value: z.unknown(),
     type: z.enum(['text', 'money', 'date', 'contractual', 'number', 'location']).default('text'),
+    unit: z.string().nullable().default(null),
     page: z.number().int().positive().nullable().optional(),
     provenance_confidence: z.number().min(0).max(1).default(1),
   })),
@@ -74,13 +77,14 @@ const EXTRACTION_JSON_SCHEMA = {
       items: {
         type: 'object',
         additionalProperties: false,
-        required: ['material_id', 'key', 'subject', 'value', 'type', 'page', 'provenance_confidence'],
+        required: ['material_id', 'key', 'subject', 'value', 'type', 'unit', 'page', 'provenance_confidence'],
         properties: {
           material_id: { type: 'string' },
           key: { type: 'string' },
           subject: { type: ['string', 'null'] },
           value: { type: 'string' },
           type: { type: 'string', enum: ['text', 'money', 'date', 'contractual', 'number', 'location'] },
+          unit: { type: ['string', 'null'] },
           page: { type: ['integer', 'null'] },
           provenance_confidence: { type: 'number' },
         },
@@ -127,11 +131,12 @@ const WRITING_JSON_SCHEMA = {
       items: {
         type: 'object',
         additionalProperties: false,
-        required: ['proposal_key', 'intent_name', 'response', 'keywords', 'synonyms', 'typos', 'phrases', 'question_variants', 'offers_intent_name'],
+        required: ['proposal_key', 'intent_name', 'response', 'required_variables', 'keywords', 'synonyms', 'typos', 'phrases', 'question_variants', 'offers_intent_name'],
         properties: {
           proposal_key: { type: 'string' },
           intent_name: { type: 'string' },
           response: { type: 'string' },
+          required_variables: { type: 'array', items: { type: 'string' } },
           keywords: { type: 'array', minItems: 2, items: { type: 'string' } },
           synonyms: { type: 'array', minItems: 2, items: { type: 'string' } },
           typos: { type: 'array', minItems: 1, items: { type: 'string' } },
@@ -149,6 +154,7 @@ const writingSchema = z.object({
     proposal_key: z.string(),
     intent_name: z.string(),
     response: z.string().min(1),
+    required_variables: z.array(z.string().min(1)),
     keywords: z.array(z.string().min(1)).min(2),
     synonyms: z.array(z.string().min(1)).min(2),
     typos: z.array(z.string().min(1)).min(1),
@@ -157,6 +163,28 @@ const writingSchema = z.object({
     offers_intent_name: z.string().nullable(),
   })),
 });
+
+/**
+ * La cadena de alcances desde uno dado hasta la raiz, sobre el arbol tal como
+ * esta propuesto y sin mirar si cada alcance esta encendido.
+ *
+ * Es la vista que necesita el compilador: lo que publica todavia no esta
+ * activo. El runtime usa `scopeRepository.getResolutionOrder`, que si excluye
+ * lo inactivo porque un alcance retirado tiene que dejar de responder.
+ */
+function proposedResolutionChain(
+  scopeId: string,
+  scopes: Array<{ id: string; parent_id: string | null }>
+): Set<string> {
+  const byId = new Map(scopes.map(scope => [scope.id, scope]));
+  const chain = new Set<string>();
+  let current: string | null = scopeId;
+  while (current && !chain.has(current)) {
+    chain.add(current);
+    current = byId.get(current)?.parent_id ?? null;
+  }
+  return chain;
+}
 
 export class DocumentCompilerService {
   async runNextStage(runId: string) {
@@ -246,6 +274,7 @@ export class DocumentCompilerService {
         subject: fact.subject ?? null,
         value: fact.value,
         type: fact.type,
+        unit: fact.unit,
         page: fact.page,
         provenanceConfidence: fact.provenance_confidence,
         fingerprint: factFingerprint(fact.key, fact.value, fact.subject),
@@ -310,6 +339,7 @@ export class DocumentCompilerService {
       subject: row.subject,
       value: row.fact_value,
       type: row.fact_type,
+      unit: row.unit,
       page: row.page_number,
       provenanceConfidence: Number(row.provenance_confidence),
       fingerprint: row.fingerprint,
@@ -504,9 +534,13 @@ export class DocumentCompilerService {
       clientBrandRepository.get(),
     ]);
     const vocabulary = toClientVocabulary(brand);
-    const brandInstruction = brand.is_configured
-      ? `${toneInstruction(brand.tone)} Llama a los proyectos "${vocabulary.plural}" y a uno solo "${vocabulary.singular}".`
-      : '';
+    const linkedDataInstruction = 'Todo dato de un hecho debe aparecer como un hueco con su key exacta entre llaves, por ejemplo "Desde {precio}". Nunca copies cifras, importes, fechas, medidas ni otros valores dentro de la prosa. required_variables debe enumerar exactamente las keys usadas como huecos en response.';
+    const brandInstruction = [
+      linkedDataInstruction,
+      brand.is_configured
+        ? `${toneInstruction(brand.tone)} Llama a los proyectos "${vocabulary.plural}" y a uno solo "${vocabulary.singular}".`
+        : '',
+    ].filter(Boolean).join(' ');
     const requestProposals = async (targets: typeof writingTargets) => {
       const response = await this.askModelToWrite(openai, {
       model,
@@ -617,6 +651,57 @@ export class DocumentCompilerService {
       if (vocabularyCheck.missed.length > 0) signals.push('poor_vocabulary');
       if (regression.missed.length > 0) signals.push('vocabulary_regression');
 
+      // Ambos lados se comparan normalizados: el modelo declara `ubicación` y
+      // escribe `{ubicacion}` --o al reves-- y eso no es una discrepancia, es
+      // el mismo dato con y sin acento.
+      const variableKeys = extractVariableKeys(proposal.response);
+      const declaredVariableKeys = Array.from(new Set(
+        proposal.required_variables.map(normalizeVariableKey)
+      ));
+      const declarationMismatch = Array.from(new Set([
+        ...variableKeys.filter(key => !declaredVariableKeys.includes(key)),
+        ...declaredVariableKeys.filter(key => !variableKeys.includes(key)),
+      ]));
+      // La cadena se recorre sobre el arbol propuesto, no con
+      // `getResolutionOrder`: esa funcion excluye un alcance inactivo --y lo
+      // hace bien, porque en el runtime un alcance retirado deja de
+      // responder--, pero los alcances que esta corrida acaba de crear nacen
+      // inactivos y se encienden al publicar. Preguntarle por ellos devolvia la
+      // cadena sin el alcance mismo, asi que ningun hecho suyo contaba como
+      // disponible y todo hueco se marcaba como valor faltante: en la corrida
+      // de FYMSA se bloquearon 17 de 21 propuestas, incluida la del precio de
+      // Solara, cuyo `precio_desde` estaba en sus hechos y acabo en el catalogo.
+      const resolutionOrder = proposedResolutionChain(target.scopeId, scopes);
+      const resolvableFacts = target.facts.filter(fact => resolutionOrder.has(fact.scopeId));
+      const existingCatalog = await catalogValueRepository.getResolvedVariables(target.scopeId);
+      const availableValueKeys = new Set([
+        ...resolvableFacts.map(fact => normalizeVariableKey(fact.key)),
+        ...Object.keys(existingCatalog).map(normalizeVariableKey),
+      ]);
+      const missingVariables = variableKeys.filter(key => !availableValueKeys.has(key));
+      const unlinkedRequiredKeys = Array.from(new Set(
+        resolvableFacts
+          .filter(fact => ['money', 'number', 'date'].includes(fact.type))
+          .map(fact => normalizeVariableKey(fact.key))
+          .filter(key => !variableKeys.includes(key))
+      ));
+      const literalValues = resolvableFacts.flatMap(fact => {
+        if (!['money', 'number', 'date'].includes(fact.type)) return [];
+        const rendered = typeof fact.value === 'string'
+          ? fact.value.trim()
+          : String(fact.value);
+        return rendered.length >= 2
+          && proposal.response.includes(rendered)
+          && !variableKeys.includes(fact.key)
+          ? [rendered]
+          : [];
+      });
+
+      if (missingVariables.length > 0 || declarationMismatch.length > 0 || unlinkedRequiredKeys.length > 0) {
+        signals.push('missing_catalog_value');
+      }
+      if (literalValues.length > 0) signals.push('literal_catalog_value');
+
       // Una respuesta de si/no sin oferta declarada es un callejon: el
       // afirmativo del lead no tiene contra que resolverse.
       const offerReason = checkOfferDeclared(proposal.response, proposal.offers_intent_name);
@@ -659,7 +744,15 @@ export class DocumentCompilerService {
         matcherPatterns,
         signals,
         offersIntentName: proposal.offers_intent_name || null,
-        isPublishable: vocabularyCheck.missed.length === 0 && !offerReason && !offerTargetMissing && !branchReason,
+        isPublishable:
+          vocabularyCheck.missed.length === 0
+          && !offerReason
+          && !offerTargetMissing
+          && !branchReason
+          && missingVariables.length === 0
+          && declarationMismatch.length === 0
+          && unlinkedRequiredKeys.length === 0
+          && literalValues.length === 0,
         reviewDetails: {
           vocabulary_version: VOCABULARY_GENERATION_VERSION,
           vocabulary: {
@@ -673,6 +766,22 @@ export class DocumentCompilerService {
           },
           offer: (offerReason || offerTargetMissing) ? { reason: offerReason || offerTargetMissing } : undefined,
           branches: branchReason ? { reason: branchReason, names: branchNames } : undefined,
+          catalog: {
+            required: variableKeys,
+            missing: missingVariables,
+            declaration_mismatch: declarationMismatch,
+            unlinked: unlinkedRequiredKeys,
+            literal_values: literalValues,
+            reason: missingVariables.length > 0
+              ? `Faltan valores del catálogo: ${missingVariables.join(', ')}.`
+              : declarationMismatch.length > 0
+                ? `La declaración de huecos no coincide: ${declarationMismatch.join(', ')}.`
+                : unlinkedRequiredKeys.length > 0
+                  ? `Estos datos deben enlazarse en la prosa: ${unlinkedRequiredKeys.join(', ')}.`
+                : literalValues.length > 0
+                  ? 'La respuesta copia un dato literal que debe enlazarse al catálogo.'
+                  : null,
+          },
         },
         factIds: target.facts.flatMap(fact => fact.id ? [fact.id] : []),
       });
@@ -701,6 +810,7 @@ export class DocumentCompilerService {
       subject: row.subject,
       value: row.fact_value,
       type: row.fact_type,
+      unit: row.unit,
       page: row.page_number,
       provenanceConfidence: Number(row.provenance_confidence),
       fingerprint: row.fingerprint,
@@ -727,7 +837,7 @@ export class DocumentCompilerService {
   }
 
   private extractionPrompt(materials: Array<{ id: string; filename: string }>): string {
-    return `Extrae hechos atómicos verificables de todo el material. Devuelve solo JSON con las claves facts, candidate_questions, business_name y proposed_tree. Cada hecho debe llevar material_id, key, subject, value, type (text, money, date, contractual, number o location), page y provenance_confidence.
+    return `Extrae hechos atómicos verificables de todo el material. Devuelve solo JSON con las claves facts, candidate_questions, business_name y proposed_tree. Cada hecho debe llevar material_id, key, subject, value, type (text, money, date, contractual, number o location), unit, page y provenance_confidence. unit es la unidad separada del valor (MXN, m2, recámaras) o null cuando no aplica.
 
 subject dice de quién habla el hecho, con el nombre tal como aparece en el material: el modelo, la etapa o la unidad concreta cuando el dato es de una de ellas, y el nombre del desarrollo cuando el dato es del desarrollo entero —su dirección, su horario, sus amenidades, cuántas casas tiene—. Úsalo siempre que el mismo dato pueda existir para varias cosas, de modo que tres modelos con tres precios sean tres hechos con la misma key y distinto subject. Un mismo envío puede traer varios desarrollos, así que "el desarrollo entero" no basta para identificarlo: nómbralo. Deja subject en null únicamente cuando el hecho sea de la empresa completa y valga igual para todos sus desarrollos.
 

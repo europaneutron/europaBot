@@ -11,16 +11,18 @@
 
 import { EditorBlock } from '@/lib/utils/response-blocks';
 import { FileText, Clock } from 'lucide-react';
+import { interpolateMessage, type MessageVariables } from '@/lib/interpolate-message';
 
 interface ResponsePreviewProps {
   blocks: EditorBlock[];
+  variables?: MessageVariables;
 }
 
 function formatDelay(ms: number): string {
   return ms >= 1000 ? `${(ms / 1000).toFixed(1)} s` : `${ms} ms`;
 }
 
-export default function ResponsePreview({ blocks }: ResponsePreviewProps) {
+export default function ResponsePreview({ blocks, variables = {} }: ResponsePreviewProps) {
   if (blocks.length === 0) {
     return (
       <div className="flex min-h-[12rem] items-center justify-center rounded-lg border border-dashed">
@@ -33,7 +35,14 @@ export default function ResponsePreview({ blocks }: ResponsePreviewProps) {
 
   return (
     <div className="space-y-1 rounded-lg bg-[#e5ddd5] p-4 dark:bg-muted">
-      {blocks.map((block, index) => (
+      {blocks.map((block) => {
+        const textInterpolation = block.type === 'text'
+          ? interpolateMessage(block.content, variables)
+          : null;
+        const captionInterpolation = 'caption' in block && block.caption
+          ? interpolateMessage(block.caption, variables)
+          : null;
+        return (
         <div key={block.id}>
           {block.delay > 0 && (
             <div className="flex items-center justify-center py-1.5">
@@ -47,8 +56,8 @@ export default function ResponsePreview({ blocks }: ResponsePreviewProps) {
           <div className="flex justify-start">
             <div className="max-w-[85%] space-y-1 rounded-lg rounded-tl-sm bg-white px-3 py-2 shadow-sm dark:bg-background">
               {block.type === 'text' && (
-                <p className="whitespace-pre-wrap break-words text-sm">
-                  {block.content || <span className="italic text-muted-foreground">(vacío)</span>}
+                <p className={`whitespace-pre-wrap break-words text-sm ${textInterpolation && !textInterpolation.complete ? 'text-destructive' : ''}`}>
+                  {textInterpolation?.value || <span className="italic text-muted-foreground">(vacío)</span>}
                 </p>
               )}
 
@@ -59,7 +68,7 @@ export default function ResponsePreview({ blocks }: ResponsePreviewProps) {
                   ) : (
                     <p className="text-sm italic text-muted-foreground">(sin archivo)</p>
                   )}
-                  {block.caption && <p className="break-words text-sm">{block.caption}</p>}
+                  {captionInterpolation && <p className="break-words text-sm">{captionInterpolation.value}</p>}
                 </>
               )}
 
@@ -70,7 +79,7 @@ export default function ResponsePreview({ blocks }: ResponsePreviewProps) {
                   ) : (
                     <p className="text-sm italic text-muted-foreground">(sin archivo)</p>
                   )}
-                  {block.caption && <p className="break-words text-sm">{block.caption}</p>}
+                  {captionInterpolation && <p className="break-words text-sm">{captionInterpolation.value}</p>}
                 </>
               )}
 
@@ -80,13 +89,14 @@ export default function ResponsePreview({ blocks }: ResponsePreviewProps) {
                     <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
                     <span className="truncate">{block.filename || '(sin archivo)'}</span>
                   </div>
-                  {block.caption && <p className="break-words text-sm">{block.caption}</p>}
+                  {captionInterpolation && <p className="break-words text-sm">{captionInterpolation.value}</p>}
                 </>
               )}
             </div>
           </div>
         </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

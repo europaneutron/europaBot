@@ -11,6 +11,7 @@
 import { userRepository } from '@/data/repositories/user.repository';
 import { SCOPE_FOCUS_WINDOW_MS } from './scope-routing.service';
 import { chooseEnumerationFormat, MAX_BUTTON_OPTIONS } from './scope-enumeration.service';
+import { shortScopeAlias } from '@/core/document-compiler/compiler-rules';
 import type { PendingOfferOption } from '@/data/models/user.model';
 import type { UserSession } from '@/data/models/user.model';
 
@@ -92,8 +93,28 @@ export async function offerButtons(
     : presentation.rows.map(row => ({ id: row.id, title: row.title }));
 }
 
+/**
+ * El limite de WhatsApp --20 caracteres en un boton-- se reparte entre las
+ * partes de la etiqueta, no se aplica cortando por el final.
+ *
+ * Cortar dejaba "Residencial Europa · " y "Residencial Altabris": el dato que
+ * distingue la opcion, que es justo para lo que esta ahi, era lo primero en
+ * caerse. Se recorta el nombre y se conserva entero lo que viene detras.
+ */
 function labelFor(option: PendingOfferOption, maxLength: number): string {
-  return option.label.length > maxLength ? option.label.slice(0, maxLength) : option.label;
+  if (option.label.length <= maxLength) return option.label;
+
+  const [fullName, ...rest] = option.label.split(' · ');
+  const tail = rest.join(' · ');
+  // "Modelo Solara" cabe como "Solara": el descriptor generico es lo primero
+  // que sobra cuando no cabe todo, y es como lo nombra el lead de todos modos.
+  const name = shortScopeAlias(fullName) || fullName;
+  if (!tail) return name.slice(0, maxLength).trimEnd();
+
+  const room = maxLength - tail.length - 3;
+  return room >= 3
+    ? `${name.slice(0, room).trimEnd()} · ${tail}`
+    : tail.slice(0, maxLength).trimEnd();
 }
 
 /**

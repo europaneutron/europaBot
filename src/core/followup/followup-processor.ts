@@ -90,7 +90,7 @@ export class FollowupProcessor {
         const nombre = conversation.name || 'Hola!';
         const telefono = conversation.phone_number;
         
-        const finalMessage = interpolateMessage(template, { nombre, telefono });
+        const finalMessage = interpolateMessage(template, { nombre, telefono }).value;
 
         // 4.3. Enviar mensaje por WhatsApp
         console.log(`[FollowupProcessor] Enviando follow-up a usuario ${conversation.user_id}...`);
