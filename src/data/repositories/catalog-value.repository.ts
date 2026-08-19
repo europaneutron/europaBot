@@ -80,8 +80,19 @@ function compactCatalogDetail(value: CatalogValue): string {
 }
 
 export class CatalogValueRepository {
+  /**
+   * Solo los alcances vivos. Cada corrida en modo sustituir retira los
+   * alcances anteriores sin borrarlos, asi que hay varias filas con el mismo
+   * nombre --tres "Residencial Altabrisa", una viva y dos de corridas
+   * pasadas--, cada una con sus valores. La tabla los enseñaba todos y la
+   * misma fila aparecia tres veces sin nada que las distinguiera.
+   */
   async listForTree(scopeId: string, client: any = supabaseServer): Promise<CatalogValue[]> {
-    const descendantIds = await scopeRepository.getDescendantIds(scopeId, client);
+    const [descendants, reachable] = await Promise.all([
+      scopeRepository.getDescendantIds(scopeId, client),
+      scopeRepository.getReachableScopeIds(client),
+    ]);
+    const descendantIds = descendants.filter(id => reachable.has(id));
     if (descendantIds.length === 0) return [];
 
     const { data, error } = await client
