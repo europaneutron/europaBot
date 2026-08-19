@@ -21,7 +21,19 @@ export async function resolveConfiguredMessage(
   variables: MessageVariables = {}
 ): Promise<string> {
   const template = await resolveConfiguredTemplate(key, fallback);
-  return interpolateMessage(template, variables).value;
+  const interpolation = interpolateMessage(template, variables);
+  if (interpolation.complete) return interpolation.value;
+
+  // Un hueco que nadie rellena salia tal cual al lead: quien escribio el
+  // mensaje puso `{alcances}` en uno que no lo recibe y el lead leia
+  // "{alcances}". Aqui se cae al texto de fabrica, que siempre cuadra con lo
+  // que este mensaje recibe, y se deja constancia de la clave para poder
+  // corregirla en Ajustes.
+  console.error(
+    `El mensaje "${key}" usa variables que no recibe: ${interpolation.missingKeys.join(', ')}.`
+    + ' Se envia el texto de fabrica.'
+  );
+  return interpolateMessage(fallback, variables).value;
 }
 
 /**

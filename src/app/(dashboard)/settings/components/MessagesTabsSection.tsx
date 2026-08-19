@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
+import { BRAND_VARIABLES, MESSAGE_VARIABLES } from '@/lib/constants/message-variables';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Loader2, Save } from 'lucide-react';
@@ -15,6 +16,32 @@ import { ConfigsByCategory } from '../types';
 interface Props {
   configs: ConfigsByCategory;
   onReload: () => Promise<void>;
+}
+
+/**
+ * Que puede escribir quien edita este mensaje. Una variable que el mensaje no
+ * recibe sale tal cual al lead, asi que la ayuda no es cortesia: es lo que
+ * evita mandar "{alcances}" a alguien.
+ */
+function MessageVariableHelp({ configKey }: { configKey: string }) {
+  const entry = MESSAGE_VARIABLES[configKey];
+  // Sin entrada no se dice nada: enseñar solo las del negocio en un mensaje
+  // que ademas recibe las suyas seria una ayuda incompleta, que es peor que
+  // ninguna. Los mensajes de cita y derivacion todavia no estan auditados.
+  if (!entry) return null;
+  const variables = [...entry.vars, ...BRAND_VARIABLES];
+
+  return (
+    <div className="space-y-1 text-xs text-muted-foreground">
+      {entry?.hint ? <p>{entry.hint}</p> : null}
+      <p className="flex flex-wrap items-center gap-1">
+        <span>Puedes usar:</span>
+        {variables.map(variable => (
+          <code key={variable} className="rounded bg-muted px-1 py-0.5">{variable}</code>
+        ))}
+      </p>
+    </div>
+  );
 }
 
 export function MessagesTabsSection({ configs, onReload }: Props) {
@@ -71,6 +98,7 @@ export function MessagesTabsSection({ configs, onReload }: Props) {
                     defaultValue={config.config_value}
                     disabled={saving}
                   />
+                  <MessageVariableHelp configKey={config.config_key} />
                 </div>
               ))}
 

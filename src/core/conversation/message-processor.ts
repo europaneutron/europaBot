@@ -674,7 +674,11 @@ export class MessageProcessor {
       ? await resolveConfiguredMessage('scope_disambiguation_followup_message', '¿Cuál te muestro?')
       : await resolveConfiguredMessage(
           'scope_disambiguation_message',
-          '¿De cuál te gustaría recibir información?'
+          '¿De cuál te gustaría recibir información?',
+          // La descripcion de este mensaje ya prometia {alcances} y el codigo
+          // no se lo pasaba: quien lo escribia siguiendo la ayuda veia
+          // "{alcances}" en el mensaje del lead.
+          { alcances: await this.getAvailableScopeList() }
         );
 
     return {
