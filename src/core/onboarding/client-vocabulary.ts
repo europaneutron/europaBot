@@ -91,14 +91,24 @@ export function normalizeScopeAlias(value: string): string {
     .trim();
 }
 
+/**
+ * El tono decide el trato, no el largo.
+ *
+ * Los tres decían "dos frases breves como máximo", y esa era la causa de que
+ * el bot contestara "El precio desde es {precio_desde}." y nada más: la
+ * brevedad estaba instruida en todos los tonos a la vez, no era una decisión
+ * del modelo. El largo lo gobierna ahora la forma del mensaje --ver la
+ * instrucción de redacción del compilador--, que pide apertura, dato y paso
+ * siguiente. Aquí solo se elige cómo se le habla al lead.
+ */
 export function toneInstruction(tone: BrandTone): string {
   if (tone === 'direct') {
-    return 'Usa un tono directo: abre con el dato, elimina adjetivos y limita cada respuesta a dos frases breves.';
+    return 'Usa un tono directo: abre con el dato, sin adjetivos de relleno y sin rodeos.';
   }
   if (tone === 'formal') {
-    return 'Usa un tono formal y claro: trato de usted, lenguaje sobrio y respuestas de dos frases breves como máximo.';
+    return 'Usa un tono formal y claro: trato de usted y lenguaje sobrio.';
   }
-  return 'Usa un tono cercano y claro: trato natural, sin exageraciones y respuestas de dos frases breves como máximo.';
+  return 'Usa un tono cercano y cálido: trato de tú, natural, como escribiría un asesor que se alegra de atender.';
 }
 
 export function toneSamples(projectName: string, factValue?: string): Array<{

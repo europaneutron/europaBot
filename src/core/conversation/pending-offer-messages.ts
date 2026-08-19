@@ -15,17 +15,56 @@ import { shortScopeAlias } from '@/core/document-compiler/compiler-rules';
 import type { PendingOfferOption } from '@/data/models/user.model';
 import type { UserSession } from '@/data/models/user.model';
 
+/**
+ * Lo que WhatsApp admite en el cuerpo de un mensaje interactivo. Un texto mas
+ * largo no se recorta: la API rechaza el envio entero y el lead se queda sin
+ * respuesta. Con respuestas de una linea nunca importo; con la forma nueva
+ * --apertura, dato, lista con vinetas y cierre-- deja de ser teorico.
+ */
+export const INTERACTIVE_BODY_MAX_LENGTH = 1024;
+
 export interface OfferButtonsPresentation {
   format: 'buttons';
+  /** Texto que va antes, como mensaje suelto, cuando no cabe en el cuerpo. */
+  precedingText?: string;
   bodyText: string;
   buttons: Array<{ id: string; title: string }>;
 }
 
 export interface OfferListPresentation {
   format: 'list';
+  precedingText?: string;
   bodyText: string;
   buttonText: string;
   rows: Array<{ id: string; title: string; description?: string }>;
+}
+
+/**
+ * Parte una respuesta larga en lo que va suelto y lo que lleva los botones
+ * pegados. El corte es la ultima linea --que con la forma nueva es el cierre
+ * que ofrece el paso siguiente--, asi que los botones quedan justo debajo de
+ * la pregunta que los pide.
+ *
+ * Devuelve `null` cuando ni siquiera esa ultima linea cabe: ahi es preferible
+ * mandar el texto plano y quedarse sin botones que inventar un cuerpo que
+ * nadie escribio. La oferta sigue viva en la sesion, asi que un "si" escrito
+ * se resuelve igual.
+ */
+export function splitForInteractiveBody(
+  bodyText: string,
+  maxLength: number = INTERACTIVE_BODY_MAX_LENGTH
+): { precedingText?: string; bodyText: string } | null {
+  const text = bodyText.trim();
+  if (text.length <= maxLength) return { bodyText: text };
+
+  const lastBreak = text.lastIndexOf('\n');
+  if (lastBreak <= 0) return null;
+
+  const closing = text.slice(lastBreak + 1).trim();
+  const preceding = text.slice(0, lastBreak).trimEnd();
+  if (!closing || closing.length > maxLength || !preceding) return null;
+
+  return { precedingText: preceding, bodyText: closing };
 }
 
 export type OfferPresentation = OfferButtonsPresentation | OfferListPresentation | null;
@@ -137,11 +176,14 @@ export async function currentOfferPresentation(
   const options = session!.pending_offer_options!.filter(option => option.label.trim());
   if (options.length === 0) return null;
 
+  const body = splitForInteractiveBody(bodyText);
+  if (!body) return null;
+
   const format = chooseEnumerationFormat(options.length);
   if (format === 'buttons') {
     return {
       format: 'buttons',
-      bodyText,
+      ...body,
       buttons: options.slice(0, MAX_BUTTON_OPTIONS).map(option => ({
         id: option.id,
         title: labelFor(option, 20),
@@ -151,7 +193,7 @@ export async function currentOfferPresentation(
   if (format === 'list') {
     return {
       format: 'list',
-      bodyText,
+      ...body,
       buttonText: 'Ver opciones',
       rows: options.map(option => ({
         id: option.id,

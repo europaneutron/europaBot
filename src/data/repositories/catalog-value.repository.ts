@@ -78,6 +78,29 @@ export function formatCatalogValue(value: Pick<CatalogValue, 'value' | 'value_ty
   return `${String(value.value)}${value.unit ? ` ${value.unit}` : ''}`;
 }
 
+/**
+ * Como se lee una lista dentro de un mensaje, que no es como se lee en una
+ * tabla. En la pantalla del catalogo y en la etiqueta de una opcion, "alberca,
+ * casa club y area de juegos" esta bien. Dentro de la respuesta no: seis
+ * amenidades seguidas en una linea son un parrafo que el lead no lee. Desde
+ * tres elementos se despliega con vinetas, una por linea, que es como lo
+ * escribe un asesor.
+ *
+ * La instruccion de redaccion pide que el hueco de una lista vaya en su propia
+ * linea, para que las vinetas caigan debajo del texto que las presenta.
+ */
+export function formatCatalogValueForProse(
+  value: Pick<CatalogValue, 'value' | 'value_type' | 'unit'>
+): string {
+  if (Array.isArray(value.value) && value.value.length >= 3) {
+    const parts = value.value
+      .map(item => formatCatalogValue({ ...value, value: item as CatalogValue['value'] }))
+      .filter(Boolean);
+    if (parts.length >= 3) return parts.map(part => `• ${part}`).join('\n');
+  }
+  return formatCatalogValue(value);
+}
+
 function compactCatalogDetail(value: CatalogValue): string {
   const formatted = formatCatalogValue(value);
   if (value.value_type !== 'money' && !/(?:precio|price|costo)/i.test(value.value_key)) {
@@ -137,7 +160,7 @@ export class CatalogValueRepository {
     client: any = supabaseServer
   ): Promise<Record<string, string>> {
     const values = await this.getResolvedValues(scopeId, client);
-    return Object.fromEntries(values.map(value => [value.value_key, formatCatalogValue(value)]));
+    return Object.fromEntries(values.map(value => [value.value_key, formatCatalogValueForProse(value)]));
   }
 
   /**

@@ -111,6 +111,17 @@ export async function POST(request: NextRequest) {
             ? await currentOfferPresentation(user.id, botResponse)
             : null;
 
+          // Una respuesta que no cabe en el cuerpo interactivo viaja en dos
+          // piezas: el texto suelto y despues el cierre con los botones. La
+          // API rechaza el envio entero si el cuerpo pasa de 1024, asi que sin
+          // esto el lead se quedaba sin ninguna de las dos.
+          if (offerPresentation?.precedingText) {
+            await whatsappSender.sendTextMessage({
+              to: from,
+              message: offerPresentation.precedingText,
+            });
+          }
+
           if (offerPresentation?.format === 'buttons') {
             console.log(`📤 Enviando desambiguación con botones`);
             await whatsappSender.sendInteractiveButtons({
