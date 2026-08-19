@@ -15,7 +15,10 @@ export interface CatalogValue extends ScopedRow {
   id: string;
   scope_id: string;
   value_key: string;
-  value: string | number | boolean;
+  // Un arreglo cuando el material da varios hechos con la misma clave: las
+  // amenidades de un desarrollo, los creditos que acepta, los servicios que
+  // incluye. Una fila por alcance y clave sigue siendo la regla.
+  value: string | number | boolean | Array<string | number | boolean>;
   value_type: CatalogValueType;
   unit: string | null;
   source_fact_id: string | null;

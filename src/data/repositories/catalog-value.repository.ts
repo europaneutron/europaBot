@@ -42,6 +42,18 @@ function normalizeInput(input: CatalogValueInput): {
 }
 
 export function formatCatalogValue(value: Pick<CatalogValue, 'value' | 'value_type' | 'unit'>): string {
+  // Una lista se lee como la enumeraria una persona: "a, b y c". Es el caso de
+  // las amenidades, los creditos aceptados y los servicios incluidos, que el
+  // material da como varios hechos con la misma clave.
+  if (Array.isArray(value.value)) {
+    const parts = value.value
+      .map(item => formatCatalogValue({ ...value, value: item as CatalogValue['value'] }))
+      .filter(Boolean);
+    if (parts.length === 0) return '';
+    if (parts.length === 1) return parts[0];
+    return `${parts.slice(0, -1).join(', ')} y ${parts[parts.length - 1]}`;
+  }
+
   // El compilador guarda las cifras del material como texto --"2980000"--, asi
   // que un importe salia crudo al lead: "El precio desde es 2980000". Un texto
   // que es solo digitos se trata como la cifra que es; uno que ya viene escrito

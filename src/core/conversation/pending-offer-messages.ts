@@ -129,8 +129,13 @@ export async function currentOfferPresentation(
   const session = await userRepository.getSession(userId);
   if (!isPendingOfferFresh(session)) return null;
 
-  const options = session!.pending_offer_options!;
-  if (options.length < 2) return null;
+  // Una sola opcion tambien se presenta: es la oferta declarada por una
+  // respuesta --"¿Te muestro las amenidades?"-- y su boton es lo que convierte
+  // el "si" en un toque que el bot resuelve sin adivinar. Antes se descartaba
+  // por tener menos de dos, asi que la oferta existia en la sesion y el lead
+  // no veia nada.
+  const options = session!.pending_offer_options!.filter(option => option.label.trim());
+  if (options.length === 0) return null;
 
   const format = chooseEnumerationFormat(options.length);
   if (format === 'buttons') {

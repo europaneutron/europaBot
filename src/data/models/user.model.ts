@@ -15,6 +15,10 @@ export interface PendingOfferOption {
   id: string;
   scopeId: string;
   label: string;
+  // La opcion puede apuntar a una pregunta, no solo a un alcance: "¿Te muestro
+  // las amenidades?" con un boton [ Amenidades ] que la contesta. El toque
+  // llega como identificador, asi que no hay coincidencia difusa de por medio.
+  intentName?: string;
 }
 
 export interface User {

@@ -35,7 +35,12 @@ import { scopeRepository } from '@/data/repositories/scope.repository';
 import { catalogValueRepository } from '@/data/repositories/catalog-value.repository';
 import { extractVariableKeys, normalizeVariableKey } from '@/lib/interpolate-message';
 
-const VOCABULARY_GENERATION_VERSION = 7;
+const VOCABULARY_GENERATION_VERSION = 8;
+
+// Lo que describe una unidad y acompana bien a su precio. No es vocabulario del
+// sector cableado: son las claves que el propio material produjo, y si un
+// negocio no las tiene, no aporta ninguna.
+const FICHA_FACT_KEYS = /(?:recamara|habitacion|bano|construccion|terreno|superficie|cochera|nivel|planta)/i;
 
 const extractionSchema = z.object({
   facts: z.array(z.object({
@@ -172,6 +177,20 @@ const writingSchema = z.object({
  * activo. El runtime usa `scopeRepository.getResolutionOrder`, que si excluye
  * lo inactivo porque un alcance retirado tiene que dejar de responder.
  */
+/**
+ * Una lista se enumera sola al renderizar, asi que su hueco va una vez. El
+ * modelo tiende a escribirlo tantas veces como elementos cree que hay --"Tiene
+ * {amenidad}, {amenidad}, {amenidad} y {amenidad}"--, y eso repetiria la lista
+ * entera esas veces. Se colapsa una serie del mismo hueco separada por comas o
+ * por "y", que es la unica forma en que aparece.
+ */
+export function collapseRepeatedHoles(text: string): string {
+  return text.replace(
+    /\{([0-9A-Za-z_\u00C0-\u024F]+)\}(?:\s*(?:,|y|,\s*y|;)\s*\{\1\})+/g,
+    '{$1}'
+  );
+}
+
 function proposedResolutionChain(
   scopeId: string,
   scopes: Array<{ id: string; parent_id: string | null }>
@@ -459,10 +478,21 @@ export class DocumentCompilerService {
     const writingTargets = covered.flatMap((coverage: any) => {
       let supportingFacts = facts.filter(fact => coverage.fact_ids.includes(fact.id));
       if (coverage.intent_name === 'precio') {
+        // El precio manda, pero la ficha del mismo alcance viaja con el: quien
+        // pregunta el precio de un modelo agradece saber de cuantas recamaras
+        // es sin tener que preguntarlo aparte. Solo lo del propio alcance, y
+        // solo si hay precio: sin el, esto no es una respuesta de precio.
         const priceAliases = REAL_ESTATE_PRESET.find(item => item.intentName === 'precio')!.factKeys;
-        supportingFacts = supportingFacts.filter(fact => (
+        const priceFacts = supportingFacts.filter(fact => (
           priceAliases.some(alias => keyMatchesAlias(fact.key, alias))
         ));
+        const priceScopeIds = new Set(priceFacts.map(fact => fact.scopeId));
+        supportingFacts = priceFacts.length === 0
+          ? priceFacts
+          : facts.filter(fact => (
+              priceFacts.includes(fact)
+              || (priceScopeIds.has(fact.scopeId) && FICHA_FACT_KEYS.test(fact.key))
+            ));
       }
       const groups = groupFactsByDestination(supportingFacts, run.scope_id, scopes);
       const targets = groups.map(group => ({
@@ -545,7 +575,7 @@ export class DocumentCompilerService {
       const response = await this.askModelToWrite(openai, {
       model,
       store: false,
-      input: `Redacta exactamente una respuesta breve de WhatsApp por cada objetivo usando exclusivamente sus hechos. Conserva proposal_key e intent_name literalmente. No combines objetivos, no inventes, no invites a agendar una cita y no uses emojis. ${brandInstruction} Para cada objetivo genera tambien el vocabulario con el que un lead preguntaria eso por WhatsApp. Las palabras deben salir de los hechos y del material de este cliente: no uses una lista fija del sector. keywords lleva al menos 2 palabras principales, synonyms al menos 2 formas equivalentes, typos al menos 1 errata probable y phrases al menos 3 preguntas completas y naturales. question_variants lleva 2 reformulaciones breves que funcionen como mensaje autonomo, sin nombre de empresa, desarrollo, modelo ni producto concreto; por ejemplo, para una pregunta de precio una variante seria "cuanto cuesta" y no "cuanto cuesta el modelo X". El nombre intent_name no cuenta como vocabulario y no debes copiarlo para completar listas. Evita terminar la respuesta en una pregunta de si o no salvo que sea necesario invitar a algo (ver planos, agendar, mostrar mas detalle); si lo haces, offers_intent_name debe llevar el intent_name de lo que le ofreces al lead (uno de los objetivos de esta misma lista, o el mismo intent_name si ofreces un nivel siguiente de el mismo). Si la respuesta no termina en pregunta de si o no, offers_intent_name debe ir null. Devuelve JSON con {"proposals":[{"proposal_key":"...","intent_name":"...","response":"...","keywords":["..."],"synonyms":["..."],"typos":["..."],"phrases":["..."],"question_variants":["..."],"offers_intent_name":null}]}.\n\nObjetivos: ${JSON.stringify(targets.map(target => ({ proposal_key: target.proposalKey, intent_name: target.coverage.intent_name, question: target.coverage.question, scope_id: target.scopeId, facts: target.facts.map(fact => ({ id: fact.id, key: fact.key, subject: fact.subject, value: fact.value })) })))}`,
+      input: `Redacta exactamente una respuesta de WhatsApp por cada objetivo usando exclusivamente sus hechos. Conserva proposal_key e intent_name literalmente. No inventes y no uses emojis. Una respuesta corta pero completa: si el objetivo trae varios hechos sobre lo mismo --precio, recamaras, banos, construccion, terreno-- dilos todos en la misma respuesta, porque el lead no tiene por que preguntarlos uno a uno. No mezcles objetivos distintos: lo que pertenece a otra pregunta se queda en esa. Cuando un dato venga repetido con la misma clave --varias amenidades, varios creditos aceptados-- es una lista y su hueco se escribe UNA sola vez: el sistema la enumera entera. ${brandInstruction} Para cada objetivo genera tambien el vocabulario con el que un lead preguntaria eso por WhatsApp. Las palabras deben salir de los hechos y del material de este cliente: no uses una lista fija del sector. keywords lleva al menos 2 palabras principales, synonyms al menos 2 formas equivalentes, typos al menos 1 errata probable y phrases al menos 3 preguntas completas y naturales. question_variants lleva 2 reformulaciones breves que funcionen como mensaje autonomo, sin nombre de empresa, desarrollo, modelo ni producto concreto; por ejemplo, para una pregunta de precio una variante seria "cuanto cuesta" y no "cuanto cuesta el modelo X". El nombre intent_name no cuenta como vocabulario y no debes copiarlo para completar listas. Termina ofreciendo el paso siguiente cuando haya uno natural: otra pregunta de esta misma lista que el lead querria despues, o agendar una visita. La oferta se convierte en un boton, asi que la pregunta puede ser de si o no; lo que no puede es quedar sin declarar. Pon en offers_intent_name el intent_name de lo que ofreces --uno de los objetivos de esta lista, o "cita" para agendar-- y deja offers_intent_name en null solo cuando la respuesta no ofrezca nada. Devuelve JSON con {"proposals":[{"proposal_key":"...","intent_name":"...","response":"...","keywords":["..."],"synonyms":["..."],"typos":["..."],"phrases":["..."],"question_variants":["..."],"offers_intent_name":null}]}.\n\nObjetivos: ${JSON.stringify(targets.map(target => ({ proposal_key: target.proposalKey, intent_name: target.coverage.intent_name, question: target.coverage.question, scope_id: target.scopeId, facts: target.facts.map(fact => ({ id: fact.id, key: fact.key, subject: fact.subject, value: fact.value })) })))}`,
       text: {
         format: {
           type: 'json_schema',
@@ -654,6 +684,7 @@ export class DocumentCompilerService {
       // Ambos lados se comparan normalizados: el modelo declara `ubicación` y
       // escribe `{ubicacion}` --o al reves-- y eso no es una discrepancia, es
       // el mismo dato con y sin acento.
+      proposal.response = collapseRepeatedHoles(proposal.response);
       const variableKeys = extractVariableKeys(proposal.response);
       const declaredVariableKeys = Array.from(new Set(
         proposal.required_variables.map(normalizeVariableKey)

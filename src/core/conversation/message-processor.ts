@@ -153,6 +153,37 @@ export class MessageProcessor {
       });
       const scopeId = routing.scopeId;
 
+      // Un boton de oferta que apunta a una pregunta se contesta ahi mismo: el
+      // identificador ya dice cual y en que alcance, asi que no hay nada que
+      // detectar. Es lo que convierte "¿te muestro las amenidades?" en un toque
+      // que el bot resuelve, en vez de un "si" que no coincide con nada.
+      if (offerSelection?.option.intentName) {
+        const offered = await intentDetectionService.resolveByName(
+          offerSelection.option.intentName,
+          supabaseServer,
+          offerSelection.option.scopeId
+        );
+        if (offered) {
+          await userRepository.setScopeFocus(user.id, offerSelection.option.scopeId, scopeId);
+          const offeredResponses = await this.handleIntent(
+            user,
+            offered,
+            offerSelection.option.scopeId,
+            true
+          );
+          if (offeredResponses.length > 0) {
+            return {
+              responses: offeredResponses,
+              shouldSend: true,
+              wasDetected: true,
+              isFallback: false,
+              detectedIntent: offered,
+              scopeId: offerSelection.option.scopeId,
+            };
+          }
+        }
+      }
+
       // Pregunta retenida por una desambiguación anterior. Solo cuenta si el
       // foco quedó establecido por algo que el lead acaba de decir o traer, y
       // si sigue dentro de la ventana: reanudarla más tarde sería contestar
@@ -670,6 +701,27 @@ export class MessageProcessor {
   }
 
   /**
+   * Como se llama un boton de oferta. El nombre para mostrar de la intencion
+   * si lo tiene --"Amenidades", "Precio y Costos"--, y si no, la clave puesta
+   * en palabras. `cita` no es una pregunta sino un flujo, y su boton lo dice.
+   */
+  private async offerLabel(intentName: string, intentId?: string): Promise<string> {
+    if (intentName === 'cita') {
+      return resolveConfiguredMessage('offer_appointment_label', 'Agendar visita');
+    }
+    if (intentId) {
+      const { data } = await supabaseServer
+        .from('intent_configurations')
+        .select('display_name')
+        .eq('id', intentId)
+        .maybeSingle();
+      if (data?.display_name) return String(data.display_name).slice(0, 20);
+    }
+    const readable = intentName.replace(/_/g, ' ');
+    return readable.charAt(0).toUpperCase() + readable.slice(1);
+  }
+
+  /**
    * Pedir otro es pedir los hermanos del alcance en foco. Sin hermanos, sube
    * un nivel y ofrece lo que sí hay; sin foco, enumera el primer nivel.
    */
@@ -820,8 +872,24 @@ export class MessageProcessor {
     // contra ella en vez de caer al matcher.
     const declaredOffer = await conversationRepository.getResponseOffer(responseIntentIds);
     if (declaredOffer) {
+      // Con etiqueta y con la pregunta dentro del identificador: asi la oferta
+      // sale como un boton que el lead toca, y el toque llega como
+      // `intent:amenidades:<alcance>` en vez de como texto que haya que
+      // interpretar. Es lo que convierte "¿te muestro las amenidades?" en algo
+      // que el bot puede resolver sin adivinar.
+      const offered = await intentDetectionService.resolveByName(
+        declaredOffer,
+        supabaseServer,
+        resolvedScopeId
+      );
+      const label = await this.offerLabel(declaredOffer, offered?.intent_id);
       await userRepository.setPendingOffer(userId, declaredOffer, null, [
-        { id: resolvedScopeId, scopeId: resolvedScopeId, label: '' },
+        {
+          id: `intent:${declaredOffer}:${resolvedScopeId}`,
+          scopeId: resolvedScopeId,
+          label,
+          intentName: declaredOffer,
+        },
       ]);
     }
 
