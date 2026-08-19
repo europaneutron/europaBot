@@ -62,7 +62,9 @@ export function ConversationSimulator() {
   // mensaje anterior siguen visibles pero el flujo ya avanzo.
   const isLastTurn = (turn: Turn) => turns[turns.length - 1]?.id === turn.id;
 
-  async function sendMessage(event: FormEvent) {
+  // Lo llaman el submit del formulario y la tecla Enter del textarea, asi que
+  // pide lo unico que usa de los dos eventos.
+  async function sendMessage(event: Pick<FormEvent, 'preventDefault'>) {
     event.preventDefault();
     await send(message.trim());
   }
@@ -209,7 +211,23 @@ export function ConversationSimulator() {
       <form onSubmit={sendMessage} className="sticky bottom-16 space-y-2 rounded-lg border bg-background p-3 shadow-lg md:bottom-4">
         <Label htmlFor="simulator-message">Mensaje del lead</Label>
         <div className="flex gap-2">
-          <Textarea id="simulator-message" value={message} onChange={event => setMessage(event.target.value)} disabled={processing} className="min-h-20" placeholder="Escribe como lo haría un lead" />
+          <Textarea
+            id="simulator-message"
+            value={message}
+            onChange={event => setMessage(event.target.value)}
+            // Enter envía, como en WhatsApp; Mayús+Enter hace el salto de
+            // línea. Sin esto había que soltar el teclado y buscar el botón
+            // en cada turno, que es lo que hace tedioso recorrer una
+            // conversación entera.
+            onKeyDown={event => {
+              if (event.key !== 'Enter' || event.shiftKey) return;
+              event.preventDefault();
+              void sendMessage(event);
+            }}
+            disabled={processing}
+            className="min-h-20"
+            placeholder="Escribe como lo haría un lead (Enter envía, Mayús+Enter salta de línea)"
+          />
           <Button type="submit" disabled={processing || !message.trim()} className="self-end">
             {processing ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
             {processing ? 'Procesando' : 'Enviar'}
