@@ -1,11 +1,15 @@
 /**
  * Con qué puede encadenar un botón escrito en este alcance.
  *
- * La herencia va de hijo a padre: un alcance alcanza lo suyo y lo de sus
- * ancestros, nunca lo de un hermano. Encadenar con algo de un hermano no falla
- * con un error --el runtime no encuentra la pregunta y se va por otra rama, a
- * fijar el foco-- así que el lead toca "Compra mínima" y recibe otra cosa. Por
- * eso el filtro vive aquí y no en la pantalla.
+ * Un botón lleva dos cosas: a qué alcance mueve el foco y qué pregunta
+ * contesta al llegar. Por eso no basta con una lista: hace falta saber, para
+ * cada alcance al que se puede mover, qué preguntas alcanza ahí.
+ *
+ * La herencia va de hijo a padre, así que lo alcanzable se calcula desde el
+ * alcance de destino, no desde el que escribe. Encadenar con algo que ese
+ * destino no alcanza no da error: el runtime no encuentra la pregunta y se va
+ * por otra rama --fija el foco y presenta el alcance-- así que el lead toca
+ * una cosa y recibe otra. Por eso el filtro vive aquí y no en la pantalla.
  *
  * Se dice además de dónde sale cada una y si tiene con qué contestar: una
  * pregunta sin respuesta activa deja al lead sin nada cuando toca el botón.
@@ -35,39 +39,61 @@ export async function GET(request: NextRequest) {
     ]);
     if (error) throw error;
 
-    const reachable = await scopeRepository.resolveRows(
-      intents || [],
-      scopeId,
-      row => row.intent_name
-    );
-
     const { data: responses } = await supabaseServer
       .from('bot_responses')
       .select('intent_id')
-      .in('intent_id', reachable.map(row => row.id))
+      .in('intent_id', (intents || []).map(row => row.id))
       .eq('is_active', true);
     const answered = new Set((responses || []).map(row => row.intent_id));
-
     const scopeName = new Map(scopes.map(scope => [scope.id, scope.name]));
 
-    const targets = reachable
-      .filter(row => row.intent_name !== exclude && !NOT_A_TARGET.has(row.intent_name))
-      .map(row => ({
-        intentName: row.intent_name,
-        displayName: row.display_name,
-        // Propia cuando la fila vive en este alcance; heredada cuando viene de
-        // un ancestro, y se dice de cuál.
-        inheritedFrom: row.scope_id === scopeId ? null : (scopeName.get(row.scope_id!) || null),
-        hasResponse: answered.has(row.id),
-      }))
-      // Primero lo propio, que es lo que quien escribe tiene en la cabeza;
-      // despues lo heredado, y dentro de cada grupo por nombre.
-      .sort((left, right) => (
-        Number(Boolean(left.inheritedFrom)) - Number(Boolean(right.inheritedFrom))
-        || left.displayName.localeCompare(right.displayName)
-      ));
+    // El alcance donde se escribe, y los desarrollos del negocio: son los
+    // sitios a los que un boton puede mover el foco. No se baja mas porque lo
+    // que cuelga de un desarrollo es granularidad interna, no una alternativa
+    // que ofrecerle al lead --el mismo criterio que la enumeracion--.
+    const reachableIds = await scopeRepository.getReachableScopeIds();
+    const destinations = [
+      scopeId,
+      ROOT_SCOPE_ID,
+      ...scopes
+        .filter(scope => scope.parent_id === ROOT_SCOPE_ID && reachableIds.has(scope.id))
+        .map(scope => scope.id),
+    ].filter((id, index, all) => all.indexOf(id) === index && reachableIds.has(id));
 
-    return NextResponse.json({ scopeId, targets });
+    const targetsByScope: Record<string, unknown[]> = {};
+    for (const destination of destinations) {
+      const reachable = await scopeRepository.resolveRows(
+        intents || [],
+        destination,
+        row => row.intent_name
+      );
+      targetsByScope[destination] = reachable
+        // La propia pregunta solo se excluye cuando el boton no mueve el foco:
+        // "el precio de Malasia" desde la respuesta de precio del negocio es
+        // util, y no es repetirse.
+        .filter(row => !(destination === scopeId && row.intent_name === exclude))
+        .filter(row => !NOT_A_TARGET.has(row.intent_name))
+        .map(row => ({
+          intentName: row.intent_name,
+          displayName: row.display_name,
+          inheritedFrom: row.scope_id === destination ? null : (scopeName.get(row.scope_id!) || null),
+          hasResponse: answered.has(row.id),
+        }))
+        .sort((left, right) => (
+          Number(Boolean(left.inheritedFrom)) - Number(Boolean(right.inheritedFrom))
+          || left.displayName.localeCompare(right.displayName)
+        ));
+    }
+
+    return NextResponse.json({
+      scopeId,
+      destinations: destinations.map(id => ({
+        id,
+        name: scopeName.get(id) || 'Sin nombre',
+        isCurrent: id === scopeId,
+      })),
+      targetsByScope,
+    });
   } catch (loadError) {
     console.error('Error loading button targets:', loadError);
     return NextResponse.json({ error: 'No fue posible cargar los destinos' }, { status: 500 });

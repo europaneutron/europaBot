@@ -31,6 +31,7 @@ async function main() {
 
   const suffix = randomUUID().slice(0, 8);
   const intentIds: string[] = [];
+  const scopeIds: string[] = [];
 
   const createIntent = async (name: string, keywords: string[]) => {
     const { data, error } = await supabaseServer
@@ -113,7 +114,49 @@ async function main() {
     const stillThere = await conversationRepository.getResponseButtons(financiamiento);
     assert(stillThere?.length === 2, 'y lo que ya estaba guardado no se toca');
 
-    console.log('\n4. Una respuesta inactiva no aporta sus botones');
+    console.log('\n4. Un boton puede llevar a otro fraccionamiento');
+    const { data: europa } = await supabaseServer.from('scopes').insert({
+      name: `Europa btn ${suffix}`, slug: `europa-btn-${suffix}`,
+      parent_id: ROOT_SCOPE_ID, is_active: true,
+    }).select('id').single();
+    scopeIds.push(europa!.id);
+
+    await supabaseServer
+      .from('bot_responses')
+      .update({
+        buttons: [
+          { label: 'Europa', intentName: `amenidades_${suffix}`, scopeId: europa!.id },
+        ],
+      })
+      .eq('id', response.id);
+
+    const moving = await conversationRepository.getResponseButtons(financiamiento);
+    assert(moving?.[0].scopeId === europa!.id, 'el boton declara a que fraccionamiento lleva');
+
+    // Es lo mismo que compone el runtime: el identificador lleva el alcance de
+    // destino, y tocarlo fija el foco ahi antes de contestar.
+    const optionId = `intent:${moving![0].intentName}:${moving![0].scopeId}`;
+    assert(
+      optionId.endsWith(europa!.id),
+      `el identificador del toque lleva el alcance de destino: ${optionId}`
+    );
+
+    await supabaseServer
+      .from('bot_responses')
+      .update({
+        buttons: [
+          { label: 'Amenidades', intentName: `amenidades_${suffix}` },
+          { label: 'Agendar visita', intentName: 'cita' },
+        ],
+      })
+      .eq('id', response.id);
+    const staying = await conversationRepository.getResponseButtons(financiamiento);
+    assert(
+      staying?.every(button => button.scopeId === null),
+      'sin declararlo, el boton contesta donde ya esta la conversacion'
+    );
+
+    console.log('\n5. Una respuesta inactiva no aporta sus botones');
     await supabaseServer.from('bot_responses').update({ is_active: false }).eq('id', response.id);
     assert(
       (await conversationRepository.getResponseButtons(financiamiento)) === null,
@@ -123,6 +166,9 @@ async function main() {
     for (const id of intentIds) {
       await supabaseServer.from('bot_responses').delete().eq('intent_id', id);
       await supabaseServer.from('intent_configurations').delete().eq('id', id);
+    }
+    for (const id of scopeIds.reverse()) {
+      await supabaseServer.from('scopes').delete().eq('id', id);
     }
     scopeRepository.invalidateCache();
   }

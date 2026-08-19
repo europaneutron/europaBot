@@ -31,6 +31,12 @@ export interface ResponseButton {
   label: string;
   /** La pregunta que dispara, o "cita" para abrir el flujo de agendamiento. */
   intentName: string;
+  /**
+   * A que fraccionamiento mueve el foco al tocarlo. Sin esto, el boton
+   * contesta en el alcance donde ya esta la conversacion, que es lo normal.
+   * Con esto, "¿te platico de Europa?" lleva a Europa y contesta ahi.
+   */
+  scopeId?: string | null;
 }
 
 export interface BotResponse {

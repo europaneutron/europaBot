@@ -14,6 +14,7 @@ import {
   cleanButtons,
   type ResponseButtonDraft,
   type ButtonTarget,
+  type ButtonDestination,
 } from '@/components/intents/ResponseButtonsEditor';
 import { intentConfigRepositoryClient, IntentConfiguration, BotResponse } from '@/data/repositories/intent-config.repository.client';
 import {
@@ -59,7 +60,8 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
   const [catalogValues, setCatalogValues] = useState<any[]>([]);
   const [scopeName, setScopeName] = useState<string | null>(null);
   const [buttons, setButtons] = useState<ResponseButtonDraft[]>([]);
-  const [buttonTargets, setButtonTargets] = useState<ButtonTarget[]>([]);
+  const [targetsByScope, setTargetsByScope] = useState<Record<string, ButtonTarget[]>>({});
+  const [destinations, setDestinations] = useState<ButtonDestination[]>([]);
   const [descendantValues, setDescendantValues] = useState<any[]>([]);
   const [scopeNames, setScopeNames] = useState<Record<string, string>>({});
 
@@ -110,14 +112,18 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
         + `&exclude=${encodeURIComponent(intentData.intent_name)}`
       );
       const targetsBody = await targetsResponse.json();
-      setButtonTargets(
-        (targetsBody.targets || []).map((target: any) => ({
-          intentName: target.intentName,
-          label: target.displayName,
-          inheritedFrom: target.inheritedFrom,
-          hasResponse: target.hasResponse,
-        }))
-      );
+      setTargetsByScope(Object.fromEntries(
+        Object.entries(targetsBody.targetsByScope || {}).map(([scope, list]) => [
+          scope,
+          (list as any[]).map(target => ({
+            intentName: target.intentName,
+            label: target.displayName,
+            inheritedFrom: target.inheritedFrom,
+            hasResponse: target.hasResponse,
+          })),
+        ])
+      ));
+      setDestinations(targetsBody.destinations || []);
 
     } catch (error) {
       console.error('Error loading data:', error);
@@ -582,7 +588,9 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
                       setButtons(next);
                       setFormError(null);
                     }}
-                    targets={buttonTargets}
+                    targetsByScope={targetsByScope}
+                    destinations={destinations}
+                    currentScopeId={intent?.scope_id || '00000000-0000-4000-8000-000000000001'}
                     disabled={saving}
                   />
                 </div>

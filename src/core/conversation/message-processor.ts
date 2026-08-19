@@ -993,12 +993,18 @@ export class MessageProcessor {
     // conversacion; el sistema solo compone cuando nadie lo dijo.
     const authoredButtons = await conversationRepository.getResponseButtons(responseIntentIds);
     const offerOptions = authoredButtons?.length
-      ? authoredButtons.slice(0, MAX_BUTTON_OPTIONS).map(button => ({
-          id: `intent:${button.intentName}:${resolvedScopeId}`,
-          scopeId: resolvedScopeId,
-          label: button.label,
-          intentName: button.intentName,
-        }))
+      ? authoredButtons.slice(0, MAX_BUTTON_OPTIONS).map(button => {
+          // El alcance del boton manda cuando lo trae: tocarlo mueve el foco
+          // ahi y contesta ahi. Es el mismo camino que ya usa una opcion
+          // enumerada, solo que declarado a mano en vez de compuesto.
+          const targetScopeId = button.scopeId || resolvedScopeId;
+          return {
+            id: `intent:${button.intentName}:${targetScopeId}`,
+            scopeId: targetScopeId,
+            label: button.label,
+            intentName: button.intentName,
+          };
+        })
       : await this.composeOfferOptions(
           userId,
           intent.intent_name,

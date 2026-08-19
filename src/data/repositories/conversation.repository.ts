@@ -314,7 +314,7 @@ export class ConversationRepository {
    */
   async getResponseButtons(
     intentIds: string | string[]
-  ): Promise<Array<{ label: string; intentName: string }> | null> {
+  ): Promise<Array<{ label: string; intentName: string; scopeId: string | null }> | null> {
     const resolutionIds = Array.isArray(intentIds) ? intentIds : [intentIds];
     const { data, error } = await supabaseServer
       .from('bot_responses')
@@ -339,6 +339,7 @@ export class ConversationRepository {
       .map((button: any) => ({
         label: String(button.label).trim(),
         intentName: String(button.intentName).trim(),
+        scopeId: button.scopeId ? String(button.scopeId) : null,
       }));
   }
 
