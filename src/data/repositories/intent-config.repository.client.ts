@@ -27,16 +27,24 @@ export interface IntentConfiguration {
 }
 
 export interface ResponseButton {
-  /** Lo que se lee en el boton. WhatsApp admite veinte caracteres. */
+  /**
+   * Lo que se lee en la opcion. Con tres o menos se manda como boton (veinte
+   * caracteres); con cuatro o mas, como fila de lista (veinticuatro).
+   */
   label: string;
   /** La pregunta que dispara, o "cita" para abrir el flujo de agendamiento. */
   intentName: string;
   /**
-   * A que fraccionamiento mueve el foco al tocarlo. Sin esto, el boton
+   * A que fraccionamiento mueve el foco al tocarlo. Sin esto, la opcion
    * contesta en el alcance donde ya esta la conversacion, que es lo normal.
    * Con esto, "¿te platico de Europa?" lleva a Europa y contesta ahi.
    */
   scopeId?: string | null;
+  /**
+   * Solo se ve si esto termina mandandose como lista (cuatro o mas): un
+   * boton de WhatsApp no tiene donde ponerla.
+   */
+  description?: string;
 }
 
 export interface BotResponse {

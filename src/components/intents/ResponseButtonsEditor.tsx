@@ -1,14 +1,23 @@
 /**
- * Los botones que acompañan a una respuesta.
+ * Las opciones que acompañan a una respuesta.
  *
  * No es un bloque arrastrable como el texto o una imagen, y es a propósito:
- * en WhatsApp los botones no son un mensaje, son algo que cuelga del último.
- * Ponerlos en medio de la secuencia prometería un orden que el transporte no
- * puede cumplir.
+ * en WhatsApp no son un mensaje, son algo que cuelga del último. Ponerlas en
+ * medio de la secuencia prometería un orden que el transporte no puede
+ * cumplir.
  *
- * Cada botón encadena con una pregunta que ya existe, o con el flujo de cita.
- * Al tocarlo, el bot resuelve esa pregunta en el mismo alcance, sin pasar por
- * el matcher: por eso solo se ofrecen preguntas vivas y no texto libre.
+ * Cada opción encadena con una pregunta que ya existe, o con el flujo de
+ * cita. Al tocarla, el bot resuelve esa pregunta en el mismo alcance, sin
+ * pasar por el matcher: por eso solo se ofrecen preguntas vivas y no texto
+ * libre.
+ *
+ * Con tres o menos, WhatsApp las manda como botones (máximo 20 caracteres
+ * por título, sin descripción). Con cuatro o más, como una lista desplegable
+ * (máximo 24 caracteres, con una descripción opcional debajo). No hay un
+ * interruptor para elegir: lo decide sola la cantidad de opciones que haya,
+ * al momento de mandar el mensaje -- es la misma regla que ya usa la
+ * desambiguación automática. La descripción se escribe siempre; solo se ve
+ * si la respuesta termina teniendo cuatro opciones o más.
  */
 
 'use client';
@@ -34,6 +43,11 @@ export interface ResponseButtonDraft {
    * platico de Europa?" lleva a Europa y contesta ahi.
    */
   scopeId?: string | null;
+  /**
+   * Solo se ve si esto termina mandandose como lista (cuatro opciones o
+   * mas). Con tres o menos no hay donde ponerla y se ignora.
+   */
+  description?: string;
 }
 
 export interface ButtonTarget {
@@ -48,9 +62,16 @@ export interface ButtonTarget {
 /** Valor del desplegable para "no mover el foco": no es un alcance. */
 const CURRENT_SCOPE = '__current__';
 
-/** El límite de WhatsApp para botones de respuesta y para su etiqueta. */
-export const MAX_BUTTONS = 3;
+/** Cuántas opciones admite WhatsApp como lista, que es más que como botones. */
+export const MAX_OPTIONS = 10;
+/** A partir de aquí, WhatsApp deja de mandarlas como botones y pasa a lista. */
+const BUTTON_FORMAT_LIMIT = 3;
+/** Título de un botón de WhatsApp. */
 export const MAX_BUTTON_LABEL = 20;
+/** Título de una fila de lista: más largo porque no comparte el cuerpo con otros dos. */
+export const MAX_LIST_ROW_LABEL = 24;
+/** La descripción de una fila de lista. */
+export const MAX_LIST_ROW_DESCRIPTION = 72;
 
 export interface ButtonDestination {
   id: string;
@@ -96,15 +117,30 @@ export function ResponseButtonsEditor({
 
   const here = targetsByScope[currentScopeId] || [];
 
+  // El formato final --botones o lista-- lo decide la cantidad total de
+  // opciones al momento de mandar el mensaje, no algo que se elige aqui.
+  // Con eso se sabe tambien que limite de longitud aplica a cada etiqueta:
+  // corto mientras quepa en un boton, mas largo en cuanto pasa a lista.
+  const willBeList = buttons.length > BUTTON_FORMAT_LIMIT;
+  const labelLimit = willBeList ? MAX_LIST_ROW_LABEL : MAX_BUTTON_LABEL;
+
   return (
     <div className="space-y-3 rounded-md border p-3">
       <div>
-        <Label>Botones</Label>
+        <Label>Opciones</Label>
         <p className="text-xs text-muted-foreground">
-          Hasta {MAX_BUTTONS}. Van pegados al ultimo mensaje. Cada uno puede contestar donde ya
-          este la conversacion, o llevarla a otro fraccionamiento y contestar alli. Si no pones
-          ninguno, el sistema los compone solo.
+          Hasta {MAX_OPTIONS}. Con {BUTTON_FORMAT_LIMIT} o menos, WhatsApp las manda como botones
+          pegados al ultimo mensaje; con {BUTTON_FORMAT_LIMIT + 1} o mas, como una lista
+          desplegable, con la descripcion visible debajo de cada una. Cada opcion puede contestar
+          donde ya este la conversacion, o llevarla a otro fraccionamiento y contestar alli. Si no
+          pones ninguna, el sistema las compone solo.
         </p>
+        {willBeList ? (
+          <p className="text-xs text-muted-foreground">
+            Con {buttons.length}, esto se va a mandar como lista: los titulos caben hasta{' '}
+            {MAX_LIST_ROW_LABEL} caracteres.
+          </p>
+        ) : null}
       </div>
 
       {buttons.map((button, index) => {
@@ -113,7 +149,13 @@ export function ResponseButtonsEditor({
         // respuesta viva en Malasia.
         const destinationId = button.scopeId || currentScopeId;
         const targets = targetsByScope[destinationId] || [];
-        const tooLong = button.label.trim().length > MAX_BUTTON_LABEL;
+        const labelLength = button.label.trim().length;
+        const tooLong = labelLength > labelLimit;
+        // Cabe como fila de lista (formato actual, con 4 o mas) pero no
+        // como boton: si mas tarde se borra una opcion y esto vuelve a
+        // tener tres o menos, el texto se recorta sin que nadie lo haya
+        // tocado. Se avisa ahora, mientras todavia cabe.
+        const wouldBreakAsButtons = willBeList && !tooLong && labelLength > MAX_BUTTON_LABEL;
         const duplicated = buttons.some((other, position) => (
           position !== index
           && other.intentName
@@ -192,6 +234,21 @@ export function ResponseButtonsEditor({
               </Button>
             </div>
 
+            {/* Solo llega a verse si esto se manda como lista. Con tres o
+                menos se guarda igual, por si mas tarde se agregan mas
+                opciones, pero no se muestra para no prometer algo que hoy no
+                sale. */}
+            {willBeList ? (
+              <Input
+                value={button.description || ''}
+                onChange={event => update(index, { description: event.target.value })}
+                placeholder="Descripción (opcional, se ve debajo del título)"
+                disabled={disabled}
+                aria-label={`Descripción de la opción ${index + 1}`}
+                maxLength={MAX_LIST_ROW_DESCRIPTION}
+              />
+            ) : null}
+
             {movesFocus ? (
               <p className="text-xs text-muted-foreground">
                 Al tocarlo, la conversacion pasa a {destinationName} y sigue ahi.
@@ -199,7 +256,14 @@ export function ResponseButtonsEditor({
             ) : null}
             {tooLong ? (
               <p className="text-xs text-destructive">
-                {button.label.trim().length} caracteres: WhatsApp corta en {MAX_BUTTON_LABEL}.
+                {labelLength} caracteres: {willBeList ? 'como lista' : 'como botón'} WhatsApp corta
+                en {labelLimit}.
+              </p>
+            ) : null}
+            {!tooLong && wouldBreakAsButtons ? (
+              <p className="text-xs text-muted-foreground">
+                {labelLength} caracteres: cabe en la lista, pero si esto baja a {BUTTON_FORMAT_LIMIT}{' '}
+                opciones o menos y pasa a botones, se recorta en {MAX_BUTTON_LABEL}.
               </p>
             ) : null}
             {duplicated ? (
@@ -221,10 +285,10 @@ export function ResponseButtonsEditor({
         );
       })}
 
-      {buttons.length < MAX_BUTTONS ? (
+      {buttons.length < MAX_OPTIONS ? (
         <Button type="button" variant="outline" size="sm" onClick={add} disabled={disabled || here.length === 0}>
           <Plus className="mr-1 h-4 w-4" />
-          Agregar botón
+          Agregar opción
         </Button>
       ) : null}
 
@@ -240,18 +304,25 @@ export function ResponseButtonsEditor({
 }
 
 /**
- * Lo que sobrevive al guardar: un botón sin destino no es un botón, y una
- * etiqueta vacía deja un rectángulo mudo. `null` cuando no queda ninguno,
- * porque es lo que significa "que los componga el sistema".
+ * Lo que sobrevive al guardar: una opción sin destino no es una opción, y una
+ * etiqueta vacía deja un rectángulo mudo. `null` cuando no queda ninguna,
+ * porque es lo que significa "que las componga el sistema".
+ *
+ * La etiqueta se guarda hasta 24 caracteres --el límite más permisivo de los
+ * dos formatos-- y no hasta 20: recortar aquí a lo corto le quitaría a una
+ * respuesta de cuatro o más el texto que sí le cabe como fila de lista. El
+ * recorte a 20 para cuando de verdad se manda como botones lo hace
+ * `labelFor` al momento de enviar, que es cuando ya se sabe cuántas hay.
  */
 export function cleanButtons(buttons: ResponseButtonDraft[]): ResponseButtonDraft[] | null {
   const clean = buttons
     .filter(button => button.label.trim() && button.intentName.trim())
-    .slice(0, MAX_BUTTONS)
+    .slice(0, MAX_OPTIONS)
     .map(button => ({
-      label: button.label.trim().slice(0, MAX_BUTTON_LABEL),
+      label: button.label.trim().slice(0, MAX_LIST_ROW_LABEL),
       intentName: button.intentName.trim(),
       scopeId: button.scopeId || null,
+      description: button.description?.trim().slice(0, MAX_LIST_ROW_DESCRIPTION) || undefined,
     }));
   return clean.length > 0 ? clean : null;
 }

@@ -198,6 +198,8 @@ export async function currentOfferPresentation(
       rows: options.map(option => ({
         id: option.id,
         title: labelFor(option, 24),
+        // Solo una fila de lista tiene donde ponerla; se ignora en botones.
+        description: option.description,
       })),
     };
   }

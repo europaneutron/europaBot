@@ -19,6 +19,10 @@ export interface PendingOfferOption {
   // las amenidades?" con un boton [ Amenidades ] que la contesta. El toque
   // llega como identificador, asi que no hay coincidencia difusa de por medio.
   intentName?: string;
+  // Solo se ve cuando la oferta termina mandandose como lista (4 a 10
+  // opciones): una fila de lista admite una linea explicativa debajo del
+  // titulo, y un boton de WhatsApp no tiene donde ponerla.
+  description?: string;
 }
 
 export interface User {

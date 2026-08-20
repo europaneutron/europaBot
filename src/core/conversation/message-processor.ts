@@ -1026,7 +1026,12 @@ export class MessageProcessor {
     // ninguno, y el sistema componia otros por su cuenta.
     const authoredButtons = await conversationRepository.getResponseButtons(responseIntentIds, resolvedScopeId);
     const offerOptions = authoredButtons?.length
-      ? authoredButtons.slice(0, MAX_BUTTON_OPTIONS).map(button => {
+      // Hasta diez, no tres: el formato --botones o lista-- lo decide
+      // despues quien arma la presentacion (`currentOfferPresentation`),
+      // contando cuantas opciones hay. Con tres o menos WhatsApp las manda
+      // como botones; con cuatro o mas, como lista. No hay nada que decidir
+      // aqui.
+      ? authoredButtons.slice(0, MAX_LIST_OPTIONS).map(button => {
           // El alcance del boton manda cuando lo trae: tocarlo mueve el foco
           // ahi y contesta ahi. Es el mismo camino que ya usa una opcion
           // enumerada, solo que declarado a mano en vez de compuesto.
@@ -1036,6 +1041,7 @@ export class MessageProcessor {
             scopeId: targetScopeId,
             label: button.label,
             intentName: button.intentName,
+            description: button.description,
           };
         })
       : await this.composeOfferOptions(

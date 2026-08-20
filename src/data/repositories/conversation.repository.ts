@@ -397,7 +397,7 @@ export class ConversationRepository {
   async getResponseButtons(
     intentIds: string | string[],
     scopeId?: string | null
-  ): Promise<Array<{ label: string; intentName: string; scopeId: string | null }> | null> {
+  ): Promise<Array<{ label: string; intentName: string; scopeId: string | null; description?: string }> | null> {
     const resolutionIds = await this.orderByScopeResolution(
       Array.isArray(intentIds) ? intentIds : [intentIds],
       scopeId
@@ -426,6 +426,11 @@ export class ConversationRepository {
         label: String(button.label).trim(),
         intentName: String(button.intentName).trim(),
         scopeId: button.scopeId ? String(button.scopeId) : null,
+        // Solo se usa si esto termina mandandose como lista (4 a 10
+        // opciones): con botones de WhatsApp no hay donde ponerla.
+        description: typeof button.description === 'string' && button.description.trim()
+          ? button.description.trim()
+          : undefined,
       }));
   }
 

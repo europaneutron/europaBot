@@ -91,8 +91,10 @@ async function main() {
     assert(declared![0].label === 'Amenidades', 'conserva el orden en que se escribieron');
     assert(declared![1].intentName === 'cita', 'el flujo de cita se encadena como cualquier otro');
 
-    console.log('\n3. La base rechaza lo que WhatsApp no puede enviar');
-    const tooMany = await supabaseServer
+    console.log('\n3. Hasta diez, no tres: la base solo rechaza lo que ningun formato admite');
+    // Cuatro o mas se manda como lista, no como botones: ya no hay motivo
+    // para rechazarlos. El limite real de WhatsApp es diez.
+    const four = await supabaseServer
       .from('bot_responses')
       .update({
         buttons: [
@@ -103,16 +105,45 @@ async function main() {
         ],
       })
       .eq('id', response.id);
-    assert(tooMany.error !== null, 'cuatro botones no se guardan: WhatsApp admite tres');
+    assert(four.error === null, `cuatro opciones si se guardan, para mandarse como lista: ${four.error?.message}`);
+
+    const eleven = await supabaseServer
+      .from('bot_responses')
+      .update({
+        buttons: Array.from({ length: 11 }, (_, i) => ({ label: `Opcion ${i}`, intentName: `x${i}` })),
+      })
+      .eq('id', response.id);
+    assert(eleven.error !== null, 'once opciones no se guardan: WhatsApp admite diez como maximo en una lista');
 
     const tooLong = await supabaseServer
       .from('bot_responses')
-      .update({ buttons: [{ label: 'Terreno y construccion completa', intentName: 'a' }] })
+      .update({ buttons: [{ label: 'Terreno y construccion completa y', intentName: 'a' }] })
       .eq('id', response.id);
-    assert(tooLong.error !== null, 'una etiqueta de mas de veinte caracteres tampoco');
+    assert(tooLong.error !== null, 'una etiqueta de mas de veinticuatro caracteres no se guarda ni como lista');
 
+    const fitsAsList = await supabaseServer
+      .from('bot_responses')
+      .update({ buttons: [{ label: 'Terreno y construccion', intentName: 'a', description: 'Detalle que solo se ve en la lista' }] })
+      .eq('id', response.id);
+    assert(fitsAsList.error === null, `una etiqueta de veintidos con descripcion si se guarda: ${fitsAsList.error?.message}`);
+
+    const longDescription = await supabaseServer
+      .from('bot_responses')
+      .update({ buttons: [{ label: 'Amenidades', intentName: 'a', description: 'x'.repeat(73) }] })
+      .eq('id', response.id);
+    assert(longDescription.error !== null, 'una descripcion de mas de setenta y dos caracteres no se guarda');
+
+    await supabaseServer
+      .from('bot_responses')
+      .update({
+        buttons: [
+          { label: 'Amenidades', intentName: `amenidades_${suffix}` },
+          { label: 'Agendar visita', intentName: 'cita' },
+        ],
+      })
+      .eq('id', response.id);
     const stillThere = await conversationRepository.getResponseButtons(financiamiento);
-    assert(stillThere?.length === 2, 'y lo que ya estaba guardado no se toca');
+    assert(stillThere?.length === 2, 'y lo que se deja al final es lo que se escribio, sin restos de las pruebas anteriores');
 
     console.log('\n4. Un boton puede llevar a otro fraccionamiento');
     const { data: europa } = await supabaseServer.from('scopes').insert({
@@ -162,6 +193,55 @@ async function main() {
       (await conversationRepository.getResponseButtons(financiamiento)) === null,
       'la respuesta apagada deja de declarar botones, como deja de contestar'
     );
+    await supabaseServer.from('bot_responses').update({ is_active: true }).eq('id', response.id);
+
+    console.log('\n6. Con cuatro o mas, el turno las manda como lista, con su descripcion');
+    // No hay un interruptor para elegir el formato: lo decide sola la
+    // cantidad de opciones, exactamente igual que la desambiguacion
+    // automatica. Se prueba el camino entero -- boton escrito a mano hasta
+    // la presentacion que arma el webhook -- para no quedarse solo en que la
+    // fila se guarda.
+    const { messageProcessor } = await import('../src/core/conversation/message-processor');
+    const { userRepository } = await import('../src/data/repositories/user.repository');
+    const { currentOfferPresentation } = await import('../src/core/conversation/pending-offer-messages');
+
+    await supabaseServer
+      .from('bot_responses')
+      .update({
+        buttons: [
+          { label: `Amenidades${suffix}`, intentName: `amenidades_${suffix}`, description: 'Alberca, gimnasio y área de asadores' },
+          { label: 'Agendar visita', intentName: 'cita' },
+          { label: 'Créditos', intentName: `amenidades_${suffix}`, description: 'Infonavit, Fovissste y bancario' },
+          { label: 'Ubicación', intentName: `amenidades_${suffix}` },
+        ],
+      })
+      .eq('id', response.id);
+
+    const phone = `rb${suffix}`;
+    const detected = await messageProcessor.processMessage(phone, `financiamiento${suffix}`, `rb1-${suffix}`, 'Test');
+    assert(!detected.isFallback, `la pregunta debe detectarse: ${JSON.stringify(detected)}`);
+
+    const userId = (await supabaseServer.from('users').select('id').eq('phone_number', phone).single()).data!.id;
+    const presentation = await currentOfferPresentation(userId, String(detected.responses[0]));
+    assert(presentation?.format === 'list', `con cuatro opciones se presenta como lista: ${JSON.stringify(presentation)}`);
+    if (presentation?.format === 'list') {
+      assert(presentation.rows.length === 4, `las cuatro opciones llegan completas: ${JSON.stringify(presentation.rows)}`);
+      const withDescription = presentation.rows.find(row => row.title.includes('Amenidades'));
+      assert(
+        withDescription?.description === 'Alberca, gimnasio y área de asadores',
+        `la descripcion de la fila con descripcion llega intacta: ${JSON.stringify(withDescription)}`
+      );
+      const withoutDescription = presentation.rows.find(row => row.title === 'Ubicación');
+      assert(
+        withoutDescription?.description === undefined,
+        `la fila sin descripcion no inventa una: ${JSON.stringify(withoutDescription)}`
+      );
+    }
+
+    for (const table of ['conversations', 'user_scope_progress', 'appointments', 'followup_messages', 'user_sessions']) {
+      await supabaseServer.from(table).delete().eq('user_id', userId);
+    }
+    await supabaseServer.from('users').delete().eq('id', userId);
   } finally {
     for (const id of intentIds) {
       await supabaseServer.from('bot_responses').delete().eq('intent_id', id);
