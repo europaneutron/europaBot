@@ -344,12 +344,22 @@ export class ConversationRepository {
 
   /**
    * Qué intención declara ofrecer la respuesta que `getBotResponses`
-   * resolvería para estos mismos `intentIds`, con la misma resolución por
-   * orden. `null` cuando la respuesta no termina en pregunta de sí/no —que
-   * es el caso normal— o cuando no declaró ninguna.
+   * resolvería para estos mismos `intentIds` en este mismo alcance. `null`
+   * cuando la respuesta no termina en pregunta de sí/no —que es el caso
+   * normal— o cuando no declaró ninguna.
+   *
+   * El alcance no es opcional de verdad: sin él, esto y `getBotResponses`
+   * pueden resolver filas distintas y el turno sale con el texto de una y la
+   * oferta de otra.
    */
-  async getResponseOffer(intentIds: string | string[]): Promise<string | null> {
-    const resolutionIds = Array.isArray(intentIds) ? intentIds : [intentIds];
+  async getResponseOffer(
+    intentIds: string | string[],
+    scopeId?: string | null
+  ): Promise<string | null> {
+    const resolutionIds = await this.orderByScopeResolution(
+      Array.isArray(intentIds) ? intentIds : [intentIds],
+      scopeId
+    );
     const { data, error } = await supabaseServer
       .from('bot_responses')
       .select('intent_id, offers_intent_name, order_priority')
@@ -370,17 +380,28 @@ export class ConversationRepository {
 
   /**
    * Los botones que declara la respuesta que `getBotResponses` resolvería
-   * para estos mismos `intentIds`, con la misma resolución por orden.
+   * para estos mismos `intentIds` en este mismo alcance.
    *
    * `null` cuando la respuesta no declara ninguno, que es el caso normal: ahí
    * los compone el sistema con las preguntas vivas del alcance. Cuando sí los
    * declara, mandan ellos: quien escribió la respuesta sabe mejor que una
    * regla cuál es el paso siguiente de esa conversación.
+   *
+   * El alcance tiene que ser el mismo que se le pasa a `getBotResponses`. Sin
+   * él, cada uno resolvia por el orden en que llegaban los identificadores, y
+   * ese orden lo pone la deteccion: el texto salia de la fila del negocio y
+   * los botones se leian de la de un fraccionamiento, que no tenia ninguno.
+   * Resultado: los botones escritos a mano no salian y el sistema componia
+   * otros por su cuenta.
    */
   async getResponseButtons(
-    intentIds: string | string[]
+    intentIds: string | string[],
+    scopeId?: string | null
   ): Promise<Array<{ label: string; intentName: string; scopeId: string | null }> | null> {
-    const resolutionIds = Array.isArray(intentIds) ? intentIds : [intentIds];
+    const resolutionIds = await this.orderByScopeResolution(
+      Array.isArray(intentIds) ? intentIds : [intentIds],
+      scopeId
+    );
     const { data, error } = await supabaseServer
       .from('bot_responses')
       .select('intent_id, buttons, order_priority')

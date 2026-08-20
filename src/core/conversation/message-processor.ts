@@ -1011,12 +1011,20 @@ export class MessageProcessor {
     // sabe que preguntas tiene vivas en ese alcance, y son exactamente las que
     // puede ofrecer. Deterministico, sin modelo, y el toque llega como
     // identificador.
-    const declaredOffer = await conversationRepository.getResponseOffer(responseIntentIds);
+    const declaredOffer = await conversationRepository.getResponseOffer(responseIntentIds, resolvedScopeId);
 
     // Los botones escritos a mano mandan sobre los compuestos. Quien redacto
     // la respuesta sabe mejor que una regla cual es el paso siguiente de esa
     // conversacion; el sistema solo compone cuando nadie lo dijo.
-    const authoredButtons = await conversationRepository.getResponseButtons(responseIntentIds);
+    //
+    // El alcance tiene que ser el mismo que resolvio el texto: sin el, cada
+    // uno leia la fila en el orden en que llegaban los identificadores --el
+    // orden que pone la deteccion, no el de la conversacion-- y el texto
+    // salia de una fila mientras los botones se leian de otra. Con la
+    // respuesta del negocio y botones propios, esto hacia que jamas salieran:
+    // se resolvian contra la fila de un fraccionamiento, que no tenia
+    // ninguno, y el sistema componia otros por su cuenta.
+    const authoredButtons = await conversationRepository.getResponseButtons(responseIntentIds, resolvedScopeId);
     const offerOptions = authoredButtons?.length
       ? authoredButtons.slice(0, MAX_BUTTON_OPTIONS).map(button => {
           // El alcance del boton manda cuando lo trae: tocarlo mueve el foco

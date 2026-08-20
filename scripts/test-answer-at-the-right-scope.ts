@@ -187,6 +187,46 @@ async function main(): Promise<void> {
       `Y no lleva el precio del catalogo: ${JSON.stringify(rotulos)}`
     );
 
+    // --- Los botones tienen que leerse del mismo alcance que el texto, no
+    // del orden en que llegaron los ids.
+    //
+    // El caso real necesita la MISMA intencion con fila en varios alcances --
+    // Europa, Malasia y el negocio-- y botones propios solo en la del
+    // negocio. La deteccion sin foco entrega los ids en el orden en que los
+    // encontro (Europa primero), y antes `getResponseButtons` los resolvia en
+    // ese mismo orden, sin mirar el alcance de la conversacion: leia los
+    // botones de la fila de Europa, que no tenia ninguno, y el sistema
+    // componia otros por su cuenta en vez de mandar los escritos a mano.
+    const ownedName = `ar_owned_${suffix}`;
+    const ownedKw = [`propios${suffix}`];
+    const idOwnedEuropa = await content(europa, ownedName, ownedKw, 'Europa sin botones propios');
+    const idOwnedMalasia = await content(malasia, ownedName, ownedKw, 'Malasia sin botones propios');
+    const idOwnedRoot = await content(ROOT_SCOPE_ID, ownedName, ownedKw, 'Texto del negocio con botones propios');
+    await supabaseServer.from('bot_responses').update({
+      buttons: [
+        { label: 'Ver Europa', intentName: ownedName, scopeId: europa },
+        { label: 'Ver Malasia', intentName: ownedName, scopeId: malasia },
+      ],
+    }).eq('intent_id', idOwnedRoot);
+    scopeRepository.invalidateCache();
+    intentDetectionService.invalidateAll();
+    void idOwnedEuropa;
+    void idOwnedMalasia;
+
+    const conBotones = await messageProcessor.processMessage(
+      phone, ownedKw[0], `ar3-${suffix}`, 'Test'
+    );
+    const uid2 = (await supabaseServer.from('users').select('id').eq('phone_number', phone).single()).data!.id;
+    const botonesReales = (await offerButtons(uid2, 'x')).map((b: any) => b.title);
+    assert(
+      !conBotones.isFallback && JSON.stringify(conBotones.responses).includes('con botones propios'),
+      `El texto del negocio debe salir tal cual: ${JSON.stringify(conBotones.responses)}`
+    );
+    assert(
+      botonesReales.length === 2 && botonesReales.includes('Ver Europa') && botonesReales.includes('Ver Malasia'),
+      `Los botones deben ser los escritos a mano, no unos compuestos: ${JSON.stringify(botonesReales)}`
+    );
+
     console.log('Answer-at-the-right-scope verification passed');
   } finally {
     const { data: user } = await supabaseServer.from('users').select('id').eq('phone_number', phone).maybeSingle();
