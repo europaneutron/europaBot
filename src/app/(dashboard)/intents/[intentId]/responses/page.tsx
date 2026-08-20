@@ -1,47 +1,32 @@
 /**
  * Página para Gestionar Respuestas de una Intención
  *
- * Orquesta estado, carga y guardado. La composición de cada respuesta vive en
- * ResponseBlockList / ResponsePreview (src/components/intents/), que trabajan
- * sobre la lista de bloques derivada de la fila de bot_responses.
+ * Con una sola respuesta -- el caso normal, casi siempre -- el editor está
+ * abierto de entrada: nada de listar, entrar, y darle a un lápiz para llegar
+ * a lo mismo que se podía tener siempre a la vista. Con varias respuestas,
+ * cada una se expande en su sitio.
+ *
+ * La composición de cada respuesta vive en ResponseEditor
+ * (src/components/intents/), que a su vez usa ResponseBlockList /
+ * ResponsePreview / ResponseButtonsEditor.
  */
 
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import {
-  ResponseButtonsEditor,
-  cleanButtons,
-  type ResponseButtonDraft,
-  type ButtonTarget,
-  type ButtonDestination,
-} from '@/components/intents/ResponseButtonsEditor';
+import { type ResponseButtonDraft, cleanButtons } from '@/components/intents/ResponseButtonsEditor';
+import { ResponseEditor, type ResponseDraftValues } from '@/components/intents/ResponseEditor';
 import { intentConfigRepositoryClient, IntentConfiguration, BotResponse } from '@/data/repositories/intent-config.repository.client';
 import {
   EditorBlock,
   responseRowToBlocks,
   blocksToFragmentedResponse,
-  createTextBlock,
 } from '@/lib/utils/response-blocks';
 import { qualifyScopeName, extractVariableKeys } from '@/lib/interpolate-message';
-import { validateFragmentedResponse } from '@/types/message-fragments.types';
-import { MAX_RESPONSE_BLOCKS } from '@/lib/constants/response-composer';
-import ResponseBlockList, { validateBlocks } from '@/components/intents/ResponseBlockList';
-import ResponsePreview from '@/components/intents/ResponsePreview';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Checkbox } from '@/components/ui/checkbox';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import { ArrowLeft, Plus, Edit, Trash2, Loader2, Save } from 'lucide-react';
+import { ArrowLeft, Plus, Trash2, Loader2, ChevronDown, ChevronRight } from 'lucide-react';
 import Link from 'next/link';
 
 export default function IntentResponsesPage({ params }: { params: { intentId: string } }) {
@@ -52,28 +37,20 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
   const [deleting, setDeleting] = useState<string | null>(null);
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
 
-  const [showForm, setShowForm] = useState(false);
-  const [editingResponse, setEditingResponse] = useState<BotResponse | null>(null);
-  const [blocks, setBlocks] = useState<EditorBlock[]>([]);
-  const [blockErrors, setBlockErrors] = useState<Record<string, string>>({});
-  const [formError, setFormError] = useState<string | null>(null);
   const [catalogValues, setCatalogValues] = useState<any[]>([]);
   const [scopeName, setScopeName] = useState<string | null>(null);
-  const [buttons, setButtons] = useState<ResponseButtonDraft[]>([]);
-  const [targetsByScope, setTargetsByScope] = useState<Record<string, ButtonTarget[]>>({});
-  const [destinations, setDestinations] = useState<ButtonDestination[]>([]);
+  const [targetsByScope, setTargetsByScope] = useState<Record<string, any[]>>({});
+  const [destinations, setDestinations] = useState<any[]>([]);
   const [descendantValues, setDescendantValues] = useState<any[]>([]);
   const [scopeNames, setScopeNames] = useState<Record<string, string>>({});
 
-  const [formData, setFormData] = useState({
-    response_key: '',
-    order_priority: 1,
-    is_active: true,
-    variables: {}
-  });
+  // Con más de una respuesta, cuál está desplegada. `undefined` en la clave
+  // "nueva" es la respuesta que se está por crear, si se pidió.
+  const [expanded, setExpanded] = useState<string | 'new' | null>(null);
 
   useEffect(() => {
     loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params.intentId]);
 
   async function loadData() {
@@ -93,7 +70,6 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
       const catalogBody = await catalogResponse.json();
       if (!catalogResponse.ok) throw new Error(catalogBody.error || 'No fue posible cargar el catálogo');
       setCatalogValues(catalogBody.resolvedValues || []);
-      // `values` es el arbol: este alcance y todo lo que cuelga de el.
       setDescendantValues(
         (catalogBody.values || []).filter((value: any) => value.scope_id !== intentData.scope_id)
       );
@@ -104,9 +80,9 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
       const scope = (catalogBody.scopes || []).find((item: any) => item.id === intentData.scope_id);
       setScopeName(scope?.name || (intentData.scope_id ? null : 'General'));
 
-      // Con que se puede encadenar. Lo decide el servidor porque depende de la
-      // herencia: este alcance alcanza lo suyo y lo de sus ancestros, nunca lo
-      // de un hermano. Encadenar con un hermano no da error, da otra cosa.
+      // Con una sola respuesta -- el caso normal -- se abre directo.
+      setExpanded(responsesData.length === 1 ? responsesData[0].id : null);
+
       const targetsResponse = await fetch(
         `/api/intents/targets?scopeId=${encodeURIComponent(intentData.scope_id || '')}`
         + `&exclude=${encodeURIComponent(intentData.intent_name)}`
@@ -145,46 +121,6 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
     return `${base}_${Date.now()}`;
   }
 
-  function handleNewResponse() {
-    setEditingResponse(null);
-    setButtons([]);
-    setBlocks([]);
-    setBlockErrors({});
-    setFormError(null);
-    setFormData({
-      // La clave es un identificador interno, no una decision del usuario: el
-      // compilador se la pone sola y a mano se la pedia a quien escribe. No
-      // hay indice unico, asi que basta con derivarla de la pregunta y
-      // numerar cuando ya hay otra.
-      response_key: nextResponseKey(),
-      order_priority: responses.length + 1,
-      is_active: true,
-      variables: {}
-    });
-    setShowForm(true);
-  }
-
-  function handleEditResponse(response: BotResponse) {
-    setEditingResponse(response);
-    setButtons(response.buttons || []);
-    setBlocks(
-      responseRowToBlocks({
-        message_text: response.message_text,
-        media_url: response.media_url,
-        response_type: response.response_type,
-      })
-    );
-    setBlockErrors({});
-    setFormError(null);
-    setFormData({
-      response_key: response.response_key,
-      order_priority: response.order_priority,
-      is_active: response.is_active,
-      variables: response.variables || {}
-    });
-    setShowForm(true);
-  }
-
   // Lo que este alcance alcanza --lo suyo y lo heredado-- mas lo que vive por
   // debajo, en sus hijos, marcado como lo que es: la herencia va de hijo a
   // padre, asi que un padre no puede rellenar un hueco de su hijo. Se ensena
@@ -208,11 +144,9 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
           preview: String(value.value ?? ''),
           from: scopeName || 'otro alcance',
           reachable: false,
-          // Asi se escribe para que se resuelva desde donde sea.
           qualifiedKey: `${qualifyScopeName(scopeName)}.${value.value_key}`,
         };
       });
-    // Un mismo nombre puede existir en varios hijos: se ofrece una vez.
     const seen = new Set<string>();
     return [...own, ...fromChildren].filter(option => {
       if (seen.has(option.key)) return false;
@@ -227,65 +161,36 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
     return keys.some(key => !available.has(key));
   }
 
-  async function handleSubmitResponse() {
+  async function handleSave(
+    existing: BotResponse | null,
+    payload: { blocks: EditorBlock[]; buttons: ResponseButtonDraft[]; values: ResponseDraftValues }
+  ) {
     if (!intent) return;
-
-    if (!formData.response_key.trim()) {
-      setFormError('Response key es requerido');
-      return;
-    }
-
-    if (blocks.length === 0) {
-      setFormError('La respuesta debe tener al menos un bloque');
-      return;
-    }
-
-    if (blocks.length > MAX_RESPONSE_BLOCKS) {
-      setFormError(`La respuesta no puede tener más de ${MAX_RESPONSE_BLOCKS} bloques`);
-      return;
-    }
-
-    const errors = validateBlocks(blocks);
-    if (Object.keys(errors).length > 0) {
-      setBlockErrors(errors);
-      setFormError('Corrige los bloques señalados antes de guardar');
-      return;
-    }
-
-    const fragmentedResponse = blocksToFragmentedResponse(blocks);
-    if (!validateFragmentedResponse(fragmentedResponse)) {
-      setFormError('La secuencia de bloques no es válida');
-      return;
-    }
 
     try {
       setSaving(true);
-      setBlockErrors({});
-      setFormError(null);
 
       const responseData = {
         intent_id: intent.id,
-        response_key: formData.response_key.trim(),
-        message_text: fragmentedResponse,
+        response_key: payload.values.response_key.trim(),
+        message_text: blocksToFragmentedResponse(payload.blocks),
         media_url: null,
         response_type: 'fragmented',
-        order_priority: formData.order_priority,
-        is_active: formData.is_active,
-        buttons: cleanButtons(buttons),
-        variables: formData.variables
+        order_priority: payload.values.order_priority,
+        is_active: payload.values.is_active,
+        buttons: cleanButtons(payload.buttons),
+        variables: payload.values.variables,
       };
 
-      if (editingResponse) {
-        await intentConfigRepositoryClient.updateResponse(editingResponse.id, responseData);
+      if (existing) {
+        await intentConfigRepositoryClient.updateResponse(existing.id, responseData);
         setMessage({ type: 'success', text: 'Respuesta actualizada' });
       } else {
         await intentConfigRepositoryClient.createResponse(responseData);
         setMessage({ type: 'success', text: 'Respuesta creada' });
       }
 
-      setShowForm(false);
       await loadData();
-
       setTimeout(() => setMessage(null), 3000);
 
     } catch (error) {
@@ -303,6 +208,7 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
       setDeleting(id);
       await intentConfigRepositoryClient.deleteResponse(id);
       setMessage({ type: 'success', text: 'Respuesta eliminada' });
+      setExpanded(null);
       await loadData();
       setTimeout(() => setMessage(null), 3000);
     } catch (error) {
@@ -350,9 +256,10 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
     );
   }
 
+  const isNewOnly = responses.length === 0;
+
   return (
     <div className="p-6 max-w-6xl mx-auto space-y-6">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <div className="flex items-center gap-2 mb-2">
@@ -367,12 +274,11 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
           </div>
           <p className="text-muted-foreground">
             Alcance: <span className="font-medium">{scopeName || 'General'}</span> ·
-            {' '}Gestiona los mensajes que el bot enviará cuando detecte esta pregunta en este alcance
+            {' '}Esto es lo que el bot manda cuando detecta esta pregunta en este alcance
           </p>
         </div>
       </div>
 
-      {/* Mensaje de estado */}
       {message && (
         <div className={`rounded-lg border p-4 ${
           message.type === 'success'
@@ -383,238 +289,178 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
         </div>
       )}
 
-      {/* Lista de respuestas */}
-      <Card>
-        <CardHeader>
-          <div className="flex justify-between items-center">
-            <div>
-              <CardTitle>Respuestas configuradas</CardTitle>
-              <CardDescription>{responses.length} respuesta{responses.length !== 1 ? 's' : ''}</CardDescription>
+      {/* Sin ninguna respuesta: el editor de la primera, directo. Pedir que
+          se le de a "Agregar" antes de poder escribir es un clic que no
+          lleva a ningún sitio nuevo. */}
+      {isNewOnly && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Nueva respuesta</CardTitle>
+            <CardDescription>Nadie contesta esto todavía en este alcance.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ResponseEditor
+              response={null}
+              initialBlocks={[]}
+              initialButtons={[]}
+              initialValues={{
+                response_key: nextResponseKey(),
+                order_priority: 1,
+                is_active: true,
+                variables: {},
+              }}
+              variableOptions={variableOptions}
+              targetsByScope={targetsByScope}
+              destinations={destinations}
+              currentScopeId={intent.scope_id || '00000000-0000-4000-8000-000000000001'}
+              showIdentifier={false}
+              onSave={(payload) => handleSave(null, payload)}
+              saving={saving}
+              deleting={false}
+            />
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Una sola respuesta: su editor, abierto de entrada. */}
+      {responses.length === 1 && (
+        <Card>
+          <CardHeader>
+            <div className="flex flex-wrap items-center gap-2">
+              <CardTitle className="text-lg">Respuesta</CardTitle>
+              {!responses[0].is_active && <Badge variant="outline">Inactiva</Badge>}
+              {isIncomplete(responses[0]) && <Badge variant="destructive">Incompleta</Badge>}
             </div>
-            <Button onClick={handleNewResponse} size="sm">
-              <Plus className="h-4 w-4 mr-2" />
-              Agregar Respuesta
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {responses.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
-              No hay respuestas configuradas. Agrega una para comenzar.
+          </CardHeader>
+          <CardContent>
+            <ResponseEditor
+              response={responses[0]}
+              initialBlocks={responseRowToBlocks(responses[0])}
+              initialButtons={responses[0].buttons || []}
+              initialValues={{
+                response_key: responses[0].response_key,
+                order_priority: responses[0].order_priority,
+                is_active: responses[0].is_active,
+                variables: responses[0].variables || {},
+              }}
+              variableOptions={variableOptions}
+              targetsByScope={targetsByScope}
+              destinations={destinations}
+              currentScopeId={intent.scope_id || '00000000-0000-4000-8000-000000000001'}
+              showIdentifier={false}
+              onSave={(payload) => handleSave(responses[0], payload)}
+              onDelete={() => handleDeleteResponse(responses[0].id)}
+              saving={saving}
+              deleting={deleting === responses[0].id}
+            />
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Varias respuestas: caso poco común -- distintos escenarios para la
+          misma pregunta. Una lista donde cada fila se despliega en su
+          sitio, sin saltar a otra sección. */}
+      {responses.length > 1 && (
+        <Card>
+          <CardHeader>
+            <div className="flex justify-between items-center">
+              <div>
+                <CardTitle>Respuestas configuradas</CardTitle>
+                <CardDescription>{responses.length} respuestas para esta pregunta</CardDescription>
+              </div>
+              <Button
+                size="sm"
+                onClick={() => setExpanded(expanded === 'new' ? null : 'new')}
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Agregar otra
+              </Button>
             </div>
-          ) : (
-            <div className="space-y-4">
-              {responses.map((response) => (
-                <div key={response.id} className="p-4 rounded-lg border hover:bg-muted/50 transition-colors">
-                  <div className="flex justify-between items-start gap-4">
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {expanded === 'new' && (
+              <div className="rounded-lg border p-4">
+                <ResponseEditor
+                  response={null}
+                  initialBlocks={[]}
+                  initialButtons={[]}
+                  initialValues={{
+                    response_key: nextResponseKey(),
+                    order_priority: responses.length + 1,
+                    is_active: true,
+                    variables: {},
+                  }}
+                  variableOptions={variableOptions}
+                  targetsByScope={targetsByScope}
+                  destinations={destinations}
+                  currentScopeId={intent.scope_id || '00000000-0000-4000-8000-000000000001'}
+                  showIdentifier
+                  onSave={(payload) => handleSave(null, payload)}
+                  onCancel={() => setExpanded(null)}
+                  saving={saving}
+                  deleting={false}
+                />
+              </div>
+            )}
+
+            {responses.map((response) => {
+              const isOpen = expanded === response.id;
+              return (
+                <div key={response.id} className="rounded-lg border">
+                  <button
+                    type="button"
+                    className="flex w-full items-center justify-between gap-4 p-4 text-left hover:bg-muted/50 transition-colors"
+                    onClick={() => setExpanded(isOpen ? null : response.id)}
+                  >
                     <div className="flex-1 space-y-2">
                       <div className="flex items-center gap-2 flex-wrap">
                         <Badge variant="secondary">{response.response_key}</Badge>
                         <Badge variant="outline">
                           {response.origin === 'compiler' ? 'Propuesta compilada' : 'Escrita a mano'}
                         </Badge>
-                        <span className="text-sm text-muted-foreground">
-                          Orden: {response.order_priority}
-                        </span>
-                        {!response.is_active && (
-                          <Badge variant="outline">Inactiva</Badge>
-                        )}
-                        {isIncomplete(response) ? <Badge variant="destructive">Incompleta</Badge> : null}
+                        {!response.is_active && <Badge variant="outline">Inactiva</Badge>}
+                        {isIncomplete(response) && <Badge variant="destructive">Incompleta</Badge>}
                         {response.review_signals?.map(signal => (
                           <Badge key={signal} variant="destructive">{signal}</Badge>
                         ))}
                       </div>
-                      <p className="whitespace-pre-wrap text-sm">
-                        {describeResponse(response)}
-                      </p>
-                      {response.response_fact_dependencies?.map((dependency, index) => {
-                        const fact = dependency.compiler_facts;
-                        if (!fact) return null;
-                        return (
-                          <a
-                            key={`${fact.material_id}-${fact.page_number}-${index}`}
-                            href={`/api/compiler/materials/${fact.material_id}#page=${fact.page_number}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="mr-3 inline-block text-xs text-primary hover:underline"
-                          >
-                            {fact.fact_key}: {fact.compiler_materials?.original_filename || 'material'}, página {fact.page_number}
-                          </a>
-                        );
-                      })}
+                      {!isOpen && (
+                        <p className="whitespace-pre-wrap text-sm text-muted-foreground">
+                          {describeResponse(response)}
+                        </p>
+                      )}
                     </div>
-                    <div className="flex gap-2">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleEditResponse(response)}
-                        disabled={saving || deleting !== null}
-                      >
-                        <Edit className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleDeleteResponse(response.id)}
-                        disabled={saving || deleting !== null}
-                      >
-                        {deleting === response.id ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Trash2 className="h-4 w-4" />
-                        )}
-                      </Button>
+                    {isOpen ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
+                  </button>
+
+                  {isOpen && (
+                    <div className="border-t p-4">
+                      <ResponseEditor
+                        response={response}
+                        initialBlocks={responseRowToBlocks(response)}
+                        initialButtons={response.buttons || []}
+                        initialValues={{
+                          response_key: response.response_key,
+                          order_priority: response.order_priority,
+                          is_active: response.is_active,
+                          variables: response.variables || {},
+                        }}
+                        variableOptions={variableOptions}
+                        targetsByScope={targetsByScope}
+                        destinations={destinations}
+                        currentScopeId={intent.scope_id || '00000000-0000-4000-8000-000000000001'}
+                        showIdentifier
+                        onSave={(payload) => handleSave(response, payload)}
+                        onDelete={() => handleDeleteResponse(response.id)}
+                        onCancel={() => setExpanded(null)}
+                        saving={saving}
+                        deleting={deleting === response.id}
+                      />
                     </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Formulario de creación/edición */}
-      {showForm && (
-        <Card>
-          <CardHeader>
-            <CardTitle>{editingResponse ? 'Editar Respuesta' : 'Nueva Respuesta'}</CardTitle>
-            <CardDescription>
-              Compón la secuencia de mensajes que el bot enviará
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-6">
-              <div className="space-y-2">
-                <Label htmlFor="response_key">Identificador</Label>
-                <Input
-                  id="response_key"
-                  value={formData.response_key}
-                  onChange={(e) => {
-                    setFormData({ ...formData, response_key: e.target.value });
-                    setFormError(null);
-                  }}
-                  placeholder={intent?.intent_name || 'respuesta'}
-                  disabled={saving}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Se pone solo. Solo lo cambias si esta pregunta va a tener varias respuestas y
-                  quieres distinguirlas.
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="order_priority">Orden de prioridad</Label>
-                <Input
-                  id="order_priority"
-                  type="number"
-                  min="1"
-                  className="max-w-xs"
-                  value={formData.order_priority}
-                  onChange={(e) => {
-                    const parsed = parseInt(e.target.value, 10);
-                    // Un campo vacío o no numérico no debe escribir NaN en el estado:
-                    // NaN se serializa como NULL y descoloca el ORDER BY de getBotResponses.
-                    setFormData((prev) => ({
-                      ...prev,
-                      order_priority: Number.isNaN(parsed) ? prev.order_priority : parsed,
-                    }));
-                  }}
-                  disabled={saving}
-                />
-              </div>
-
-              <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
-                <div className="space-y-2">
-                  <Label>Bloques del mensaje</Label>
-                  {/* Enlazar un dato se hace escribiendo `{` dentro del texto:
-                      el desplegable de antes pegaba el hueco al final del
-                      primer bloque, no donde estaba el cursor. */}
-                  <p className="text-xs text-muted-foreground">
-                    Escribe <code>{'{'}</code> dentro del texto para enlazar un dato del catálogo.
-                    {catalogValues.length > 0
-                      ? ` Este alcance alcanza ${catalogValues.length} ${catalogValues.length === 1 ? 'dato' : 'datos'}.`
-                      : ' Este alcance todavía no tiene datos: créalos en Catálogo.'}
-                  </p>
-                  <ResponseBlockList
-                    blocks={blocks}
-                    onChange={(next) => {
-                      setBlocks(next);
-                      setBlockErrors({});
-                      // El aviso solo se limpiaba al abrir otra respuesta, asi
-                      // que se quedaba en pantalla mientras se corregia y
-                      // parecia provocado por lo ultimo que se tocaba.
-                      setFormError(null);
-                    }}
-                    disabled={saving}
-                    blockErrors={blockErrors}
-                    variableOptions={variableOptions}
-                  />
-                  <ResponseButtonsEditor
-                    buttons={buttons}
-                    onChange={(next) => {
-                      setButtons(next);
-                      setFormError(null);
-                    }}
-                    targetsByScope={targetsByScope}
-                    destinations={destinations}
-                    currentScopeId={intent?.scope_id || '00000000-0000-4000-8000-000000000001'}
-                    disabled={saving}
-                  />
-                </div>
-                {/* La vista previa acompaña el desplazamiento porque la lista de
-                    bloques puede ser mas alta que la ventana. */}
-                <div className="space-y-2 lg:sticky lg:top-6 lg:self-start">
-                  <Label>Vista previa</Label>
-                  <ResponsePreview
-                    blocks={blocks}
-                    variables={Object.fromEntries(catalogValues.map(value => [value.value_key, value.display_value]))}
-                    buttons={cleanButtons(buttons) || []}
-                  />
-                </div>
-              </div>
-
-              {formError && (
-                <p className="text-sm text-destructive">{formError}</p>
-              )}
-
-              <div className="flex items-center space-x-2">
-                <Checkbox
-                  id="is_active_response"
-                  checked={formData.is_active}
-                  onCheckedChange={(checked: boolean) => setFormData({ ...formData, is_active: checked })}
-                  disabled={saving}
-                />
-                <Label htmlFor="is_active_response" className="text-sm font-normal cursor-pointer">
-                  Respuesta activa
-                </Label>
-              </div>
-
-              <div className="flex justify-end gap-3 pt-4">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setShowForm(false)}
-                  disabled={saving}
-                >
-                  Cancelar
-                </Button>
-                <Button
-                  type="button"
-                  onClick={handleSubmitResponse}
-                  disabled={saving}
-                >
-                  {saving ? (
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  ) : (
-                    <Save className="h-4 w-4 mr-2" />
                   )}
-                  {saving
-                    ? (editingResponse ? 'Actualizando...' : 'Creando...')
-                    : (editingResponse ? 'Actualizar' : 'Crear')
-                  }
-                </Button>
-              </div>
-            </div>
+                </div>
+              );
+            })}
           </CardContent>
         </Card>
       )}
