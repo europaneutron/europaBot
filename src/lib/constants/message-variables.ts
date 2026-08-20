@@ -39,8 +39,4 @@ export const MESSAGE_VARIABLES: Record<string, { vars: string[]; hint: string; s
       buttons: (names: string[]) => names,
     },
   },
-  offer_appointment_label: {
-    vars: [],
-    hint: 'Es el texto de un botón: máximo 20 caracteres.',
-  },
 };

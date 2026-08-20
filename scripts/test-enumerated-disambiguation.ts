@@ -133,9 +133,13 @@ async function main(): Promise<void> {
     // Queda uno. Los otros ocho decian lo mismo en momentos que el lead no
     // distingue, y ninguno se podia ver entero antes de mandarlo; los que
     // sobrevivian como texto de una linea pasaron a texto fijo en el codigo.
+    // Queda uno solo: `offer_appointment_label` se retiro junto con la
+    // composicion automatica de seguimiento, que era su unico consumidor --
+    // el "Agendar visita" que el sistema pegaba al final de cualquier
+    // respuesta sin botones propios. Con el boton de cita escrito a mano,
+    // como cualquier otro, ese rotulo aparte no tenia mas trabajo que hacer.
     const ENUMERATION_MESSAGE_KEYS = [
       'scope_disambiguation_message',
-      'offer_appointment_label',
     ];
     const RETIRED_MESSAGE_KEYS = [
       'scope_catalog_summary_message',
@@ -148,6 +152,7 @@ async function main(): Promise<void> {
       'sibling_none_message',
       'pending_offer_repeat_message',
       'unanchored_affirmative_message',
+      'offer_appointment_label',
     ];
     // No se comprueba que la fila no exista: la migracion es aditiva y en
     // prod esas filas se conservan con el texto que alguien haya escrito. Lo
