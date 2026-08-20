@@ -1,10 +1,17 @@
 /**
  * Página del Árbol de una Pregunta
  *
- * Una pregunta (`intent_name`) con el árbol de alcances alcanzables: quien
- * tiene respuesta propia y quien hereda la de un ancestro. Escribir una
- * propia y borrarla son las dos operaciones sobre "heredar" -- crear y
- * borrar esa fila, no una marca aparte.
+ * Una pregunta (`intent_name`) y la lista de respuestas que tiene: la del
+ * negocio y una por cada fraccionamiento. Crear la de Malasia es un acto
+ * explícito, con su nombre en el botón, y hasta que no lo haces esa fila no
+ * existe.
+ *
+ * La pantalla enseñaba "Hereda de Inmobiliaria FYMSA" y ahí se quedaba, que
+ * es la mitad de la verdad: no decía qué iba a leer el lead. Un texto escrito
+ * para el catálogo --"lotes desde 700 mil en nuestros dos
+ * fraccionamientos"-- suena raro en una conversación que ya es de Malasia, y
+ * eso solo se ve leyéndolo. Ahora cada alcance enseña el texto que sale de
+ * verdad, venga de donde venga.
  *
  * El contenido de una respuesta se sigue editando en
  * /intents/<intentId>/responses: esta página no rehace ese editor, solo le
@@ -93,6 +100,24 @@ export default function QuestionTreePage() {
   const displayName = rows.find(row => row.scope_id === ROOT_SCOPE_ID)?.display_name
     || rows[0]?.display_name
     || intentName;
+
+  /**
+   * El estado de la pregunta en una linea. Es la parte que faltaba para poder
+   * llenar el bot a mano: abrir la pregunta y saber que te falta, en vez de
+   * descubrirlo cuando un cliente lee el texto de otro fraccionamiento.
+   *
+   * Cuenta solo los alcances de debajo de la raiz: la del negocio no es un
+   * hueco, es la general.
+   */
+  const coverage = useMemo(() => {
+    const branches = tree.filter(node => node.scope.id !== ROOT_SCOPE_ID);
+    return {
+      total: branches.length,
+      own: branches.filter(node => node.ownRow).length,
+      inherited: branches.filter(node => !node.ownRow && node.inheritedRow).length,
+      empty: branches.filter(node => !node.ownRow && !node.inheritedRow).length,
+    };
+  }, [tree]);
 
   async function handleWriteOwn(node: QuestionTreeNode) {
     // Se clona el ancestro más cercano que responde: mismas palabras clave,
@@ -205,6 +230,18 @@ export default function QuestionTreePage() {
         <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-800">{message}</div>
       )}
 
+      {!loading && coverage.total > 0 && (
+        <p className="text-sm text-muted-foreground">
+          {coverage.own === coverage.total
+            ? `Los ${coverage.total} tienen su propia respuesta.`
+            : [
+                `${coverage.own} de ${coverage.total} con respuesta propia`,
+                coverage.inherited > 0 ? `${coverage.inherited} leen la del negocio` : null,
+                coverage.empty > 0 ? `${coverage.empty} sin nada que contestar` : null,
+              ].filter(Boolean).join(' · ')}
+        </p>
+      )}
+
       {loading ? (
         <div className="animate-pulse space-y-2">
           <div className="h-16 bg-muted rounded" />
@@ -216,6 +253,9 @@ export default function QuestionTreePage() {
             const row = node.ownRow || node.archivedRow;
             const nodeResponses = row
               ? responses.filter(response => response.intent_id === row.id)
+              : [];
+            const inheritedResponses = node.inheritedRow
+              ? responses.filter(response => response.intent_id === node.inheritedRow!.id)
               : [];
             const isBusy = busyScopeId === node.scope.id;
 
@@ -229,7 +269,7 @@ export default function QuestionTreePage() {
                         {node.ownRow ? (
                           <Badge variant="default">Propia</Badge>
                         ) : node.inheritedFromName ? (
-                          <Badge variant="secondary">Hereda de {node.inheritedFromName}</Badge>
+                          <Badge variant="secondary">Lee la de {node.inheritedFromName}</Badge>
                         ) : (
                           <Badge variant="destructive">Sin respuesta</Badge>
                         )}
@@ -240,6 +280,29 @@ export default function QuestionTreePage() {
                           <Badge variant="outline">Propia archivada</Badge>
                         )}
                       </div>
+
+                      {/* Lo que el lead lee aqui hoy, aunque no sea suyo.
+                          Sin esto la pantalla decia de quien hereda pero no
+                          que texto sale, que es lo unico que importa. */}
+                      {!row && inheritedResponses.length > 0 && (
+                        <div className="space-y-1 border-l-2 pl-3">
+                          <p className="text-xs text-muted-foreground">
+                            Hoy el cliente lee aquí la respuesta de {node.inheritedFromName}:
+                          </p>
+                          {inheritedResponses.map(response => (
+                            <p key={response.id} className="text-sm italic text-muted-foreground">
+                              {describeResponse(response)}
+                            </p>
+                          ))}
+                        </div>
+                      )}
+
+                      {!row && inheritedResponses.length === 0 && (
+                        <p className="text-sm text-muted-foreground">
+                          Nadie contesta esto aquí: el cliente recibe el mensaje de cuando el bot no
+                          entiende.
+                        </p>
+                      )}
 
                       {row && nodeResponses.length > 0 && (
                         <div className="space-y-1">
@@ -315,7 +378,7 @@ export default function QuestionTreePage() {
                           disabled={isBusy}
                         >
                           {isBusy ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Plus className="h-4 w-4 mr-1" />}
-                          Escribir propia
+                          Crear la respuesta de {node.scope.name}
                         </Button>
                       )}
                     </div>

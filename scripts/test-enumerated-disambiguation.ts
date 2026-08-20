@@ -149,14 +149,21 @@ async function main(): Promise<void> {
       'pending_offer_repeat_message',
       'unanchored_affirmative_message',
     ];
+    // No se comprueba que la fila no exista: la migracion es aditiva y en
+    // prod esas filas se conservan con el texto que alguien haya escrito. Lo
+    // que tiene que ser cierto es que no las pinte la pantalla, que lista lo
+    // que esta en `system_messages`.
     const { data: retiredRows, error: retiredError } = await supabaseServer
       .from('bot_config')
-      .select('config_key')
+      .select('config_key, category, is_editable')
       .in('config_key', RETIRED_MESSAGE_KEYS);
     if (retiredError) throw retiredError;
+    const stillShown = (retiredRows || []).filter(
+      row => row.category === 'system_messages' || row.is_editable
+    );
     assert(
-      (retiredRows || []).length === 0,
-      `Retired messages must not remain editable in settings: ${JSON.stringify(retiredRows)}`
+      stillShown.length === 0,
+      `Retired messages must not remain in the settings screen: ${JSON.stringify(stillShown)}`
     );
     const { data: configuredMessages, error: configuredMessagesError } = await supabaseServer
       .from('bot_config')

@@ -30,6 +30,14 @@ export interface TreeNode<TScope extends TreeScope, TRow extends TreeRow> {
    */
   archivedRow: TRow | null;
   inheritedFromName: string | null;
+  /**
+   * La fila que contesta de verdad en este alcance cuando no tiene propia.
+   * El nombre del ancestro no basta para enseñar lo que el lead va a leer, y
+   * eso es justo lo que no se veia: "Hereda de Inmobiliaria FYMSA" no dice si
+   * el texto de arriba encaja en una conversacion que ya es de un
+   * fraccionamiento.
+   */
+  inheritedRow: TRow | null;
 }
 
 /** Un alcance es alcanzable cuando él y todos sus ancestros están activos. */
@@ -72,11 +80,14 @@ export function buildQuestionTree<TScope extends TreeScope, TRow extends TreeRow
   const visit = (scope: TScope, depth: number) => {
     const ownRow = ownRowByScope.get(scope.id) || null;
     let inheritedFromName: string | null = null;
+    let inheritedRow: TRow | null = null;
     if (!ownRow) {
       let currentId = scope.parent_id;
       while (currentId) {
-        if (ownRowByScope.has(currentId)) {
+        const ancestorRow = ownRowByScope.get(currentId);
+        if (ancestorRow) {
           inheritedFromName = byId.get(currentId)?.name || null;
+          inheritedRow = ancestorRow;
           break;
         }
         currentId = byId.get(currentId)?.parent_id ?? null;
@@ -88,6 +99,7 @@ export function buildQuestionTree<TScope extends TreeScope, TRow extends TreeRow
       ownRow,
       archivedRow: ownRow ? null : archivedRowByScope.get(scope.id) || null,
       inheritedFromName,
+      inheritedRow,
     });
     for (const child of (childrenByParent.get(scope.id) || []).sort((a, b) => a.name.localeCompare(b.name))) {
       visit(child, depth + 1);

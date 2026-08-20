@@ -81,6 +81,14 @@ async function main() {
     let tree = buildQuestionTree(scopes, rows, ROOT_SCOPE_ID);
     const devANode = tree.find(n => n.scope.id === devA.id)!;
     assert(devANode.inheritedFromName === 'Business' || Boolean(devANode.inheritedFromName), 'devA hereda de un ancestro antes de tener fila propia');
+    // El nombre del ancestro no basta: la pantalla tiene que poder leer el
+    // texto que le sale al cliente en este alcance, y para eso necesita la
+    // fila, no solo de quien es.
+    assert(
+      devANode.inheritedRow?.id === rootIntent.id,
+      `inheritedRow apunta a la fila que contesta de verdad: ${devANode.inheritedRow?.id}`
+    );
+    assert(devANode.ownRow === null, 'y sigue sin fila propia');
 
     console.log('\n2. Crear una propia en devA no toca a los hermanos (modelA1, modelA2, root)');
     const { data: devAIntent, error: devAIntentError } = await supabaseServer
@@ -95,6 +103,19 @@ async function main() {
     intentIds.push(devAIntent.id);
 
     rows = await fetchRows();
+    tree = buildQuestionTree(await fetchScopes(), rows, ROOT_SCOPE_ID);
+    // Con fila propia no hay nada que heredar: la pantalla no debe ofrecer
+    // dos textos para el mismo alcance.
+    const devAWithOwn = tree.find(n => n.scope.id === devA.id)!;
+    assert(devAWithOwn.ownRow?.id === devAIntent.id, 'devA ya tiene fila propia');
+    assert(devAWithOwn.inheritedRow === null, 'con fila propia, inheritedRow queda vacio');
+    // Y sus modelos ahora leen la de devA, no la de root.
+    const modelUnderDevA = tree.find(n => n.scope.id === models[0].id)!;
+    assert(
+      modelUnderDevA.inheritedRow?.id === devAIntent.id,
+      `el modelo lee la mas cercana, la de devA: ${modelUnderDevA.inheritedRow?.id}`
+    );
+
     const rootRowAfterCreate = rows.find(r => r.id === rootIntent.id);
     const model1RowAfterCreate = rows.find(r => r.scope_id === models[0].id);
     assert(rootRowAfterCreate?.display_name === 'Precio' && rootRowAfterCreate?.keywords.length === 1, 'la fila de root no cambio al crear la de devA');
