@@ -10,7 +10,7 @@ import { whatsappSender } from '@/services/whatsapp/message-sender';
 import { messageProcessor } from '@/core/conversation/message-processor';
 import { conversationRepository } from '@/data/repositories/conversation.repository';
 import { isSimpleResponseWithMedia } from '@/types/message-fragments.types';
-import { currentOfferPresentation } from '@/core/conversation/pending-offer-messages';
+import { sendFinalText, sendFragmentedResponse } from '@/core/messaging/send-response';
 
 /**
  * GET - Verificación del webhook (requerido por Meta)
@@ -100,64 +100,7 @@ export async function POST(request: NextRequest) {
       // Enviar cada respuesta (puede ser simple, con media o fragmentada)
       for (const botResponse of response.responses) {
         if (typeof botResponse === 'string') {
-          // Verificar si es el mensaje de selección de horario y enviar con botones
-          const isTimeSelection = botResponse.includes('¿En qué momento del día') ||
-                                 botResponse.includes('momento del día prefieres');
-
-          // Una enumeración viva de dos o más opciones se manda como botones
-          // o lista interactiva, no como el texto plano que ya se guarda en
-          // BD: es el mismo texto, la única diferencia es el transporte.
-          const offerPresentation = user
-            ? await currentOfferPresentation(user.id, botResponse)
-            : null;
-
-          // Una respuesta que no cabe en el cuerpo interactivo viaja en dos
-          // piezas: el texto suelto y despues el cierre con los botones. La
-          // API rechaza el envio entero si el cuerpo pasa de 1024, asi que sin
-          // esto el lead se quedaba sin ninguna de las dos.
-          if (offerPresentation?.precedingText) {
-            await whatsappSender.sendTextMessage({
-              to: from,
-              message: offerPresentation.precedingText,
-            });
-          }
-
-          if (offerPresentation?.format === 'buttons') {
-            console.log(`📤 Enviando desambiguación con botones`);
-            await whatsappSender.sendInteractiveButtons({
-              to: from,
-              bodyText: offerPresentation.bodyText,
-              buttons: offerPresentation.buttons,
-            });
-          } else if (offerPresentation?.format === 'list') {
-            console.log(`📤 Enviando desambiguación con lista`);
-            await whatsappSender.sendListMessage({
-              to: from,
-              bodyText: offerPresentation.bodyText,
-              buttonText: offerPresentation.buttonText,
-              rows: offerPresentation.rows,
-            });
-          } else if (isTimeSelection) {
-            console.log(`📤 Enviando selección de horario con botones`);
-
-            await whatsappSender.sendInteractiveButtons({
-              to: from,
-              bodyText: botResponse,
-              buttons: [
-                { id: 'morning', title: 'Mañana' },
-                { id: 'afternoon', title: 'Tarde' },
-                { id: 'evening', title: 'Noche' }
-              ]
-            });
-          } else {
-            // Respuesta simple normal: enviar texto
-            console.log(`📤 Enviando texto: "${botResponse.substring(0, 50)}..."`);
-
-            await whatsappSender.sendTextMessage({
-              to: from,
-              message: botResponse
-            });
-          }
+          await sendFinalText(from, user?.id, botResponse);
 
           // Guardar en BD
           if (user) {
@@ -224,11 +167,8 @@ export async function POST(request: NextRequest) {
         } else if (isFragmentedResponse(botResponse)) {
           // Respuesta fragmentada: enviar múltiples mensajes con delays
           console.log(`📤 Enviando respuesta fragmentada (${botResponse.fragments.length} fragmentos)`);
-          
-          const messageIds = await whatsappSender.sendFragmentedMessage(
-            from,
-            botResponse.fragments
-          );
+
+          await sendFragmentedResponse(from, user?.id, botResponse.fragments);
 
           // Guardar cada fragmento en BD
           if (user) {
