@@ -602,9 +602,24 @@ export class MessageProcessor {
         effectiveHasFocus
       );
 
+      // Detectada pero sin nada que mandar. Se cae al fallback igual, pero
+      // diciendo cual era: el panel decia "Intencion: No detectada" y era
+      // mentira --el matcher habia acertado y la respuesta se habia caido
+      // despues--, asi que quien configuraba iba a buscar el problema al
+      // vocabulario, que es el unico sitio donde no estaba.
+      //
+      // Y se retira la oferta: `handleIntent` la deja puesta antes de saber si
+      // tiene algo que mandar, asi que un turno que acababa en "no entiendo tu
+      // pregunta" salia con los botones de la respuesta que nunca salio.
       if (responses.length === 0) {
+        console.error(
+          `La intencion "${detectionResult.intent.intent_name}" se detecto pero no dejo nada que`
+          + ` mandar en el alcance ${effectiveScopeId}.`
+        );
+        await userRepository.clearPendingOffer(user.id);
         return {
           ...await fallbackHandler.handle(user.id, messageText),
+          detectedIntent: detectionResult.intent,
           scopeId: effectiveScopeId,
         };
       }

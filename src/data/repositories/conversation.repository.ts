@@ -12,6 +12,7 @@ import {
   type MessageVariables,
 } from '@/lib/interpolate-message';
 import { catalogValueRepository } from '@/data/repositories/catalog-value.repository';
+import { scopeRepository } from '@/data/repositories/scope.repository';
 
 export class ConversationRepository {
   /**
@@ -209,12 +210,60 @@ export class ConversationRepository {
    * que el administrador dejó escritos con la respuesta, y el contexto los
    * sobrescribe cuando trae algo para la misma clave.
    */
+  /**
+   * Las mismas filas, ordenadas por el alcance de la conversacion: primero la
+   * suya, luego las de sus ancestros. Las que no pertenecen a la cadena van al
+   * final, en el orden en que llegaron.
+   *
+   * Sin alcance no hay nada que reordenar y se devuelven tal cual.
+   */
+  private async orderByScopeResolution(
+    intentIds: string[],
+    scopeId?: string | null
+  ): Promise<string[]> {
+    if (!scopeId || intentIds.length < 2) return intentIds;
+
+    const { data, error } = await supabaseServer
+      .from('intent_configurations')
+      .select('id, scope_id')
+      .in('id', intentIds);
+    // Un fallo aqui no debe dejar al lead sin respuesta: se sigue con el orden
+    // que llego, que es lo que se hacia antes de esta correccion.
+    if (error || !data) return intentIds;
+
+    const scopeOf = new Map(data.map(row => [row.id as string, row.scope_id as string | null]));
+    const order = await scopeRepository.getResolutionOrder(scopeId);
+    const rank = new Map(order.map((id, index) => [id, index]));
+
+    return [...intentIds].sort((left, right) => {
+      const leftRank = rank.get(scopeOf.get(left) ?? null) ?? Number.MAX_SAFE_INTEGER;
+      const rightRank = rank.get(scopeOf.get(right) ?? null) ?? Number.MAX_SAFE_INTEGER;
+      if (leftRank !== rightRank) return leftRank - rightRank;
+      return intentIds.indexOf(left) - intentIds.indexOf(right);
+    });
+  }
+
   async getBotResponses(
     intentIds: string | string[],
     variables: MessageVariables = {},
     scopeId?: string | null
   ): Promise<import('@/types/message-fragments.types').BotResponse[]> {
-    const resolutionIds = Array.isArray(intentIds) ? intentIds : [intentIds];
+    const requestedIds = Array.isArray(intentIds) ? intentIds : [intentIds];
+
+    // El orden manda, porque de esta lista sale una sola fila: la primera que
+    // tenga contenido. Y el orden que llega no siempre es el bueno.
+    //
+    // Sin foco, la deteccion busca en todos los alcances a la vez y devuelve
+    // las filas en el orden en que las encontro, que puede empezar por un
+    // fraccionamiento. Con la conversacion en la inmobiliaria, eso hacia que
+    // contestara la fila de Europa: "info" devolvia el brochure de Europa --y
+    // como ese texto usa {precio}, que en la inmobiliaria no existe, se caia
+    // entero y el lead recibia "no entiendo tu pregunta".
+    //
+    // Aqui se reordena por el alcance de la conversacion: primero el suyo,
+    // luego sus ancestros. Es el mismo orden que usa `resolveRows`.
+    const resolutionIds = await this.orderByScopeResolution(requestedIds, scopeId);
+
     const { data, error } = await supabaseServer
       .from('bot_responses')
       .select('intent_id, message_text, media_url, response_type, order_priority, variables')
@@ -254,9 +303,19 @@ export class ConversationRepository {
           row.message_text,
           rowVariables
         );
-        return interpolation.complete
-          ? [interpolation.value as import('@/types/message-fragments.types').FragmentedResponse]
-          : [];
+        if (!interpolation.complete) {
+          // Se descarta para no mandarle "{precio}" a nadie, pero antes no
+          // dejaba rastro: el turno se quedaba sin respuesta, caia al mensaje
+          // de "no entiendo tu pregunta", y quien configuraba no tenia forma
+          // de saber que su respuesta existia y se habia tirado por una
+          // variable que ahi no vale.
+          console.error(
+            `La respuesta ${row.intent_id} usa variables que no existen en este alcance:`
+            + ` ${interpolation.missingKeys.join(', ')}. No se manda.`
+          );
+          return [];
+        }
+        return [interpolation.value as import('@/types/message-fragments.types').FragmentedResponse];
       }
 
       // Si tiene media_url, crear SimpleResponseWithMedia
