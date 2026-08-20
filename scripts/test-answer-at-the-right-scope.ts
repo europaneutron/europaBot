@@ -169,6 +169,24 @@ async function main(): Promise<void> {
       `Y no deja los botones de la respuesta que nunca salio: ${JSON.stringify(botones)}`
     );
 
+    // --- El rotulo del boton es el nombre, entero.
+    //
+    // Se le pegaba el precio del catalogo, y el transporte corta a veinte
+    // caracteres: "Malasia Residencial" (19) cabia, y "Malasia Resi · $700K"
+    // dejaba el nombre a medias para meter un dato que era el mismo en los dos
+    // y que ademas no tenia que ver con la pregunta.
+    const { buildScopeOptions } = await import('../src/core/conversation/scope-enumeration.service');
+    const opciones = await buildScopeOptions([europa, malasia], intentName);
+    const rotulos = opciones.map(option => option.label);
+    assert(
+      rotulos.includes(`ArEuropa${suffix}`) && rotulos.includes(`ArMalasia${suffix}`),
+      `El rotulo es el nombre del alcance, sin dato pegado: ${JSON.stringify(rotulos)}`
+    );
+    assert(
+      rotulos.every(label => !label.includes('700')),
+      `Y no lleva el precio del catalogo: ${JSON.stringify(rotulos)}`
+    );
+
     console.log('Answer-at-the-right-scope verification passed');
   } finally {
     const { data: user } = await supabaseServer.from('users').select('id').eq('phone_number', phone).maybeSingle();

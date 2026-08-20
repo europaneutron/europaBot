@@ -6,7 +6,6 @@
 import { scopeRepository } from '@/data/repositories/scope.repository';
 import { conversationRepository } from '@/data/repositories/conversation.repository';
 import { intentConfigRepository } from '@/data/repositories/intent-config.repository';
-import { catalogValueRepository } from '@/data/repositories/catalog-value.repository';
 import { isSimpleResponseWithMedia, isFragmentedResponse } from '@/types/message-fragments.types';
 import type { TextFragment } from '@/types/message-fragments.types';
 import type { PendingOfferOption } from '@/data/models/user.model';
@@ -33,8 +32,16 @@ export function chooseEnumerationFormat(optionCount: number): EnumerationFormat 
  * filtrado a alcances alcanzables (activos, con ancestros activos) desde
  * `findScopeDependency`, así que un alcance retirado nunca llega aquí.
  *
- * Cuando el catálogo tiene un dato que distingue la opción —típicamente el
- * precio— se antepone al nombre. Sin ese valor, la opción es solo el nombre.
+ * El rótulo es el nombre del alcance. Antes se le pegaba el precio del
+ * catálogo --"Europa Resid · $700K"-- y eso hacía tres cosas mal a la vez: el
+ * transporte corta el rótulo a veinte caracteres, así que recortaba el nombre,
+ * que es la única parte que importa para elegir; salía el precio aunque la
+ * pregunta fuera de créditos; y con los dos desarrollos al mismo precio no
+ * distinguía nada. Un botón que ofrece elegir entre dos sitios dice cómo se
+ * llaman los sitios.
+ *
+ * El nombre de la rama sí se añade, y solo cuando hace falta: con modelos que
+ * se llaman igual en dos desarrollos, "Aura" a secas no se puede elegir.
  */
 export async function buildScopeOptions(
   candidateIds: string[],
@@ -45,10 +52,6 @@ export async function buildScopeOptions(
   const scopes = await scopeRepository.getScopes();
   const scopesById = new Map(scopes.map(scope => [scope.id, scope]));
 
-  const details = await Promise.all(candidateIds.map(scopeId =>
-    catalogValueRepository.getDistinctiveDetail(scopeId)
-  ));
-  const detailByScope = new Map(candidateIds.map((scopeId, index) => [scopeId, details[index]]));
   const branchIds = await Promise.all(candidateIds.map(scopeId => scopeRepository.getBranchId(scopeId)));
   const distinctBranches = new Set(branchIds.filter(Boolean));
   const branchByScope = new Map(candidateIds.map((scopeId, index) => [scopeId, branchIds[index]]));
@@ -57,7 +60,6 @@ export async function buildScopeOptions(
     .map(scopeId => scopesById.get(scopeId))
     .filter((scope): scope is NonNullable<typeof scope> => Boolean(scope))
     .map(scope => {
-      const detail = detailByScope.get(scope.id) || '';
       const branchId = branchByScope.get(scope.id);
       const branchName = distinctBranches.size > 1 && branchId && branchId !== scope.id
         ? scopesById.get(branchId)?.name
@@ -65,7 +67,7 @@ export async function buildScopeOptions(
       return {
         id: scope.id,
         scopeId: scope.id,
-        label: [scope.name, branchName, detail].filter(Boolean).join(' · '),
+        label: [scope.name, branchName].filter(Boolean).join(' · '),
       };
     });
 }
