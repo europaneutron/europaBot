@@ -110,14 +110,22 @@ export default function QuestionTreePage() {
    * hueco, es la general.
    */
   const coverage = useMemo(() => {
+    // Tener fila no es tener respuesta: una fila vacia se detecta y no
+    // contesta, que es peor que no existir. Se cuenta el texto, no la fila.
+    const hasText = (rowId: string | undefined) =>
+      Boolean(rowId) && responses.some(response => response.intent_id === rowId);
+    const answers = (node: QuestionTreeNode) =>
+      hasText(node.ownRow?.id) || (!node.ownRow && hasText(node.inheritedRow?.id));
+
     const branches = tree.filter(node => node.scope.id !== ROOT_SCOPE_ID);
     return {
       total: branches.length,
-      own: branches.filter(node => node.ownRow).length,
-      inherited: branches.filter(node => !node.ownRow && node.inheritedRow).length,
-      empty: branches.filter(node => !node.ownRow && !node.inheritedRow).length,
+      own: branches.filter(node => hasText(node.ownRow?.id)).length,
+      inherited: branches.filter(node => !node.ownRow && hasText(node.inheritedRow?.id)).length,
+      mute: branches.filter(node => !answers(node)).length,
+      answersNowhere: tree.length > 0 && tree.every(node => !answers(node)),
     };
-  }, [tree]);
+  }, [tree, responses]);
 
   async function handleWriteOwn(node: QuestionTreeNode) {
     // Se clona el ancestro más cercano que responde: mismas palabras clave,
@@ -230,14 +238,21 @@ export default function QuestionTreePage() {
         <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-800">{message}</div>
       )}
 
-      {!loading && coverage.total > 0 && (
+      {!loading && coverage.answersNowhere && (
+        <p className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+          El bot reconoce esta pregunta y no tiene ninguna respuesta que dar: quien la haga recibe
+          el mensaje de cuando no entiende. Escribe al menos la del negocio.
+        </p>
+      )}
+
+      {!loading && !coverage.answersNowhere && coverage.total > 0 && (
         <p className="text-sm text-muted-foreground">
           {coverage.own === coverage.total
             ? `Los ${coverage.total} tienen su propia respuesta.`
             : [
                 `${coverage.own} de ${coverage.total} con respuesta propia`,
                 coverage.inherited > 0 ? `${coverage.inherited} leen la del negocio` : null,
-                coverage.empty > 0 ? `${coverage.empty} sin nada que contestar` : null,
+                coverage.mute > 0 ? `${coverage.mute} sin nada que contestar` : null,
               ].filter(Boolean).join(' · ')}
         </p>
       )}
@@ -267,7 +282,9 @@ export default function QuestionTreePage() {
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-medium">{node.scope.name}</span>
                         {node.ownRow ? (
-                          <Badge variant="default">Propia</Badge>
+                          nodeResponses.length > 0
+                            ? <Badge variant="default">Propia</Badge>
+                            : <Badge variant="destructive">Propia, vacía</Badge>
                         ) : node.inheritedFromName ? (
                           <Badge variant="secondary">Lee la de {node.inheritedFromName}</Badge>
                         ) : (
@@ -301,6 +318,18 @@ export default function QuestionTreePage() {
                         <p className="text-sm text-muted-foreground">
                           Nadie contesta esto aquí: el cliente recibe el mensaje de cuando el bot no
                           entiende.
+                        </p>
+                      )}
+
+                      {/* La fila existe y no tiene nada escrito. Se veia
+                          igual que una llena --"Propia" y nada mas-- y es el
+                          caso que mas duele: la pregunta se detecta, no hay
+                          nada que mandar, y el cliente recibe "no entiendo tu
+                          pregunta" por algo que si sabe reconocer. */}
+                      {node.ownRow && nodeResponses.length === 0 && (
+                        <p className="text-sm text-destructive">
+                          Esta respuesta está vacía: el bot reconoce la pregunta y no tiene nada que
+                          contestar, así que el cliente recibe el mensaje de cuando no entiende.
                         </p>
                       )}
 
