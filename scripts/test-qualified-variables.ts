@@ -31,7 +31,7 @@ async function main() {
   const { scopeRoutingRepository } = await import('../src/data/repositories/scope-routing.repository');
   const { catalogValueRepository } = await import('../src/data/repositories/catalog-value.repository');
   const { conversationRepository } = await import('../src/data/repositories/conversation.repository');
-  const { normalizeScopeAlias } = await import('../src/core/onboarding/client-vocabulary');
+  const { normalizeScopeAlias } = await import('../src/core/messaging/client-brand');
 
   const suffix = randomUUID().slice(0, 6);
   const { data: admin } = await supabaseServer.from('admin_users').select('id').limit(1).single();

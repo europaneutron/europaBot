@@ -1,5 +1,5 @@
 import { ROOT_SCOPE_ID } from '@/data/repositories/scope.repository';
-import type { BrandTone, ClientBrandConfig } from '@/data/models/onboarding.model';
+import type { BrandTone, ClientBrandConfig } from '@/data/models/client-brand.model';
 import { supabaseServer } from '@/services/supabase/server-client';
 
 export class ClientBrandRepository {

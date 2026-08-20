@@ -1,6 +1,6 @@
 import { configRepository } from '@/data/repositories/config.repository';
 import { clientBrandRepository } from '@/data/repositories/client-brand.repository';
-import { renderClientBrand } from '@/core/onboarding/client-vocabulary';
+import { renderClientBrand } from '@/core/messaging/client-brand';
 import { interpolateMessage, type MessageVariables } from '@/lib/interpolate-message';
 
 /**

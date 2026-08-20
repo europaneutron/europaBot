@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { toClientVocabulary } from '@/core/onboarding/client-vocabulary';
+import { toClientVocabulary } from '@/core/messaging/client-brand';
 import { clientBrandRepository } from '@/data/repositories/client-brand.repository';
 import { getAuthenticatedAdmin } from '@/lib/server/authenticated-admin';
 

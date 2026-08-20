@@ -169,7 +169,7 @@ export default function ScopesPage() {
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-6">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">Fraccionamientos</h1>
+        <h1 className="text-3xl font-bold tracking-tight">Alcances</h1>
         <p className="text-muted-foreground mt-1">
           Lo que el bot puede vender. Cada uno responde lo suyo y hereda del negocio lo que no cambia.
         </p>

@@ -11,8 +11,8 @@ import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
 import { ROOT_SCOPE_ID, scopeRepository } from '@/data/repositories/scope.repository';
 import { scopeRoutingRepository } from '@/data/repositories/scope-routing.repository';
-import { normalizeScopeAlias } from '@/core/onboarding/client-vocabulary';
-import { shortScopeAlias } from '@/core/document-compiler/compiler-rules';
+import { normalizeScopeAlias } from '@/core/messaging/client-brand';
+import { shortScopeAlias } from '@/lib/scope-alias';
 import { getAuthenticatedAdmin } from '@/lib/server/authenticated-admin';
 
 const NAME_MAX_LENGTH = 60;

@@ -23,7 +23,8 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { Search, RefreshCw, Archive, Play } from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Search, RefreshCw, Archive, ArchiveRestore, Trash2, Play, TriangleAlert, Loader2 } from 'lucide-react';
 import { supabase } from '@/services/supabase/client';
 import { reachableScopes, TreeScope } from '@/lib/question-tree';
 
@@ -88,6 +89,12 @@ export default function IntentsPage() {
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [showArchived, setShowArchived] = useState(false);
+  const [busyIntentName, setBusyIntentName] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<{
+    intentName: string;
+    displayName: string;
+    impact: { scopes: number; responses: number } | null;
+  } | null>(null);
 
   useEffect(() => {
     loadIntents();
@@ -122,6 +129,46 @@ export default function IntentsPage() {
     () => groupByQuestion(intents.filter(intent => !intent.is_active), reachableIds),
     [intents, reachableIds]
   );
+
+  async function handleToggleArchiveGroup(question: QuestionRow, archive: boolean) {
+    const action = archive ? 'archivar' : 'restaurar';
+    if (!confirm(`¿${archive ? 'Archivar' : 'Restaurar'} "${question.displayName}" en los ${question.scopeCount} alcance${question.scopeCount === 1 ? '' : 's'} donde tiene fila?`)) return;
+
+    try {
+      setBusyIntentName(question.intentName);
+      if (archive) await intentConfigRepositoryClient.archiveGroup(question.intentName);
+      else await intentConfigRepositoryClient.restoreGroup(question.intentName);
+      await loadIntents();
+    } catch (err) {
+      console.error(`Error trying to ${action} question group:`, err);
+      setError(`No fue posible ${action} la pregunta`);
+    } finally {
+      setBusyIntentName(null);
+    }
+  }
+
+  function handleDeleteGroup(question: QuestionRow) {
+    setPendingDelete({ intentName: question.intentName, displayName: question.displayName, impact: null });
+    intentConfigRepositoryClient.getGroupDeletionImpact(question.intentName)
+      .then(impact => setPendingDelete(current => (current && current.intentName === question.intentName ? { ...current, impact } : current)))
+      .catch(err => console.error('Error fetching group deletion impact:', err));
+  }
+
+  async function confirmDeleteGroup() {
+    if (!pendingDelete) return;
+    const { intentName } = pendingDelete;
+    setPendingDelete(null);
+    try {
+      setBusyIntentName(intentName);
+      await intentConfigRepositoryClient.deleteGroup(intentName);
+      await loadIntents();
+    } catch (err) {
+      console.error('Error deleting question group:', err);
+      setError('No fue posible eliminar la pregunta');
+    } finally {
+      setBusyIntentName(null);
+    }
+  }
 
   const questions = showArchived ? archivedQuestions : activeQuestions;
   // Una pregunta se encuentra una vez, no una vez por alcance: el filtro
@@ -225,12 +272,13 @@ export default function IntentsPage() {
               <TableHead>Checkpoint</TableHead>
               <TableHead className="text-center">Prioridad</TableHead>
               <TableHead>Respuestas por alcance</TableHead>
+              <TableHead className="text-right">Acciones</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={4} className="text-center py-8">
+                <TableCell colSpan={5} className="text-center py-8">
                   <div className="flex items-center justify-center gap-2">
                     <RefreshCw className="h-4 w-4 animate-spin" />
                     Cargando...
@@ -239,44 +287,114 @@ export default function IntentsPage() {
               </TableRow>
             ) : filteredQuestions.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
+                <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
                   {showArchived ? 'No hay preguntas archivadas' : 'No se encontraron preguntas'}
                 </TableCell>
               </TableRow>
             ) : (
-              filteredQuestions.map((question) => (
-                <TableRow key={question.intentName} className="cursor-pointer hover:bg-muted/50">
-                  <TableCell>
-                    <Link href={`/intents/q/${encodeURIComponent(question.intentName)}`} className="block">
-                      <div className="font-medium">{question.displayName}</div>
-                      <div className="text-sm text-muted-foreground">
-                        {question.intentName}
+              filteredQuestions.map((question) => {
+                const isBusy = busyIntentName === question.intentName;
+                return (
+                  <TableRow key={question.intentName} className="hover:bg-muted/50">
+                    <TableCell>
+                      <Link href={`/intents/q/${encodeURIComponent(question.intentName)}`} className="block">
+                        <div className="font-medium">{question.displayName}</div>
+                        <div className="text-sm text-muted-foreground">
+                          {question.intentName}
+                        </div>
+                      </Link>
+                    </TableCell>
+                    <TableCell>
+                      {question.isCheckpoint ? (
+                        <Badge variant="secondary">Checkpoint</Badge>
+                      ) : (
+                        <span className="text-muted-foreground text-sm">-</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <Badge variant="outline">{question.priority}</Badge>
+                    </TableCell>
+                    <TableCell>
+                      <Link href={`/intents/q/${encodeURIComponent(question.intentName)}`}>
+                        <Badge variant="outline">
+                          {question.scopeCount} {question.scopeCount === 1 ? 'respuesta' : 'respuestas'}
+                        </Badge>
+                      </Link>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={isBusy}
+                          title={showArchived ? 'Restaurar en todos los alcances' : 'Archivar en todos los alcances'}
+                          onClick={() => handleToggleArchiveGroup(question, !showArchived)}
+                        >
+                          {isBusy ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : showArchived ? (
+                            <ArchiveRestore className="h-4 w-4" />
+                          ) : (
+                            <Archive className="h-4 w-4" />
+                          )}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={isBusy}
+                          title="Eliminar en todos los alcances"
+                          onClick={() => handleDeleteGroup(question)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
                       </div>
-                    </Link>
-                  </TableCell>
-                  <TableCell>
-                    {question.isCheckpoint ? (
-                      <Badge variant="secondary">Checkpoint</Badge>
-                    ) : (
-                      <span className="text-muted-foreground text-sm">-</span>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-center">
-                    <Badge variant="outline">{question.priority}</Badge>
-                  </TableCell>
-                  <TableCell>
-                    <Link href={`/intents/q/${encodeURIComponent(question.intentName)}`}>
-                      <Badge variant="outline">
-                        {question.scopeCount} {question.scopeCount === 1 ? 'respuesta' : 'respuestas'}
-                      </Badge>
-                    </Link>
-                  </TableCell>
-                </TableRow>
-              ))
+                    </TableCell>
+                  </TableRow>
+                );
+              })
             )}
           </TableBody>
         </Table>
       </div>
+
+      {pendingDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <Card className="max-w-md w-full">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-destructive">
+                <TriangleAlert className="h-5 w-5" />
+                Eliminar &quot;{pendingDelete.displayName}&quot;
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm">Esto borrará permanentemente, en todos los alcances donde existe:</p>
+              <ul className="text-sm list-disc pl-5 space-y-1">
+                <li>
+                  {pendingDelete.impact === null
+                    ? 'Calculando...'
+                    : `${pendingDelete.impact.scopes} fila${pendingDelete.impact.scopes === 1 ? '' : 's'} de alcance`}
+                </li>
+                {pendingDelete.impact !== null && (
+                  <li>
+                    {pendingDelete.impact.responses} respuesta{pendingDelete.impact.responses === 1 ? '' : 's'} configurada{pendingDelete.impact.responses === 1 ? '' : 's'}
+                  </li>
+                )}
+              </ul>
+              <p className="text-sm text-muted-foreground">
+                El historial de conversaciones pasadas no se verá afectado.
+              </p>
+              <div className="flex justify-end gap-2 pt-2">
+                <Button variant="outline" onClick={() => setPendingDelete(null)}>
+                  Cancelar
+                </Button>
+                <Button variant="destructive" onClick={confirmDeleteGroup} disabled={pendingDelete.impact === null}>
+                  Eliminar definitivamente
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }

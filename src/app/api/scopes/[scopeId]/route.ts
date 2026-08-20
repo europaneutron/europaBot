@@ -10,7 +10,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { ROOT_SCOPE_ID, scopeRepository } from '@/data/repositories/scope.repository';
 import { scopeRoutingRepository } from '@/data/repositories/scope-routing.repository';
-import { normalizeScopeAlias } from '@/core/onboarding/client-vocabulary';
+import { normalizeScopeAlias } from '@/core/messaging/client-brand';
 import { getAuthenticatedAdmin } from '@/lib/server/authenticated-admin';
 
 const updateSchema = z.object({

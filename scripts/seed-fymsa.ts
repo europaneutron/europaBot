@@ -93,7 +93,7 @@ const CATALOG: ScopeSeed[] = [
 async function main() {
   const { supabaseServer } = await import('../src/services/supabase/server-client');
   const { ROOT_SCOPE_ID, scopeRepository } = await import('../src/data/repositories/scope.repository');
-  const { normalizeScopeAlias } = await import('../src/core/onboarding/client-vocabulary');
+  const { normalizeScopeAlias } = await import('../src/core/messaging/client-brand');
   const { clientBrandRepository } = await import('../src/data/repositories/client-brand.repository');
 
   // Las intenciones de la raiz son la plantilla: un alcance que define la suya
@@ -179,9 +179,6 @@ async function main() {
     const { data: descendants } = await supabaseServer
       .from('scopes').select('id').eq('parent_id', lorcmex.id);
     const ids = [...(descendants || []).map(row => row.id), lorcmex.id];
-    await supabaseServer.from('compiler_proposals').delete().in('scope_id', ids);
-    await supabaseServer.from('compiler_runs').delete().in('scope_id', ids);
-    await supabaseServer.from('compiler_materials').delete().in('scope_id', ids);
     await supabaseServer.from('scope_aliases').delete().in('scope_id', ids);
     for (const id of ids) {
       const { error } = await supabaseServer.from('scopes').delete().eq('id', id);

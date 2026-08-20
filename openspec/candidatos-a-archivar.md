@@ -1,57 +1,58 @@
 # Candidatos a archivar
 
-Lista viva, para decidir **al final**, cuando el bot a mano esté funcionando y
-sepamos qué se usa de verdad. Nada de esto se toca todavía.
+Lista viva. El compilador y el onboarding ya no son candidatos: se eliminaron
+el 2026-08-20 (decisión de Leonardo: "nunca funcionó"). Lo que sigue en esta
+lista es lo demás, que todavía no se toca.
 
 Regla para leerla: *archivar* no es borrar. Es sacar del camino crítico —del
 menú, de las rutas, del build— lo que no se usa, dejando el código en el
 repositorio por si el día que haya varios clientes vuelve a hacer falta.
 
-## El compilador de documentos
+## El compilador de documentos y el onboarding — eliminados, no archivados
 
-Es la pieza grande. Existe para no teclear los datos de un cliente, y hoy hay
-un cliente con dos fraccionamientos: teclearlos son veinte minutos.
+No quedaron como candidatos: se retiraron por completo, código y esquema.
 
-| Qué | Dónde |
-|---|---|
-| Servicio del compilador | `src/core/document-compiler/` |
-| Pantalla de contenido y aprobación | `src/app/(dashboard)/compiler/` |
-| Rutas del compilador | `src/app/api/compiler/` |
-| Repositorio | `src/data/repositories/document-compiler.repository.ts` |
-| Onboarding guiado | `src/app/(dashboard)/onboarding/`, `src/core/onboarding/` |
-| Tablas | `compiler_runs`, `compiler_materials`, `compiler_facts`, `compiler_coverage`, `compiler_proposals`, `onboarding_sessions` |
+| Qué | Dónde vivía | Estado |
+|---|---|---|
+| Servicio del compilador | `src/core/document-compiler/` | Borrado |
+| Pantalla de contenido y aprobación | `src/app/(dashboard)/compiler/` | Borrado |
+| Rutas del compilador | `src/app/api/compiler/` | Borrado |
+| Repositorio | `src/data/repositories/document-compiler.repository.ts` | Borrado |
+| Onboarding guiado | `src/app/(dashboard)/onboarding/`, `src/core/onboarding/` | Borrado |
+| Tablas | `compiler_runs`, `compiler_materials`, `compiler_facts`, `compiler_proposal_facts`, `compiler_coverage`, `compiler_proposals`, `onboarding_sessions`, `response_replacements`, `response_fact_dependencies` | Retiradas en `20260820120000_retire_compiler_and_onboarding.sql` |
 
-**Cuándo vuelve a servir:** cuando lleguen varios clientes con material propio.
-Entonces la parte que hay que arreglar primero está diagnosticada: un objetivo
-en la raíz no puede usar hechos de las ramas, y la comprobación de vocabulario
-se bloquea con variantes que el propio prompt prohíbe generar.
+**Lo que se rescató antes de borrar**, porque vivía en un archivo del
+compilador/onboarding pero lo usa el runtime o el panel todos los días:
 
-**Ojo antes de tocarlo:** el catálogo y las respuestas publicadas apuntan a
-`compiler_facts` y `compiler_materials` por clave foránea (`source_fact_id`,
-`source_material_id`, `response_fact_dependencies`). Retirar esas tablas
-obliga a decidir qué pasa con la procedencia de lo ya publicado.
+- `shortScopeAlias` (rótulo corto de un alcance) → `src/lib/scope-alias.ts`.
+- `renderClientBrand`, `toClientVocabulary`, `normalizeScopeAlias` (vocabulario
+  del negocio en los mensajes) → `src/core/messaging/client-brand.ts`.
+- `ClientBrandConfig`, `BrandTone` → `src/data/models/client-brand.model.ts`.
+- `client_brand_config` (la fila de Ajustes → El negocio) y
+  `bump_scope_tree_version()` (la caché del árbol, con sus cuatro
+  disparadores en `scopes`, `intent_configurations`, `bot_responses` y
+  `catalog_values`) nacieron en migraciones de onboarding/compilador y se
+  quedaron intactos: son núcleo, no del compilador.
+- `catalog_values` y `bot_responses.edited_by_human / deactivated_at` igual.
+  Solo se soltaron las tres columnas de procedencia hacia el compilador
+  (`source_fact_id`, `source_material_id`, `source_page_number`) y el enlace
+  al documento en el panel del catálogo.
 
-## Lo que depende del compilador y caería con él
+**Lo que se retiró de la pantalla junto con ellos**, por quedarse sin
+consumidor:
 
-- **Reglas de bloqueo y revisión de propuestas** — `compiler-rules.ts`, las seis
-  señales, `is_publishable`. Solo tienen sentido vigilando a un modelo que
-  escribe a ciegas.
-- **Vocabulario generado por modelo** — `VOCABULARY_GENERATION_VERSION` y todo
-  el ciclo de regeneración. A mano, el vocabulario se escribe y se prueba con
-  el probador de frases.
-- **Ya resuelto antes de archivar el onboarding:** la identidad del negocio
-  --nombre, cómo se llaman los proyectos-- vivía solo ahí. Ahora se edita en
-  Ajustes → El negocio. Lo que queda del onboarding es el recorrido guiado del
-  compilador, que sí se va con él.
-- **El saludo automático se retiró.** Eran dos saludos que nadie pidió, y el
-  compuesto además borraba la respuesta escrita para `saludo` sin decirlo.
-  Saludar es una pregunta como las demás. La columna
+- El saludo automático: eran dos saludos que nadie pidió, y el compuesto
+  además borraba la respuesta escrita para `saludo` sin decirlo. La columna
   `client_brand.use_composed_greeting` sigue en la tabla --las migraciones son
-  aditivas-- y ya no la lee nadie; `composeBusinessGreeting` se queda sin
-  consumidor y se va con el onboarding.
-- **`ai_business_context`, `ai_extraction_model`, `ai_writing_model`** en
-  Ajustes → Inteligencia Artificial: si no hay compilador, no hay a qué
-  aplicarlos. La clave de OpenAI en Vault deja de hacer falta.
+  aditivas-- y ya no la lee nadie.
+- El badge de procedencia del documento en `/catalog` y el enlace de página
+  en `/intents/q/<pregunta>` (apuntaban a `/api/compiler/materials`, que ya
+  no existe).
+
+**Sin tocar, y vale la pena revisarlo aparte:** `ai_extraction_model` y
+`ai_writing_model` en Ajustes → Inteligencia Artificial se quedaron sin
+ningún consumidor (solo los usaba el compilador), pero la pantalla y el
+config key siguen ahí. No bloquean nada; es limpieza pendiente, no urgente.
 
 ## Los mensajes del sistema, después de la simplificación
 

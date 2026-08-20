@@ -21,29 +21,16 @@ export interface CatalogValue extends ScopedRow {
   value: string | number | boolean | Array<string | number | boolean>;
   value_type: CatalogValueType;
   unit: string | null;
-  source_fact_id: string | null;
-  source_material_id: string | null;
-  source_page_number: number | null;
   edited_by_human: boolean;
   edited_by: string | null;
   edited_at: string | null;
   created_at: string;
   updated_at: string;
   scopes?: { name: string; parent_id: string | null } | null;
-  compiler_materials?: { original_filename: string } | null;
 }
 
 export interface CatalogValueInput {
   value: unknown;
   valueType: CatalogValueType;
   unit?: string | null;
-}
-
-export interface CatalogReplacementWarning {
-  catalogValueId: string;
-  scopeId: string;
-  scopeName: string;
-  valueKey: string;
-  currentValue: string;
-  incomingValue: string;
 }

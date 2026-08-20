@@ -30,7 +30,7 @@ async function main() {
   const { supabaseServer } = await import('../src/services/supabase/server-client');
   const { ROOT_SCOPE_ID, scopeRepository } = await import('../src/data/repositories/scope.repository');
   const { scopeRoutingRepository } = await import('../src/data/repositories/scope-routing.repository');
-  const { normalizeScopeAlias } = await import('../src/core/onboarding/client-vocabulary');
+  const { normalizeScopeAlias } = await import('../src/core/messaging/client-brand');
 
   const suffix = randomUUID().slice(0, 8);
   const name = `Europa Residencial ${suffix}`;

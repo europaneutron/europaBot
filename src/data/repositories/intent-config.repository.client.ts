@@ -69,14 +69,6 @@ export interface BotResponse {
   edited_by_human: boolean;
   superseded_by_response_id: string | null;
   deactivated_at: string | null;
-  response_fact_dependencies?: Array<{
-    compiler_facts: {
-      material_id: string;
-      page_number: number;
-      fact_key: string;
-      compiler_materials: { original_filename: string } | null;
-    } | null;
-  }>;
   created_at: string;
   updated_at: string;
 }
@@ -89,7 +81,7 @@ type CreateIntentConfiguration = Omit<
 type CreateBotResponse = Omit<
   BotResponse,
   'id' | 'created_at' | 'updated_at' | 'origin' | 'compiler_proposal_id' |
-  'review_signals' | 'response_fact_dependencies' | 'edited_by_human' |
+  'review_signals' | 'edited_by_human' |
   'superseded_by_response_id' | 'deactivated_at'
 > & Partial<Pick<BotResponse, 'origin' | 'compiler_proposal_id'>>;
 
@@ -145,10 +137,89 @@ export class IntentConfigRepositoryClient {
   }
 
   /**
+   * Cuántas respuestas configuradas se pierden de verdad si se borra esta
+   * fila. Es lo que hay que enseñar antes de confirmar un borrado físico -- el
+   * cascade de la base de datos no avisa, así que el aviso lo arma el panel.
+   */
+  async getDeletionImpact(intentId: string): Promise<{ responses: number }> {
+    const { count, error } = await supabase
+      .from('bot_responses')
+      .select('id', { count: 'exact', head: true })
+      .eq('intent_id', intentId);
+    if (error) throw error;
+    return { responses: count || 0 };
+  }
+
+  /**
+   * Cuánto se pierde de verdad si se borra la pregunta completa: la suma de
+   * respuestas configuradas en todas sus filas (raíz y cada alcance), sin
+   * importar si la raíz existe o no -- una pregunta puede vivir solo en
+   * ramas.
+   */
+  async getGroupDeletionImpact(intentName: string): Promise<{ scopes: number; responses: number }> {
+    const rows = await this.getByIntentName(intentName);
+    if (rows.length === 0) return { scopes: 0, responses: 0 };
+    const { count, error } = await supabase
+      .from('bot_responses')
+      .select('id', { count: 'exact', head: true })
+      .in('intent_id', rows.map(row => row.id));
+    if (error) throw error;
+    return { scopes: rows.length, responses: count || 0 };
+  }
+
+  /**
+   * Archiva TODAS las filas de una pregunta (todos los alcances a la vez),
+   * la acción que corresponde a la lista general: ahí la pregunta es una
+   * sola fila visualmente, y archivar tiene que apagarla en todas partes, no
+   * solo en la que se muestra como representativa.
+   */
+  async archiveGroup(intentName: string): Promise<void> {
+    const { error } = await supabase
+      .from('intent_configurations')
+      .update({ is_active: false, updated_at: new Date().toISOString() })
+      .eq('intent_name', intentName);
+    if (error) throw error;
+    await this.notifyServerCacheStale();
+  }
+
+  /**
+   * Restaura TODAS las filas de una pregunta. Reactiva también las que
+   * alguien había archivado a mano por alcance antes del archivado masivo --
+   * es una decisión de producto (simplicidad sobre granularidad fina), no un
+   * descuido: no se guarda cuáles filas tocó el archivado de grupo.
+   */
+  async restoreGroup(intentName: string): Promise<void> {
+    const { error } = await supabase
+      .from('intent_configurations')
+      .update({ is_active: true, updated_at: new Date().toISOString() })
+      .eq('intent_name', intentName);
+    if (error) throw error;
+    await this.notifyServerCacheStale();
+  }
+
+  /**
+   * Borra físicamente TODAS las filas de una pregunta, en cascada sobre sus
+   * respuestas en cada alcance. El historial de conversaciones no se toca
+   * (ver `deleteOwnResponse`).
+   */
+  async deleteGroup(intentName: string): Promise<void> {
+    const { error } = await supabase
+      .from('intent_configurations')
+      .delete()
+      .eq('intent_name', intentName);
+    if (error) throw error;
+    await this.notifyServerCacheStale();
+  }
+
+  /**
    * Borra la fila propia de un alcance para una pregunta. A diferencia de
    * `delete()` -- que archiva, no borra -- esto es lo que hace que el
    * alcance vuelva a heredar: "hereda" es la ausencia de fila, no una marca.
    * Arrastra en cascada sus respuestas y sus dependencias de hechos.
+   *
+   * El historial de conversaciones (`conversations`, `intents_log`,
+   * `user_checkpoints`) no se toca: guarda el nombre de la intención como
+   * texto, sin llave foránea a esta tabla.
    */
   async deleteOwnResponse(id: string): Promise<void> {
     const { error } = await supabase
@@ -172,7 +243,7 @@ export class IntentConfigRepositoryClient {
     if (intentIds.length === 0) return [];
     const { data, error } = await supabase
       .from('bot_responses')
-      .select('*, response_fact_dependencies(compiler_facts(material_id, page_number, fact_key, compiler_materials(original_filename)))')
+      .select('*')
       .in('intent_id', intentIds)
       .order('order_priority', { ascending: true });
 
@@ -276,7 +347,7 @@ export class IntentConfigRepositoryClient {
   async getResponsesByIntentId(intentId: string): Promise<BotResponse[]> {
     const { data, error } = await supabase
       .from('bot_responses')
-      .select('*, response_fact_dependencies(compiler_facts(material_id, page_number, fact_key, compiler_materials(original_filename)))')
+      .select('*')
       .eq('intent_id', intentId)
       .order('order_priority', { ascending: true });
 

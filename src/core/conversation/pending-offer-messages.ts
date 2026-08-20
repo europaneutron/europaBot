@@ -11,7 +11,7 @@
 import { userRepository } from '@/data/repositories/user.repository';
 import { SCOPE_FOCUS_WINDOW_MS } from './scope-routing.service';
 import { chooseEnumerationFormat, MAX_BUTTON_OPTIONS } from './scope-enumeration.service';
-import { shortScopeAlias } from '@/core/document-compiler/compiler-rules';
+import { shortScopeAlias } from '@/lib/scope-alias';
 import type { PendingOfferOption } from '@/data/models/user.model';
 import type { UserSession } from '@/data/models/user.model';
 

@@ -11,8 +11,6 @@ import {
   Settings, 
   LogOut,
   UserCog,
-  FileText,
-  WandSparkles,
   MessagesSquare,
   Database,
   Building2,
@@ -39,11 +37,9 @@ const navItems: NavItem[] = [
   { href: '/advisor-requests', icon: ClipboardList, label: 'Solicitudes Asesor' },
   // El orden es el de configurar un bot a mano: primero que existan los
   // fraccionamientos, luego sus datos, luego lo que contesta de cada uno.
-  { href: '/scopes', icon: Building2, label: 'Fraccionamientos' },
+  { href: '/scopes', icon: Building2, label: 'Alcances' },
   { href: '/catalog', icon: Database, label: 'Catálogo' },
   { href: '/intents', icon: Target, label: 'Preguntas' },
-  { href: '/onboarding', icon: WandSparkles, label: 'Configurar bot' },
-  { href: '/compiler', icon: FileText, label: 'Contenido' },
   ...(process.env.NODE_ENV !== 'production'
     ? [{ href: '/simulator', icon: MessagesSquare, label: 'Simulador' }]
     : []),

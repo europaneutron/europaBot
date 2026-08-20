@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import useSWR from 'swr';
-import { Check, Database, ExternalLink, Loader2, Pencil, Plus, Trash2, X } from 'lucide-react';
+import { Check, Database, Loader2, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -206,7 +206,7 @@ export default function CatalogPage() {
                   <TableHead>Dato</TableHead>
                   <TableHead>Valor</TableHead>
                   <TableHead>Tipo</TableHead>
-                  <TableHead>Procedencia</TableHead>
+                  <TableHead>Edición</TableHead>
                   <TableHead className="w-24">Acciones</TableHead>
                 </TableRow>
               </TableHeader>
@@ -227,20 +227,9 @@ export default function CatalogPage() {
                     </TableCell>
                     <TableCell>{row.value_type}{row.unit ? ` · ${row.unit}` : ''}</TableCell>
                     <TableCell className="min-w-64 text-sm">
-                      <div className="flex flex-wrap items-center gap-2">
-                        {row.edited_by_human ? <Badge variant="secondary">Editado a mano</Badge> : null}
-                        {row.compiler_materials?.original_filename ? (
-                          <a
-                            className="inline-flex items-center gap-1 text-primary hover:underline"
-                            href={`/api/compiler/materials/${row.source_material_id}#page=${row.source_page_number}`}
-                            target="_blank"
-                            rel="noreferrer"
-                          >
-                            {row.compiler_materials.original_filename}, página {row.source_page_number}
-                            <ExternalLink className="h-3 w-3" />
-                          </a>
-                        ) : <span className="text-muted-foreground">Sin documento asociado</span>}
-                      </div>
+                      {row.edited_by_human
+                        ? <Badge variant="secondary">Editado a mano</Badge>
+                        : <span className="text-muted-foreground">Sin editar</span>}
                     </TableCell>
                     <TableCell>
                       {editingId === row.id ? (

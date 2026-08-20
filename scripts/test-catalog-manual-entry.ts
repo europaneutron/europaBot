@@ -50,7 +50,6 @@ async function main() {
     );
     assert(created.value_key === 'precio', 'la clave queda normalizada');
     assert(created.edited_by_human === true, 'nace marcado como escrito por una persona');
-    assert(!created.source_material_id, 'sin documento de origen: nadie lo extrajo de un material');
 
     console.log('\n2. El dato ya es usable por una respuesta del alcance');
     const variables = await catalogValueRepository.getResolvedVariables(scope.id);

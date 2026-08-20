@@ -32,7 +32,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { ArrowLeft, Plus, MessageSquare, Trash2, Loader2, Archive, ArchiveRestore, Edit } from 'lucide-react';
+import { ArrowLeft, Plus, MessageSquare, Trash2, Loader2, Archive, ArchiveRestore, Edit, TriangleAlert } from 'lucide-react';
 import { buildQuestionTree, countOrphanedByDeleting, TreeNode, TreeScope } from '@/lib/question-tree';
 
 const ROOT_SCOPE_ID = '00000000-0000-4000-8000-000000000001';
@@ -63,6 +63,12 @@ export default function QuestionTreePage() {
   const [error, setError] = useState<string | null>(null);
   const [busyScopeId, setBusyScopeId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<{
+    node: QuestionTreeNode;
+    row: IntentConfiguration;
+    orphaned: number;
+    impact: { responses: number } | null;
+  } | null>(null);
 
   useEffect(() => {
     loadData();
@@ -173,14 +179,22 @@ export default function QuestionTreePage() {
     return node.ownRow || node.archivedRow;
   }
 
-  async function handleDeleteOwn(node: QuestionTreeNode) {
+  function handleDeleteOwn(node: QuestionTreeNode) {
     const row = rowOf(node);
     if (!row) return;
     const orphaned = countOrphanedByDeleting(node.scope, scopes, rows);
-    const warning = orphaned > 0
-      ? `Esta es la respuesta de la que heredan otros ${orphaned} alcance${orphaned === 1 ? '' : 's'}: se quedarán sin respuesta. `
-      : '';
-    if (!confirm(`${warning}¿Borrar la respuesta propia de "${node.scope.name}" y volver a heredar?`)) return;
+    setPendingDelete({ node, row, orphaned, impact: null });
+    // El conteo llega aparte para no bloquear la apertura del modal con la
+    // consulta a bot_responses/compiler_proposals.
+    intentConfigRepositoryClient.getDeletionImpact(row.id)
+      .then(impact => setPendingDelete(current => (current && current.row.id === row.id ? { ...current, impact } : current)))
+      .catch(err => console.error('Error fetching deletion impact:', err));
+  }
+
+  async function confirmDeleteOwn() {
+    if (!pendingDelete) return;
+    const { node, row } = pendingDelete;
+    setPendingDelete(null);
 
     try {
       setBusyScopeId(node.scope.id);
@@ -342,21 +356,6 @@ export default function QuestionTreePage() {
                                 {response.origin === 'compiler' ? 'Compilada' : 'Manual'}
                               </Badge>
                               <span className="truncate max-w-md">{describeResponse(response)}</span>
-                              {response.response_fact_dependencies?.map((dependency, index) => {
-                                const fact = dependency.compiler_facts;
-                                if (!fact) return null;
-                                return (
-                                  <a
-                                    key={`${fact.material_id}-${fact.page_number}-${index}`}
-                                    href={`/api/compiler/materials/${fact.material_id}#page=${fact.page_number}`}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="text-primary hover:underline text-xs"
-                                  >
-                                    {fact.compiler_materials?.original_filename || 'documento'}, pág. {fact.page_number}
-                                  </a>
-                                );
-                              })}
                             </div>
                           ))}
                         </div>
@@ -416,6 +415,46 @@ export default function QuestionTreePage() {
               </Card>
             );
           })}
+        </div>
+      )}
+
+      {pendingDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <Card className="max-w-md w-full">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-destructive">
+                <TriangleAlert className="h-5 w-5" />
+                Eliminar &quot;{displayName}&quot; en {pendingDelete.node.scope.name}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm">Esto borrará permanentemente:</p>
+              <ul className="text-sm list-disc pl-5 space-y-1">
+                <li>
+                  {pendingDelete.impact === null
+                    ? 'Calculando respuestas configuradas…'
+                    : `${pendingDelete.impact.responses} respuesta${pendingDelete.impact.responses === 1 ? '' : 's'} configurada${pendingDelete.impact.responses === 1 ? '' : 's'}`}
+                </li>
+                {pendingDelete.orphaned > 0 && (
+                  <li>
+                    Otros {pendingDelete.orphaned} alcance{pendingDelete.orphaned === 1 ? '' : 's'} que heredan de aquí se
+                    quedarán sin respuesta
+                  </li>
+                )}
+              </ul>
+              <p className="text-sm text-muted-foreground">
+                El historial de conversaciones pasadas no se verá afectado.
+              </p>
+              <div className="flex justify-end gap-2 pt-2">
+                <Button variant="outline" onClick={() => setPendingDelete(null)}>
+                  Cancelar
+                </Button>
+                <Button variant="destructive" onClick={confirmDeleteOwn} disabled={pendingDelete.impact === null}>
+                  Eliminar definitivamente
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
         </div>
       )}
     </div>

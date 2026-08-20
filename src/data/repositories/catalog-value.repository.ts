@@ -4,7 +4,6 @@ import { scopeRepository } from '@/data/repositories/scope.repository';
 import { normalizeVariableKey, qualifyScopeName } from '@/lib/interpolate-message';
 import {
   CATALOG_VALUE_TYPES,
-  type CatalogReplacementWarning,
   type CatalogValue,
   type CatalogValueInput,
   type CatalogValueType,
@@ -138,7 +137,7 @@ export class CatalogValueRepository {
 
     const { data, error } = await client
       .from('catalog_values')
-      .select('*, scopes(name, parent_id), compiler_materials!catalog_values_source_material_id_fkey(original_filename)')
+      .select('*, scopes(name, parent_id)')
       .in('scope_id', descendantIds)
       .order('value_key');
     if (error) throw error;
@@ -306,54 +305,6 @@ export class CatalogValueRepository {
     if (error) throw error;
   }
 
-  async getReplacementWarnings(
-    run: { id: string; replacement_mode: 'replace' | 'add' },
-    client: any = supabaseServer
-  ): Promise<CatalogReplacementWarning[]> {
-    if (run.replacement_mode === 'add') return [];
-
-    const [factsResult, catalogResult, scopes] = await Promise.all([
-      client
-        .from('compiler_facts')
-        .select('scope_id, fact_key, fact_value, is_contradictory, provenance_confidence, created_at')
-        .eq('run_id', run.id),
-      client
-        .from('catalog_values')
-        .select('id, scope_id, value_key, value, value_type, unit')
-        .eq('edited_by_human', true),
-      scopeRepository.getScopes(client),
-    ]);
-    if (factsResult.error) throw factsResult.error;
-    if (catalogResult.error) throw catalogResult.error;
-
-    const scopeNames = new Map(scopes.map(scope => [scope.id, scope.name]));
-    const facts = (factsResult.data || [])
-      .filter((fact: any) => !fact.is_contradictory)
-      .sort((left: any, right: any) => (
-        Number(right.provenance_confidence) - Number(left.provenance_confidence)
-        || right.created_at.localeCompare(left.created_at)
-      ));
-    const incoming = new Map<string, any>();
-    for (const fact of facts) {
-      const key = `${fact.scope_id}:${fact.fact_key}`;
-      if (!incoming.has(key)) incoming.set(key, fact);
-    }
-
-    return (catalogResult.data || []).flatMap((current: any) => {
-      const fact = incoming.get(`${current.scope_id}:${current.value_key}`);
-      if (!fact || JSON.stringify(fact.fact_value) === JSON.stringify(current.value)) return [];
-      return [{
-        catalogValueId: current.id,
-        scopeId: current.scope_id,
-        scopeName: scopeNames.get(current.scope_id) || 'Sin nombre',
-        valueKey: current.value_key,
-        currentValue: formatCatalogValue(current as CatalogValue),
-        incomingValue: typeof fact.fact_value === 'string'
-          ? fact.fact_value
-          : JSON.stringify(fact.fact_value),
-      }];
-    });
-  }
 }
 
 export const catalogValueRepository = new CatalogValueRepository();
