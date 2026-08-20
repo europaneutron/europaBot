@@ -363,7 +363,7 @@ Puedes escribir:
     // Obtener mensaje de confirmación desde configuración
     let confirmationMsg = await configRepository.get(
       'appointment_confirmation',
-      '¡Perfecto! Tu cita está agendada para el {fecha} a las {hora}. 📅\n\nTe esperamos en:\n📍 {direccion}\n\n¿Necesitas algo más?'
+      '¡Perfecto! Tu cita está agendada para el {fecha} a las {hora}. 📅\n\nTe esperamos en:\n📍 {direccion}\n\n¡Nos vemos pronto! 😊'
     );
 
     // Reemplazar variables
@@ -594,6 +594,11 @@ Puedes escribir:
 
   /**
    * Obtener display de time slot
+   *
+   * Postgres devuelve una columna `time` como "09:00:00", con segundos que
+   * nadie configura y que no aportan nada al lead. Se recorta a "09:00" y se
+   * cierra con "hrs" para que quede claro que son horas y no, por ejemplo,
+   * un rango de fecha.
    */
   private async getTimeSlotDisplay(
     slot: TimeSlot,
@@ -601,9 +606,10 @@ Puedes escribir:
   ): Promise<string> {
     const slots = await appointmentRepository.getTimeSlots(scopeId);
     const config = slots.find(s => s.time_slot === slot);
-    return config 
-      ? `${config.display_name} (${config.start_time} - ${config.end_time})`
-      : slot;
+    if (!config) return slot;
+
+    const withoutSeconds = (time: string) => time.slice(0, 5);
+    return `${config.display_name} (${withoutSeconds(config.start_time)} - ${withoutSeconds(config.end_time)} hrs)`;
   }
 
   /**
