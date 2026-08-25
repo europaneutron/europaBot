@@ -22,7 +22,7 @@ import {
   responseRowToBlocks,
   blocksToFragmentedResponse,
 } from '@/lib/utils/response-blocks';
-import { qualifyScopeName, extractVariableKeys } from '@/lib/interpolate-message';
+import { qualifyScopeName, extractVariableKeys, normalizeVariableKey } from '@/lib/interpolate-message';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -134,6 +134,7 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
       preview: String(value.display_value ?? value.value ?? ''),
       from: value.scope_id === intent?.scope_id ? null : (scopeNames[value.scope_id] || null),
       reachable: true,
+      qualifiedKey: undefined as string | undefined,
     }));
     const fromChildren = descendantValues
       .filter(value => !reachableKeys.has(value.value_key))
@@ -147,18 +148,38 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
           qualifiedKey: `${qualifyScopeName(scopeName)}.${value.value_key}`,
         };
       });
+    // El identificador de duplicado es la llave calificada cuando la hay: dos
+    // hijos con el mismo nombre de dato ("precio" en Europa y en Malasia) no
+    // son el mismo dato, y deduplicar por la llave a secas se comia uno de
+    // los dos sin avisar.
     const seen = new Set<string>();
     return [...own, ...fromChildren].filter(option => {
-      if (seen.has(option.key)) return false;
-      seen.add(option.key);
+      const identity = option.qualifiedKey || option.key;
+      if (seen.has(identity)) return false;
+      seen.add(identity);
       return true;
     });
   }, [catalogValues, descendantValues, scopeNames, intent?.scope_id]);
 
+  // Lo que de verdad se puede rellenar: los datos propios/heredados resuelven
+  // a secas, y los de un hijo (no alcanzable por herencia) solo resuelven
+  // calificados -- "escribir la llave calificada" es justo lo que oferce el
+  // autocompletado, asi que lo que aqui se acepta tiene que ser lo mismo.
+  const availableKeys = useMemo(() => {
+    const available = new Set<string>();
+    for (const option of variableOptions) {
+      if (option.reachable === false) {
+        if (option.qualifiedKey) available.add(normalizeVariableKey(option.qualifiedKey));
+      } else {
+        available.add(normalizeVariableKey(option.key));
+      }
+    }
+    return available;
+  }, [variableOptions]);
+
   function isIncomplete(response: BotResponse): boolean {
     const keys = extractVariableKeys(describeResponse(response));
-    const available = new Set(catalogValues.map(value => value.value_key));
-    return keys.some(key => !available.has(key));
+    return keys.some(key => !availableKeys.has(key));
   }
 
   async function handleSave(

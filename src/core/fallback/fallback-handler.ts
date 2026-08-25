@@ -14,11 +14,16 @@ import { conversationRepository } from '@/data/repositories/conversation.reposit
 import { configRepository } from '@/data/repositories/config.repository';
 import { appointmentRepository } from '@/data/repositories/appointment.repository';
 import { advisorRepository } from '@/data/repositories/advisor.repository';
+import { ROOT_SCOPE_ID } from '@/data/repositories/scope.repository';
 import { FallbackLevel } from './fallback-levels.enum';
 import { FALLBACK_MESSAGES } from './fallback-messages';
 import type { User, UserSession } from '@/data/models/user.model';
 import type { ProcessedResponse } from '@/core/conversation/message-processor';
 import { interpolateMessage } from '@/lib/interpolate-message';
+import {
+  authoredButtonsToOfferOptions,
+  type AuthoredButtonDraft,
+} from '@/core/conversation/pending-offer-messages';
 
 export class FallbackHandler {
   /**
@@ -26,24 +31,27 @@ export class FallbackHandler {
    * 
    * @param userId - ID del usuario
    * @param messageText - Texto del mensaje no entendido
+   * @param scopeId - Alcance donde esta la conversacion, para que un boton sin
+   *   alcance propio se quede ahi en vez de irse a la raiz.
    * @returns Respuesta procesada con mensaje de fallback
    */
-  async handle(userId: string, messageText: string): Promise<ProcessedResponse> {
+  async handle(userId: string, messageText: string, scopeId?: string | null): Promise<ProcessedResponse> {
     // Incrementar contador de fallback
     const currentAttempts = await userRepository.incrementFallbackAttempts(userId);
-    
+
     // Obtener configuración dinámica
     const maxFallbackAttempts = await configRepository.getInt('max_fallback_attempts', 3);
     const fallbackDerivationEnabled = await configRepository.getBoolean('fallback_derivation_enabled', true);
 
     // Determinar nivel de fallback
     const level = this.determineLevel(currentAttempts, maxFallbackAttempts);
-    
+
     // Generar mensaje según nivel
     const fallbackMessage = await this.generateMessage(
       level,
       userId,
-      fallbackDerivationEnabled
+      fallbackDerivationEnabled,
+      scopeId ?? null
     );
 
     // El mensaje se guarda en el webhook después de enviarlo exitosamente
@@ -54,6 +62,68 @@ export class FallbackHandler {
       wasDetected: false,
       isFallback: true
     };
+  }
+
+  /**
+   * Arrancar la derivación a asesor directo, sin pasar por el contador de
+   * fallback: es lo que dispara el botón sintético "Hablar con un asesor"
+   * (igual que "Agendar visita" dispara `appointmentManager.startFlow` sin
+   * pasar por el nivel 3 de fallback). La lógica es la misma que el nivel 3
+   * cuando la derivación está habilitada, para no mantenerla dos veces.
+   *
+   * @param userId - ID del usuario
+   * @param scopeId - Alcance donde esta la conversacion, para los botones
+   *   configurados que no traigan su propio alcance.
+   * @returns El mensaje a mandar (ya interpolado, listo para enviar)
+   */
+  async startDerivation(userId: string, scopeId?: string | null): Promise<string> {
+    const hasPending = await advisorRepository.hasPendingRequest(userId);
+    if (hasPending) {
+      // Ya tiene solicitud pendiente, no crear otra ni pedir nombre de nuevo
+      await userRepository.resetFallbackAttempts(userId);
+      return await configRepository.get(
+        'derivation_already_pending',
+        'Ya hemos registrado tu solicitud. Un asesor se pondrá en contacto contigo pronto. Por favor espera a ser atendido.'
+      );
+    }
+
+    // Activar estado de espera de nombre
+    await userRepository.updateAwaitingAdvisorName(userId, true);
+
+    // Obtener mensajes desde configuración
+    const derivationIntro = await configRepository.get(
+      'derivation_intro',
+      'Entiendo que necesitas ayuda más específica. Permíteme conectarte con un asesor humano que podrá atenderte mejor. 👤'
+    );
+    const requestName = await configRepository.get(
+      'derivation_request_name',
+      'Antes de conectarte con un asesor, ¿podrías compartirme tu nombre completo?'
+    );
+
+    await this.applyConfiguredButtons(userId, 'fallback_level_3_buttons', scopeId ?? null);
+
+    return `${derivationIntro}\n\n${requestName}`;
+  }
+
+  /**
+   * Los botones que se configuraron a mano para un mensaje de fallback --el
+   * mismo mecanismo que usa cualquier respuesta con botones propios, ver
+   * `authoredButtonsToOfferOptions`--, puestos en la oferta viva de la
+   * sesión para que un toque los resuelva. Sin botones configurados, no
+   * cambia nada: no hay oferta que limpiar de camino.
+   *
+   * @private
+   */
+  private async applyConfiguredButtons(
+    userId: string,
+    configKey: string,
+    scopeId: string | null
+  ): Promise<void> {
+    const buttons = await configRepository.getJson<AuthoredButtonDraft[]>(configKey, []);
+    const options = authoredButtonsToOfferOptions(buttons, scopeId ?? ROOT_SCOPE_ID);
+    if (options.length > 0) {
+      await userRepository.setPendingOffer(userId, options[0].intentName || '', null, options);
+    }
   }
 
   /**
@@ -195,62 +265,47 @@ export class FallbackHandler {
   private async generateMessage(
     level: FallbackLevel,
     userId: string,
-    derivationEnabled: boolean
+    derivationEnabled: boolean,
+    scopeId: string | null
   ): Promise<string> {
     switch (level) {
-      case FallbackLevel.LEVEL_1:
-        return await configRepository.get(
+      case FallbackLevel.LEVEL_1: {
+        const message = await configRepository.get(
           'fallback_level_1',
           'No estoy seguro de entender tu pregunta. ¿Podrías reformularla de otra manera?'
         );
-      
-      case FallbackLevel.LEVEL_2:
-        return await configRepository.get(
-          'fallback_level_2',
-          'Disculpa, aún no logro comprender. ¿Podrías ser más específico sobre lo que necesitas?'
-        );
-      
-      case FallbackLevel.LEVEL_3:
-        if (derivationEnabled) {
-          // Verificar si ya tiene una solicitud pendiente sin atender
-          const hasPending = await advisorRepository.hasPendingRequest(userId);
-          if (hasPending) {
-            // Ya tiene solicitud pendiente, no crear otra ni pedir nombre de nuevo
-            await userRepository.resetFallbackAttempts(userId);
-            return await configRepository.get(
-              'derivation_already_pending',
-              'Ya hemos registrado tu solicitud. Un asesor se pondrá en contacto contigo pronto. Por favor espera a ser atendido.'
-            );
-          }
+        await this.applyConfiguredButtons(userId, 'fallback_level_1_buttons', scopeId);
+        return message;
+      }
 
-          // Activar estado de espera de nombre
-          await userRepository.updateAwaitingAdvisorName(userId, true);
-          
-          // Obtener mensajes desde configuración
-          const derivationIntro = await configRepository.get(
-            'derivation_intro',
-            'Entiendo que necesitas ayuda más específica. Permíteme conectarte con un asesor humano que podrá atenderte mejor. 👤'
-          );
-          const requestName = await configRepository.get(
-            'derivation_request_name',
-            'Antes de conectarte con un asesor, ¿podrías compartirme tu nombre completo?'
-          );
-          
-          return `${derivationIntro}\n\n${requestName}`;
-        } else {
-          // Si derivación deshabilitada, regresar a nivel 2
-          return await configRepository.get(
-            'fallback_level_2',
-            'Disculpa, aún no logro comprender. ¿Podrías ser más específico sobre lo que necesitas?'
-          );
-        }
-      
+      case FallbackLevel.LEVEL_2:
+        return await this.getLevel2Message(userId, scopeId);
+
+      case FallbackLevel.LEVEL_3:
+        // Si la derivación está deshabilitada, se comporta como nivel 2.
+        return derivationEnabled
+          ? await this.startDerivation(userId, scopeId)
+          : await this.getLevel2Message(userId, scopeId);
+
       default:
-        return await configRepository.get(
-          'fallback_level_2',
-          'Disculpa, aún no logro comprender. ¿Podrías ser más específico sobre lo que necesitas?'
-        );
+        return await this.getLevel2Message(userId, scopeId);
     }
+  }
+
+  /**
+   * El texto y los botones del nivel 2, en un solo lugar: lo pide tanto ese
+   * nivel como los dos casos que caen a él (derivación deshabilitada, nivel
+   * sin determinar).
+   *
+   * @private
+   */
+  private async getLevel2Message(userId: string, scopeId: string | null): Promise<string> {
+    const message = await configRepository.get(
+      'fallback_level_2',
+      'Disculpa, aún no logro comprender. ¿Podrías ser más específico sobre lo que necesitas?'
+    );
+    await this.applyConfiguredButtons(userId, 'fallback_level_2_buttons', scopeId);
+    return message;
   }
 
   /**

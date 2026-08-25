@@ -16,6 +16,8 @@ import { Button } from '@/components/ui/button';
 import { Loader2, Save } from 'lucide-react';
 import { BotConfig, configRepositoryClient } from '@/data/repositories/config.repository.client';
 import { ConfigsByCategory } from '../types';
+import { CitaDetectionSection } from './CitaDetectionSection';
+import { FallbackButtonsEditor } from './FallbackButtonsEditor';
 
 interface Props {
   configs: ConfigsByCategory;
@@ -184,26 +186,45 @@ export function MessagesTabsSection({ configs, onReload }: Props) {
           <TabsContent value="fallback">
             <div className="space-y-6 p-6 border rounded-md">
               <h3 className="font-semibold text-lg">Mensajes de Fallback (3 niveles)</h3>
-              
-              {configs.fallback_messages.map((config) => (
-                <div key={config.config_key} className="space-y-2">
-                  <Label htmlFor={config.config_key}>
-                    {config.description}
-                  </Label>
-                  <Textarea
-                    id={config.config_key}
-                    name={config.config_key}
-                    rows={3}
-                    defaultValue={config.config_value}
-                    disabled={saving}
-                  />
-                </div>
-              ))}
+
+              {/* Los `_buttons` son otra fila -- json, no texto -- para los
+                  botones de ese mismo nivel: se editan con su propio
+                  componente debajo, no como un textarea más. */}
+              {configs.fallback_messages
+                .filter((config) => config.config_type !== 'json')
+                .map((config) => {
+                  const buttonsConfig = configs.fallback_messages.find(
+                    (candidate) => candidate.config_key === `${config.config_key}_buttons`
+                  );
+                  return (
+                    <div key={config.config_key} className="space-y-2">
+                      <Label htmlFor={config.config_key}>
+                        {config.description}
+                      </Label>
+                      <Textarea
+                        id={config.config_key}
+                        name={config.config_key}
+                        rows={3}
+                        defaultValue={config.config_value}
+                        disabled={saving}
+                      />
+                      {buttonsConfig && (
+                        <FallbackButtonsEditor
+                          config={buttonsConfig}
+                          label="estos botones"
+                          onSaved={onReload}
+                        />
+                      )}
+                    </div>
+                  );
+                })}
 
               <div className="flex justify-end pt-4">
                 <Button
                   type="button"
-                  onClick={() => handleSaveTab(configs.fallback_messages)}
+                  onClick={() => handleSaveTab(
+                    configs.fallback_messages.filter((config) => config.config_type !== 'json')
+                  )}
                   disabled={saving}
                 >
                   {saving ? (
@@ -223,7 +244,8 @@ export function MessagesTabsSection({ configs, onReload }: Props) {
           </TabsContent>
 
           {/* Tab: Mensajes de Citas */}
-          <TabsContent value="appointments">
+          <TabsContent value="appointments" className="space-y-6">
+            <CitaDetectionSection />
             <div className="space-y-6 p-6 border rounded-md">
               <div>
                 <h3 className="font-semibold text-lg mb-2">Mensajes del Flujo de Citas</h3>
@@ -283,25 +305,50 @@ export function MessagesTabsSection({ configs, onReload }: Props) {
                 </p>
               </div>
               
-              {configs.derivation_messages.map((config) => (
-                <div key={config.config_key} className="space-y-2">
-                  <Label htmlFor={config.config_key}>
-                    {config.description}
-                  </Label>
-                  <Textarea
-                    id={config.config_key}
-                    name={config.config_key}
-                    rows={2}
-                    defaultValue={config.config_value}
-                    disabled={saving}
-                  />
-                </div>
-              ))}
+              {configs.derivation_messages
+                .filter((config) => config.config_type !== 'json')
+                .map((config) => (
+                  <div key={config.config_key} className="space-y-2">
+                    <Label htmlFor={config.config_key}>
+                      {config.description}
+                    </Label>
+                    <Textarea
+                      id={config.config_key}
+                      name={config.config_key}
+                      rows={2}
+                      defaultValue={config.config_value}
+                      disabled={saving}
+                    />
+                  </div>
+                ))}
+
+              {(() => {
+                const derivationButtons = configs.derivation_messages.find(
+                  (config) => config.config_key === 'fallback_level_3_buttons'
+                );
+                if (!derivationButtons) return null;
+                return (
+                  <div className="space-y-2">
+                    <Label>Botones del mensaje de derivación</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Se ofrecen junto con la introducción y la petición de nombre --el mensaje que
+                      también dispara el botón &quot;Hablar con un asesor&quot; en cualquier respuesta.
+                    </p>
+                    <FallbackButtonsEditor
+                      config={derivationButtons}
+                      label="botones de derivación"
+                      onSaved={onReload}
+                    />
+                  </div>
+                );
+              })()}
 
               <div className="flex justify-end pt-4">
                 <Button
                   type="button"
-                  onClick={() => handleSaveTab(configs.derivation_messages)}
+                  onClick={() => handleSaveTab(
+                    configs.derivation_messages.filter((config) => config.config_type !== 'json')
+                  )}
                   disabled={saving}
                 >
                   {saving ? (

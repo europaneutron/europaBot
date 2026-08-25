@@ -91,7 +91,14 @@ export function VariableTextarea({
     if (!open) return [];
     const query = normalize(open.query);
     return options
-      .filter(option => normalize(option.key).includes(query))
+      // Buscar tambien contra la llave calificada: quien ya escribio
+      // "europa.pre" completando a mano --o volvio a abrir una llave ya
+      // calificada para editarla-- tiene que seguir encontrando la opcion,
+      // no solo quien empieza desde cero.
+      .filter(option => (
+        normalize(option.key).includes(query)
+        || (option.qualifiedKey && normalize(option.qualifiedKey).includes(query))
+      ))
       // Primero lo que este alcance puede rellenar; lo de los hijos al final,
       // porque elegirlo pide una decision aparte.
       .sort((left, right) => Number(right.reachable !== false) - Number(left.reachable !== false))
@@ -176,7 +183,7 @@ export function VariableTextarea({
           className="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded-md border bg-popover p-1 shadow-md"
         >
           {matches.map((option, index) => (
-            <li key={option.key}>
+            <li key={option.qualifiedKey || option.key}>
               <button
                 type="button"
                 role="option"
@@ -188,7 +195,10 @@ export function VariableTextarea({
                 onMouseDown={event => event.preventDefault()}
                 onClick={() => insert(option)}
               >
-                <code className="shrink-0">{option.key}</code>
+                {/* Calificada cuando la hay: dos hijos con el mismo nombre de
+                    dato ("precio" en Europa y en Malasia) se ven identicos
+                    si aqui se ensena solo la llave a secas. */}
+                <code className="shrink-0">{option.qualifiedKey || option.key}</code>
                 <span className="truncate text-muted-foreground">{option.preview}</span>
                 <span className="shrink-0 text-xs text-muted-foreground">
                   {option.reachable === false

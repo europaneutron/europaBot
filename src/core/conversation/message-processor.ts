@@ -37,6 +37,7 @@ import {
 import {
   isPendingOfferFresh,
   resolvePendingOfferSelection,
+  authoredButtonsToOfferOptions,
 } from './pending-offer-messages';
 
 // Fuentes de foco que pueden reanudar una pregunta retenida: las tres nacen de
@@ -45,17 +46,32 @@ import {
 const RESUMING_FOCUS_SOURCES: ScopeFocusSource[] = ['alias', 'referral', 'override'];
 
 // Intenciones que no son una pregunta que repetir. Mencionar un alcance a
-// secas repite la última pregunta contestada, y estas tres no lo son:
+// secas repite la última pregunta contestada, y estas cuatro no lo son:
 //
-//   `cita` arranca un flujo. Un lead que agendaba, cancelaba y decía
-//   "Altabrisa" recibía otra vez "¿qué día te gustaría visitarnos?".
+//   `cita` y `asesor` arrancan un flujo. Un lead que agendaba, cancelaba y
+//   decía "Altabrisa" recibía otra vez "¿qué día te gustaría visitarnos?".
 //
 //   `saludo` y `despedida` abren y cierran la conversación. Peor todavía:
 //   saludar suelta el foco, así que repetir el saludo al mencionar un alcance
 //   tiraba el foco que esa misma mención acababa de fijar. Medido tras un
 //   recorrido real del compilador: "hola" y luego "me interesa Europa"
 //   devolvía el saludo entero en vez del precio de Europa.
-const NON_REPEATABLE_INTENT_NAMES = new Set(['cita', 'saludo', 'despedida']);
+const NON_REPEATABLE_INTENT_NAMES = new Set(['cita', 'asesor', 'saludo', 'despedida']);
+
+/**
+ * El nombre no es una convencion mas: es el disparador del flujo de
+ * agendamiento (ver el caso especial en `handleIntent`). Vive aparte para no
+ * repetir el literal en cada sitio que lo compara.
+ */
+const CITA_INTENT_NAME = 'cita';
+
+/**
+ * Igual que `CITA_INTENT_NAME`, pero para el botón sintético "Hablar con un
+ * asesor": dispara la derivación directo (ver el caso especial en
+ * `handleIntent`), sin depender de que el lead agote sus 3 intentos de
+ * fallback primero.
+ */
+const DERIVATION_INTENT_NAME = 'asesor';
 
 function isPendingQuestionFresh(session: UserSession | null): boolean {
   if (!session?.pending_scope_message || !session.pending_scope_updated_at) return false;
@@ -67,6 +83,10 @@ export interface ProcessMessageOptions {
   scopeId?: string;
   referralAdId?: string;
   suppressExternalMessages?: boolean;
+  // Datos ya estructurados de un WhatsApp Flow completado (nfm_reply). Cuando
+  // llega esto, `messageText` es solo un placeholder para logs — el dato real
+  // está aquí.
+  flowResponse?: Record<string, any>;
 }
 
 export interface ProcessedResponse {
@@ -150,6 +170,70 @@ export class MessageProcessor {
       });
       const scopeId = routing.scopeId;
 
+      // "Agendar visita" es un boton que arranca el flujo de cita directo,
+      // sin pasar por `intent_configurations`: a diferencia de cualquier otra
+      // pregunta, no depende de que exista ni este activa ninguna fila --por
+      // eso funciona igual si esa fila se archiva o se borra por accidente,
+      // que es justo lo que le paso a esta antes de escribir esto--. El resto
+      // de las opciones si necesita resolver contra una fila real, mas abajo.
+      if (offerSelection?.option.intentName === CITA_INTENT_NAME) {
+        await userRepository.setScopeFocus(user.id, offerSelection.option.scopeId, scopeId);
+        const syntheticCita: IntentMatch = {
+          intent_id: 'system:cita',
+          scope_id: offerSelection.option.scopeId,
+          intent_name: CITA_INTENT_NAME,
+          confidence: 1,
+          matched_keywords: [],
+          fuzzy_matches: [],
+          detection_method: 'exact',
+        };
+        const offeredResponses = await this.handleIntent(
+          user,
+          syntheticCita,
+          offerSelection.option.scopeId,
+          true
+        );
+        return {
+          responses: offeredResponses,
+          shouldSend: true,
+          wasDetected: true,
+          isFallback: false,
+          detectedIntent: syntheticCita,
+          scopeId: offerSelection.option.scopeId,
+        };
+      }
+
+      // "Hablar con un asesor" es el mismo caso que "Agendar visita": un boton
+      // que dispara un flujo propio directo, sin pasar por
+      // `intent_configurations` ni por los 3 intentos de fallback que
+      // normalmente lo desencadenan.
+      if (offerSelection?.option.intentName === DERIVATION_INTENT_NAME) {
+        await userRepository.setScopeFocus(user.id, offerSelection.option.scopeId, scopeId);
+        const syntheticAsesor: IntentMatch = {
+          intent_id: 'system:asesor',
+          scope_id: offerSelection.option.scopeId,
+          intent_name: DERIVATION_INTENT_NAME,
+          confidence: 1,
+          matched_keywords: [],
+          fuzzy_matches: [],
+          detection_method: 'exact',
+        };
+        const offeredResponses = await this.handleIntent(
+          user,
+          syntheticAsesor,
+          offerSelection.option.scopeId,
+          true
+        );
+        return {
+          responses: offeredResponses,
+          shouldSend: true,
+          wasDetected: true,
+          isFallback: false,
+          detectedIntent: syntheticAsesor,
+          scopeId: offerSelection.option.scopeId,
+        };
+      }
+
       // Un boton de oferta que apunta a una pregunta se contesta ahi mismo: el
       // identificador ya dice cual y en que alcance, asi que no hay nada que
       // detectar. Es lo que convierte "¿te muestro las amenidades?" en un toque
@@ -197,6 +281,45 @@ export class MessageProcessor {
 
       // 3.5. Verificar si hay flujo de cita activo
       const hasAppointmentFlow = await appointmentManager.hasActiveFlow(user.id);
+
+      // 3.5.1. Un WhatsApp Flow completado llega como datos estructurados, no
+      // como texto libre — se resuelve aparte, sin pasar por las
+      // `cancelPhrases` de abajo (esas existen para interpretar intención en
+      // texto ambiguo; aquí no hay nada que interpretar, ya viene validado
+      // por la UI nativa del formulario).
+      if (hasAppointmentFlow && options.flowResponse) {
+        const flowResult = await appointmentManager.completeFromFlowSubmission(
+          user.id,
+          options.flowResponse,
+          scopeId
+        );
+
+        await conversationRepository.saveIncomingMessage(
+          user.id,
+          messageId,
+          messageText,
+          {
+            intent_id: 'appointment_flow',
+            scope_id: scopeId,
+            intent_name: 'appointment_flow',
+            confidence: 1.0,
+            matched_keywords: ['appointment', 'whatsapp_flow'],
+            fuzzy_matches: [],
+            detection_method: 'exact'
+          },
+          { scopeId, referralAdId: options.referralAdId }
+        );
+
+        return {
+          responses: [flowResult.message],
+          shouldSend: true,
+          wasDetected: true,
+          isFallback: false,
+          flowHandled: true,
+          scopeId,
+        };
+      }
+
       if (hasAppointmentFlow) {
         // Detectar si el usuario quiere cancelar o cambiar de tema
         const normalized = messageText.toLowerCase().trim();
@@ -521,7 +644,7 @@ export class MessageProcessor {
         // mejor decirlo y pasar al asesor que mandar una lista que el
         // transporte va a rechazar.
         return {
-          ...await fallbackHandler.handle(user.id, messageText),
+          ...await fallbackHandler.handle(user.id, messageText, effectiveScopeId),
           scopeId: effectiveScopeId,
         };
       }
@@ -538,7 +661,7 @@ export class MessageProcessor {
           };
         }
         return {
-          ...await fallbackHandler.handle(user.id, messageText),
+          ...await fallbackHandler.handle(user.id, messageText, effectiveScopeId),
           scopeId: effectiveScopeId,
         };
       }
@@ -585,7 +708,7 @@ export class MessageProcessor {
         );
         await userRepository.clearPendingOffer(user.id);
         return {
-          ...await fallbackHandler.handle(user.id, messageText),
+          ...await fallbackHandler.handle(user.id, messageText, effectiveScopeId),
           detectedIntent: detectionResult.intent,
           scopeId: effectiveScopeId,
         };
@@ -699,7 +822,7 @@ export class MessageProcessor {
     // y es donde mas se nota, porque ahi el lead sabe que hizo lo correcto.
     if (responses.length === 0) {
       return {
-        ...await fallbackHandler.handle(user.id, replay.intent_name),
+        ...await fallbackHandler.handle(user.id, replay.intent_name, option.scopeId),
         scopeId: option.scopeId,
       };
     }
@@ -841,10 +964,29 @@ export class MessageProcessor {
 
     // Si es intent "cita", iniciar flujo de agendamiento
     // skipConfirmation = true porque el usuario ya dijo explícitamente que quiere agendar
-    if (intent.intent_name === 'cita') {
+    if (intent.intent_name === CITA_INTENT_NAME) {
       await leadScorer.afterScopeInteraction(userId, resolvedScopeId);
+
+      // Interruptor de prueba: en 'whatsapp_flow' se manda el formulario
+      // nativo en vez de la máquina de estados por texto. La máquina de
+      // estados sigue intacta como respaldo — basta con quitar/cambiar esta
+      // variable de entorno para volver a ella sin tocar código.
+      if (process.env.APPOINTMENT_FLOW_MODE === 'whatsapp_flow') {
+        await appointmentManager.startFlowViaWhatsAppFlow(userId, user.phone_number, resolvedScopeId);
+        return [];
+      }
+
       const flowResult = await appointmentManager.startFlow(userId, true, resolvedScopeId);
       return [flowResult.message];
+    }
+
+    // Igual que "cita": "asesor" tampoco depende de que exista una fila en
+    // `intent_configurations`, es la misma derivación que dispara el nivel 3
+    // de fallback, sin esperar a que el lead agote sus intentos.
+    if (intent.intent_name === DERIVATION_INTENT_NAME) {
+      await leadScorer.afterScopeInteraction(userId, resolvedScopeId);
+      const derivationMessage = await fallbackHandler.startDerivation(userId, resolvedScopeId);
+      return [derivationMessage];
     }
 
     // Verificar si es checkpoint (determinado por is_checkpoint de intent_configurations)
@@ -910,26 +1052,11 @@ export class MessageProcessor {
     // se resolvian contra la fila de un fraccionamiento, que no tenia
     // ninguno, y el sistema componia otros por su cuenta.
     const authoredButtons = await conversationRepository.getResponseButtons(responseIntentIds, resolvedScopeId);
-    const offerOptions = authoredButtons?.length
-      // Hasta diez, no tres: el formato --botones o lista-- lo decide
-      // despues quien arma la presentacion (`currentOfferPresentation`),
-      // contando cuantas opciones hay. Con tres o menos WhatsApp las manda
-      // como botones; con cuatro o mas, como lista. No hay nada que decidir
-      // aqui.
-      ? authoredButtons.slice(0, MAX_LIST_OPTIONS).map(button => {
-          // El alcance del boton manda cuando lo trae: tocarlo mueve el foco
-          // ahi y contesta ahi. Es el mismo camino que ya usa una opcion
-          // enumerada, solo que declarado a mano en vez de compuesto.
-          const targetScopeId = button.scopeId || resolvedScopeId;
-          return {
-            id: `intent:${button.intentName}:${targetScopeId}`,
-            scopeId: targetScopeId,
-            label: button.label,
-            intentName: button.intentName,
-            description: button.description,
-          };
-        })
-      : [];
+    // Hasta diez, no tres: el formato --botones o lista-- lo decide despues
+    // quien arma la presentacion (`currentOfferPresentation`), contando
+    // cuantas opciones hay. Con tres o menos WhatsApp las manda como botones;
+    // con cuatro o mas, como lista. No hay nada que decidir aqui.
+    const offerOptions = authoredButtonsToOfferOptions(authoredButtons, resolvedScopeId);
     if (offerOptions.length > 0) {
       await userRepository.setPendingOffer(
         userId,

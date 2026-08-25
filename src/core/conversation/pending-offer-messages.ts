@@ -10,10 +10,49 @@
  */
 import { userRepository } from '@/data/repositories/user.repository';
 import { SCOPE_FOCUS_WINDOW_MS } from './scope-routing.service';
-import { chooseEnumerationFormat, MAX_BUTTON_OPTIONS } from './scope-enumeration.service';
+import { chooseEnumerationFormat, MAX_BUTTON_OPTIONS, MAX_LIST_OPTIONS } from './scope-enumeration.service';
 import { shortScopeAlias } from '@/lib/scope-alias';
 import type { PendingOfferOption } from '@/data/models/user.model';
 import type { UserSession } from '@/data/models/user.model';
+
+/**
+ * Un botón escrito a mano, tal como se guarda --en una respuesta o en un
+ * mensaje de fallback--: sin `id`, porque ese lo compone esta misma función.
+ */
+export interface AuthoredButtonDraft {
+  label: string;
+  intentName: string;
+  scopeId?: string | null;
+  description?: string;
+}
+
+/**
+ * Los botones que alguien escribió a mano, convertidos a lo que la oferta
+ * viva de la sesión necesita para que un toque los resuelva. Un solo lugar
+ * para el formato del `id` (`intent:{nombre}:{alcance}`): antes vivía
+ * repetido en cada sitio que arma una oferta desde botones propios --la
+ * respuesta normal y, ahora, cada nivel de fallback-- y una copia que
+ * cambiara sin la otra habría dejado un botón que el toque ya no reconoce.
+ */
+export function authoredButtonsToOfferOptions(
+  buttons: AuthoredButtonDraft[] | null | undefined,
+  fallbackScopeId: string
+): PendingOfferOption[] {
+  if (!buttons?.length) return [];
+  return buttons.slice(0, MAX_LIST_OPTIONS).map(button => {
+    // El alcance del boton manda cuando lo trae: tocarlo mueve el foco ahi y
+    // contesta ahi. Es el mismo camino que ya usa una opcion enumerada, solo
+    // que declarado a mano en vez de compuesto.
+    const targetScopeId = button.scopeId || fallbackScopeId;
+    return {
+      id: `intent:${button.intentName}:${targetScopeId}`,
+      scopeId: targetScopeId,
+      label: button.label,
+      intentName: button.intentName,
+      description: button.description,
+    };
+  });
+}
 
 /**
  * Lo que WhatsApp admite en el cuerpo de un mensaje interactivo. Un texto mas

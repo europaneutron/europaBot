@@ -5,6 +5,7 @@
 import { supabaseServer } from '@/services/supabase/server-client';
 import type { User, UserSession, UserProgress, PendingOfferOption } from '@/data/models/user.model';
 import { scopeRepository } from '@/data/repositories/scope.repository';
+import type { AppointmentFlowStep } from '@/types/appointment.types';
 
 export interface UserScopeProgress {
   user_id: string;
@@ -601,8 +602,8 @@ export class UserRepository {
    * Guardar estado actual del flujo de cita
    */
   async updateAppointmentFlowState(
-    userId: string, 
-    step: 'pending_auto_offer' | 'ask_confirmation' | 'ask_date' | 'confirm_date' | 'ask_time' | 'ask_name' | 'completed'
+    userId: string,
+    step: AppointmentFlowStep
   ): Promise<void> {
     await supabaseServer
       .from('user_progress')

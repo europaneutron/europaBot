@@ -174,7 +174,17 @@ export function ResponseEditor({
           <Label>Vista previa</Label>
           <ResponsePreview
             blocks={blocks}
-            variables={Object.fromEntries(variableOptions.map(option => [option.key, option.preview]))}
+            // Un dato de un hijo solo resuelve calificado --{europa.precio}--
+            // igual que en el runtime real: mapearlo tambien a su llave a
+            // secas haria que "{precio}" se viera resuelto en el preview sin
+            // estarlo de verdad, porque a secas es ambiguo entre hijos.
+            variables={Object.fromEntries(
+              variableOptions.flatMap(option => (
+                option.reachable === false
+                  ? (option.qualifiedKey ? [[option.qualifiedKey, option.preview]] : [])
+                  : [[option.key, option.preview]]
+              ))
+            )}
             buttons={cleanButtons(buttons) || []}
           />
         </div>

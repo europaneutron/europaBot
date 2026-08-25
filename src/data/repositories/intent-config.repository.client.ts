@@ -6,6 +6,22 @@ import { supabase } from '@/services/supabase/client';
 import type { FragmentedResponse } from '@/types/message-fragments.types';
 import { normalizeResponseWrite } from '@/lib/utils/response-blocks';
 
+/**
+ * Estas tres no son contenido cualquiera: son lo que abre, cierra y dispara
+ * el agendamiento de una conversación. El panel ya no ofrece el botón para
+ * tocarlas en grupo (ver `/intents`), y esto es la segunda barrera por si
+ * algo las llama de todos modos.
+ */
+const GROUP_ACTION_PROTECTED_NAMES = new Set(['cita', 'saludo', 'despedida']);
+
+function assertGroupActionAllowed(intentName: string): void {
+  if (GROUP_ACTION_PROTECTED_NAMES.has(intentName)) {
+    throw new Error(
+      `"${intentName}" es una intención protegida: no se archiva ni se borra en grupo.`
+    );
+  }
+}
+
 export interface IntentConfiguration {
   id: string;
   scope_id: string | null;
@@ -174,6 +190,7 @@ export class IntentConfigRepositoryClient {
    * solo en la que se muestra como representativa.
    */
   async archiveGroup(intentName: string): Promise<void> {
+    assertGroupActionAllowed(intentName);
     const { error } = await supabase
       .from('intent_configurations')
       .update({ is_active: false, updated_at: new Date().toISOString() })
@@ -203,6 +220,7 @@ export class IntentConfigRepositoryClient {
    * (ver `deleteOwnResponse`).
    */
   async deleteGroup(intentName: string): Promise<void> {
+    assertGroupActionAllowed(intentName);
     const { error } = await supabase
       .from('intent_configurations')
       .delete()

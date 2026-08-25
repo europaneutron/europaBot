@@ -3,15 +3,18 @@
  * Lógica de negocio para el flujo de agendamiento de citas
  */
 
+import crypto from 'crypto';
 import { appointmentRepository } from '@/data/repositories/appointment.repository';
 import { userRepository } from '@/data/repositories/user.repository';
 import { configRepository } from '@/data/repositories/config.repository';
 import { leadScorer } from '@/core/scoring';
 import { whatsappSender } from '@/services/whatsapp/message-sender';
-import type { AppointmentFlow, TimeSlot, AppointmentFlowData } from '@/types/appointment.types';
+import type { AppointmentFlow, TimeSlot, AppointmentFlowData, AppointmentFlowSubmission } from '@/types/appointment.types';
 import { interpolateMessage } from '@/lib/interpolate-message';
 import { ROOT_SCOPE_ID } from '@/data/repositories/scope.repository';
 import { resolveConfiguredMessage } from '@/core/messaging/configured-message';
+
+const VALID_TIME_SLOTS: readonly TimeSlot[] = ['morning', 'afternoon', 'evening'];
 
 export class AppointmentManager {
   /**
@@ -61,6 +64,113 @@ export class AppointmentManager {
   }
 
   /**
+   * Iniciar el flujo mandando el WhatsApp Flow nativo (formulario de
+   * pantallas) en vez de la máquina de estados por texto. Convive con
+   * `startFlow`: se envuelve, no se reemplaza — ver
+   * [[europabot-flujo-cita-ia]] en la memoria del proyecto para la decisión.
+   *
+   * Requiere `WHATSAPP_APPOINTMENT_FLOW_ID` en el entorno (el flow_id que
+   * entrega WhatsApp Manager al publicar scratchpad/appointment-flow.json).
+   */
+  async startFlowViaWhatsAppFlow(
+    userId: string,
+    phoneNumber: string,
+    scopeId?: string | null
+  ): Promise<void> {
+    const flowId = process.env.WHATSAPP_APPOINTMENT_FLOW_ID;
+    if (!flowId) {
+      throw new Error('WHATSAPP_APPOINTMENT_FLOW_ID no está configurado');
+    }
+
+    // Mínimo mañana: el Flow no valida reglas de negocio, solo evita que el
+    // DatePicker deje elegir "hoy" cuando ya no queda horario disponible.
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const minDate = this.formatDateISO(tomorrow);
+
+    // flow_token correlaciona el envío con el nfm_reply que regrese; no se
+    // valida contra nada todavía, es un identificador de correlación, no de
+    // seguridad — la validación real ocurre en `completeFromFlowSubmission`.
+    const flowToken = crypto.randomUUID();
+
+    // El envío va primero: si WhatsApp lo rechaza (flow_id inválido, Flow no
+    // publicado, etc.), no queremos dejar al usuario con el estado
+    // `awaiting_flow` grabado sin que el formulario haya llegado de verdad —
+    // eso lo deja atorado esperando algo que nunca existió.
+    await whatsappSender.sendFlowMessage({
+      to: phoneNumber,
+      bodyText: '¡Perfecto! Completa este formulario para agendar tu visita. 📅',
+      flowId,
+      flowToken,
+      flowCta: 'Agendar cita',
+      flowActionPayload: {
+        screen: 'APPOINTMENT_DATE_TIME',
+        data: { min_date: minDate },
+      },
+    });
+
+    // Solo se marca "esperando el formulario" una vez que WhatsApp confirmó
+    // que lo mandó.
+    await userRepository.updateAppointmentFlowData(userId, {
+      scope_id: scopeId ?? ROOT_SCOPE_ID,
+    });
+    await userRepository.updateAppointmentFlowState(userId, 'awaiting_flow');
+  }
+
+  /**
+   * Procesar el nfm_reply de un WhatsApp Flow completado. A diferencia de
+   * `processFlowStep`, no hay texto libre que interpretar — son campos ya
+   * estructurados por la UI nativa —, pero igual se validan contra las
+   * mismas reglas de negocio que el flujo por texto: nada de confiar en el
+   * cliente. Reusa `finalizeAppointment`, la misma cola que `processName`.
+   */
+  async completeFromFlowSubmission(
+    userId: string,
+    submission: AppointmentFlowSubmission,
+    scopeId?: string | null
+  ): Promise<AppointmentFlow> {
+    const { booking_date, time_slot, visitor_name } = submission;
+
+    if (!booking_date || !time_slot || !visitor_name?.trim()) {
+      await userRepository.clearAppointmentFlow(userId);
+      return {
+        step: 'completed',
+        message: 'No pude leer los datos del formulario. Por favor intenta agendar nuevamente escribiendo "quiero una cita".'
+      };
+    }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const parsedDate = new Date(booking_date + 'T00:00:00');
+    if (isNaN(parsedDate.getTime()) || parsedDate < today) {
+      await userRepository.clearAppointmentFlow(userId);
+      return {
+        step: 'completed',
+        message: 'Esa fecha ya no es válida. Por favor intenta agendar nuevamente escribiendo "quiero una cita".'
+      };
+    }
+
+    if (!VALID_TIME_SLOTS.includes(time_slot as TimeSlot)) {
+      await userRepository.clearAppointmentFlow(userId);
+      return {
+        step: 'completed',
+        message: 'Ese horario ya no está disponible. Por favor intenta agendar nuevamente escribiendo "quiero una cita".'
+      };
+    }
+
+    const flowData = await userRepository.getAppointmentFlowData(userId) as AppointmentFlowData;
+    const originScopeId = flowData?.scope_id ?? scopeId ?? ROOT_SCOPE_ID;
+
+    return this.finalizeAppointment(
+      userId,
+      visitor_name.trim(),
+      booking_date,
+      time_slot as TimeSlot,
+      originScopeId
+    );
+  }
+
+  /**
    * Procesar respuesta según el paso actual del flujo
    */
   async processFlowStep(
@@ -85,7 +195,16 @@ export class AppointmentManager {
       
       case 'ask_name':
         return this.processName(userId, input, scopeId);
-      
+
+      case 'awaiting_flow':
+        // El lead escribió texto en vez de llenar el formulario del Flow.
+        // No hay nada que parsear aquí — solo recordarle que el formulario
+        // sigue abierto arriba en el chat.
+        return {
+          step: 'awaiting_flow',
+          message: 'Tienes un formulario abierto arriba para agendar tu cita 📋. Complétalo ahí, o escribe "cancelar" si prefieres hacerlo por aquí.'
+        };
+
       default:
         // No hay flujo activo, iniciar desde cero
         return this.startFlow(userId, false, scopeId);
@@ -315,13 +434,28 @@ Puedes escribir:
 
     const originScopeId = flowData.scope_id ?? scopeId ?? ROOT_SCOPE_ID;
 
+    return this.finalizeAppointment(userId, name.trim(), flowData.requested_date, flowData.time_slot, originScopeId);
+  }
+
+  /**
+   * Cola común para crear la cita y responder, una vez que fecha/horario/
+   * nombre ya están validados — sin importar si vinieron del parser de texto
+   * (`processName`) o de un WhatsApp Flow (`completeFromFlowSubmission`).
+   */
+  private async finalizeAppointment(
+    userId: string,
+    visitorName: string,
+    requestedDate: string,
+    timeSlot: TimeSlot,
+    originScopeId: string
+  ): Promise<AppointmentFlow> {
     // Crear cita en BD
     const appointment = await appointmentRepository.create(
       {
         user_id: userId,
-        visitor_name: name.trim(),
-        requested_date: flowData.requested_date,
-        time_slot: flowData.time_slot
+        visitor_name: visitorName,
+        requested_date: requestedDate,
+        time_slot: timeSlot
       },
       originScopeId
     );
@@ -353,13 +487,13 @@ Puedes escribir:
     await leadScorer.afterAppointmentCreated(userId, originScopeId);
 
     // Formatear mensaje de confirmación con variables
-    const dateDisplay = this.formatDate(flowData.requested_date);
-    const timeSlotConfig = await this.getTimeSlotDisplay(flowData.time_slot, originScopeId);
+    const dateDisplay = this.formatDate(requestedDate);
+    const timeSlotConfig = await this.getTimeSlotDisplay(timeSlot, originScopeId);
     const address = await resolveConfiguredMessage(
       'appointment_address',
       'Calle Principal #123, Fraccionamiento Europa, Ciudad'
     );
-    
+
     // Obtener mensaje de confirmación desde configuración
     let confirmationMsg = await configRepository.get(
       'appointment_confirmation',

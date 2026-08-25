@@ -51,10 +51,14 @@ function describeResponse(response: BotResponse): string {
   return '';
 }
 
+/** Se mueve a Ajustes -> Citas: no es una pregunta, es lo que dispara el flujo. */
+const CITA_INTENT_NAME = 'cita';
+
 export default function QuestionTreePage() {
   const params = useParams<{ intentName: string }>();
   const router = useRouter();
   const intentName = decodeURIComponent(params.intentName);
+  const isCita = intentName === CITA_INTENT_NAME;
 
   const [rows, setRows] = useState<IntentConfiguration[]>([]);
   const [scopes, setScopes] = useState<Scope[]>([]);
@@ -71,7 +75,8 @@ export default function QuestionTreePage() {
   } | null>(null);
 
   useEffect(() => {
-    loadData();
+    if (!isCita) loadData();
+    else setLoading(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [intentName]);
 
@@ -224,6 +229,18 @@ export default function QuestionTreePage() {
     } finally {
       setBusyScopeId(null);
     }
+  }
+
+  if (isCita) {
+    return (
+      <div className="p-6 max-w-2xl mx-auto space-y-4">
+        <p className="text-sm text-muted-foreground">
+          &quot;Cita&quot; ya no se administra aquí: es lo que dispara el flujo de agendamiento, no
+          una pregunta más. Sus palabras clave y su mensaje se editan juntos en{' '}
+          <Link href="/settings" className="text-primary hover:underline">Ajustes → Citas</Link>.
+        </p>
+      </div>
+    );
   }
 
   if (error) {

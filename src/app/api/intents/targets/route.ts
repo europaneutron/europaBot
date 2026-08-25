@@ -22,6 +22,22 @@ import { getAuthenticatedAdmin } from '@/lib/server/authenticated-admin';
 // Ni saludar ni despedirse son un paso siguiente que ofrecer.
 const NOT_A_TARGET = new Set(['saludo', 'despedida']);
 
+/**
+ * "Agendar visita" no es una fila de `intent_configurations` que se pueda
+ * ofrecer como cualquier otra: es una entrada fija, igual en todos los
+ * alcances, que no depende de que exista ni esté activa ninguna fila. Por
+ * eso se excluye de las filas reales (por si alguien la recreara con ese
+ * nombre) y se agrega aparte, siempre, al final.
+ */
+const CITA_INTENT_NAME = 'cita';
+
+/**
+ * Igual que `CITA_INTENT_NAME`: "Hablar con un asesor" es otra entrada fija,
+ * la misma derivación que hoy dispara el nivel 3 de fallback, disparable
+ * directo desde un botón sin depender de ninguna fila.
+ */
+const ASESOR_INTENT_NAME = 'asesor';
+
 export async function GET(request: NextRequest) {
   const admin = await getAuthenticatedAdmin(request);
   if (!admin) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
@@ -67,12 +83,14 @@ export async function GET(request: NextRequest) {
         destination,
         row => row.intent_name
       );
-      targetsByScope[destination] = reachable
+      const fromRows = reachable
         // La propia pregunta solo se excluye cuando el boton no mueve el foco:
         // "el precio de Malasia" desde la respuesta de precio del negocio es
         // util, y no es repetirse.
         .filter(row => !(destination === scopeId && row.intent_name === exclude))
         .filter(row => !NOT_A_TARGET.has(row.intent_name))
+        .filter(row => row.intent_name !== CITA_INTENT_NAME)
+        .filter(row => row.intent_name !== ASESOR_INTENT_NAME)
         .map(row => ({
           intentName: row.intent_name,
           displayName: row.display_name,
@@ -83,6 +101,22 @@ export async function GET(request: NextRequest) {
           Number(Boolean(left.inheritedFrom)) - Number(Boolean(right.inheritedFrom))
           || left.displayName.localeCompare(right.displayName)
         ));
+
+      const isEditingCita = destination === scopeId && exclude === CITA_INTENT_NAME;
+      const isEditingAsesor = destination === scopeId && exclude === ASESOR_INTENT_NAME;
+
+      targetsByScope[destination] = [
+        ...fromRows,
+        // Fijas, sin fila detras: nunca aparecen "sin respuesta" ni dependen
+        // de que nadie las haya archivado o borrado. Cada una se omite solo
+        // cuando es el propio boton que se esta editando.
+        ...(isEditingCita ? [] : [
+          { intentName: CITA_INTENT_NAME, displayName: 'Agendar visita', inheritedFrom: null, hasResponse: true },
+        ]),
+        ...(isEditingAsesor ? [] : [
+          { intentName: ASESOR_INTENT_NAME, displayName: 'Hablar con un asesor', inheritedFrom: null, hasResponse: true },
+        ]),
+      ];
     }
 
     return NextResponse.json({

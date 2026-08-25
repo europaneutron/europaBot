@@ -71,6 +71,7 @@ export class WebhookValidator {
     text: string;
     name?: string;
     referralAdId?: string;
+    flowResponse?: Record<string, any>;
   } | null {
     try {
       const entry = body.entry?.[0];
@@ -84,11 +85,12 @@ export class WebhookValidator {
 
       const contact = value?.contacts?.[0];
       let text: string;
+      let flowResponse: Record<string, any> | undefined;
 
       // Manejar mensajes de texto normales
       if (message.type === 'text') {
         text = message.text.body;
-      } 
+      }
       // Manejar respuestas de botones interactivos
       else if (message.type === 'interactive') {
         if (message.interactive?.type === 'button_reply') {
@@ -97,10 +99,24 @@ export class WebhookValidator {
         } else if (message.interactive?.type === 'list_reply') {
           // Usuario seleccionó de una lista
           text = message.interactive.list_reply.id;
+        } else if (message.interactive?.type === 'nfm_reply') {
+          // Usuario completó un WhatsApp Flow nativo (formulario). El payload
+          // viaja como un string JSON dentro de `response_json`, no como
+          // objeto directo — hay que parsearlo.
+          const rawJson = message.interactive.nfm_reply?.response_json;
+          try {
+            flowResponse = typeof rawJson === 'string' ? JSON.parse(rawJson) : rawJson;
+          } catch (parseError) {
+            console.error('Error parseando response_json del Flow:', parseError, rawJson);
+            return null;
+          }
+          // No hay texto libre en un nfm_reply; se deja algo legible para
+          // logs y para el guardado en `conversationRepository`.
+          text = message.interactive.nfm_reply?.name || '[flow_submission]';
         } else {
           return null;
         }
-      } 
+      }
       else {
         // Tipo de mensaje no soportado
         return null;
@@ -113,7 +129,8 @@ export class WebhookValidator {
         name: contact?.profile?.name,
         referralAdId: typeof message.referral?.source_id === 'string'
           ? message.referral.source_id
-          : undefined
+          : undefined,
+        flowResponse,
       };
     } catch (error) {
       console.error('Error extracting message:', error);

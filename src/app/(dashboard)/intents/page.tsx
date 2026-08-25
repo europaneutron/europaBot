@@ -30,6 +30,24 @@ import { reachableScopes, TreeScope } from '@/lib/question-tree';
 
 const ROOT_SCOPE_ID = '00000000-0000-4000-8000-000000000001';
 
+/**
+ * "Cita" ya no vive aqui: se mueve a Ajustes -> Citas, junto con su mensaje,
+ * porque no es contenido -- es lo que dispara el flujo de agendamiento (ver
+ * `CITA_INTENT_NAME` en `message-processor.ts`). Archivarla o borrarla desde
+ * esta lista, pensando que era una pregunta cualquiera, apagaba esa funcion
+ * entera sin ningun aviso -- es lo que ya paso una vez.
+ */
+const CITA_INTENT_NAME = 'cita';
+
+/**
+ * Saludo y despedida si son contenido normal -- se editan igual que
+ * cualquier otra, con fragmentos y botones -- pero archivarlas o borrarlas
+ * en cascada por accidente deja al bot sin como abrir o cerrar una
+ * conversacion. Se protegen solo de las dos acciones masivas, no de la
+ * edicion.
+ */
+const GROUP_ACTION_PROTECTED_NAMES = new Set(['saludo', 'despedida']);
+
 interface QuestionRow {
   intentName: string;
   displayName: string;
@@ -50,9 +68,10 @@ function groupByQuestion(
   intents: IntentConfiguration[],
   reachableIds: Set<string> | null
 ): QuestionRow[] {
-  const visible = reachableIds
+  const visible = (reachableIds
     ? intents.filter(intent => intent.scope_id && reachableIds.has(intent.scope_id))
-    : intents;
+    : intents
+  ).filter(intent => intent.intent_name !== CITA_INTENT_NAME);
   const byName = new Map<string, IntentConfiguration[]>();
   for (const intent of visible) {
     const group = byName.get(intent.intent_name) || [];
@@ -294,6 +313,7 @@ export default function IntentsPage() {
             ) : (
               filteredQuestions.map((question) => {
                 const isBusy = busyIntentName === question.intentName;
+                const isProtected = GROUP_ACTION_PROTECTED_NAMES.has(question.intentName);
                 return (
                   <TableRow key={question.intentName} className="hover:bg-muted/50">
                     <TableCell>
@@ -326,8 +346,12 @@ export default function IntentsPage() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          disabled={isBusy}
-                          title={showArchived ? 'Restaurar en todos los alcances' : 'Archivar en todos los alcances'}
+                          disabled={isBusy || isProtected}
+                          title={
+                            isProtected
+                              ? 'El bot la necesita para abrir o cerrar una conversación: no se archiva en grupo'
+                              : showArchived ? 'Restaurar en todos los alcances' : 'Archivar en todos los alcances'
+                          }
                           onClick={() => handleToggleArchiveGroup(question, !showArchived)}
                         >
                           {isBusy ? (
@@ -341,8 +365,12 @@ export default function IntentsPage() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          disabled={isBusy}
-                          title="Eliminar en todos los alcances"
+                          disabled={isBusy || isProtected}
+                          title={
+                            isProtected
+                              ? 'El bot la necesita para abrir o cerrar una conversación: no se borra en grupo'
+                              : 'Eliminar en todos los alcances'
+                          }
                           onClick={() => handleDeleteGroup(question)}
                         >
                           <Trash2 className="h-4 w-4" />

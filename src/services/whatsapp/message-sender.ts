@@ -37,6 +37,18 @@ export interface SendListParams {
   rows: ListRow[];
 }
 
+export interface SendFlowParams {
+  to: string;
+  bodyText: string;
+  flowId: string;
+  flowToken: string;
+  flowCta: string; // Texto del botón que abre el Flow, máximo 20 caracteres
+  flowActionPayload?: {
+    screen: string;
+    data?: Record<string, unknown>;
+  };
+}
+
 export class WhatsAppMessageSender {
   /**
    * Enviar mensaje de texto
@@ -599,6 +611,67 @@ export class WhatsAppMessageSender {
       const error = await response.text();
       console.error('WhatsApp API error:', error);
       throw new Error(`Failed to send list message: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return {
+      messageId: data.messages[0].id
+    };
+  }
+
+  /**
+   * Enviar un WhatsApp Flow nativo (formulario de pantallas dentro del chat)
+   * Es un service message: no requiere plantilla aprobada, igual que botones
+   * y listas — solo el Flow en sí tiene que existir ya publicado en
+   * WhatsApp Manager (ver scratchpad/appointment-flow.json).
+   */
+  async sendFlowMessage({
+    to,
+    bodyText,
+    flowId,
+    flowToken,
+    flowCta,
+    flowActionPayload,
+  }: SendFlowParams): Promise<{ messageId: string }> {
+    const url = `${WHATSAPP_API_URL}/${WHATSAPP_PHONE_ID}/messages`;
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${WHATSAPP_TOKEN}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        messaging_product: 'whatsapp',
+        recipient_type: 'individual',
+        to: to,
+        type: 'interactive',
+        interactive: {
+          type: 'flow',
+          body: {
+            text: bodyText
+          },
+          action: {
+            name: 'flow',
+            parameters: {
+              flow_message_version: '3',
+              flow_token: flowToken,
+              flow_id: flowId,
+              flow_cta: flowCta.substring(0, 20),
+              flow_action: 'navigate',
+              ...(flowActionPayload ? {
+                flow_action_payload: flowActionPayload,
+              } : {}),
+            }
+          }
+        }
+      })
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      console.error('WhatsApp API error:', error);
+      throw new Error(`Failed to send flow message: ${response.status}`);
     }
 
     const data = await response.json();

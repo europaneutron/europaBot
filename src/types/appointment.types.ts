@@ -7,14 +7,28 @@ export type TimeSlot = 'morning' | 'afternoon' | 'evening';
 
 export type AppointmentStatus = 'pending' | 'confirmed' | 'cancelled' | 'completed';
 
-export type AppointmentFlowStep = 
+export type AppointmentFlowStep =
   | 'pending_auto_offer'  // Esperando confirmación de oferta automática
-  | 'ask_confirmation' 
+  | 'ask_confirmation'
   | 'ask_date'
   | 'confirm_date'  // Confirmar fecha interpretada
-  | 'ask_time' 
-  | 'ask_name' 
+  | 'ask_time'
+  | 'ask_name'
+  | 'awaiting_flow'  // Se mandó un WhatsApp Flow nativo, esperando el nfm_reply
   | 'completed';
+
+/**
+ * Lo que llega en `interactive.nfm_reply.response_json` cuando el lead
+ * termina el WhatsApp Flow de agendamiento. Los nombres coinciden con los
+ * `name` de cada componente en el flow JSON (ver
+ * scratchpad/appointment-flow.json), no con `AppointmentFlowData` a propósito:
+ * son dos capas distintas, esta es la entrada sin validar todavía.
+ */
+export interface AppointmentFlowSubmission {
+  booking_date?: string; // YYYY-MM-DD, tal como lo entrega el DatePicker nativo
+  time_slot?: string;    // id del RadioButtonsGroup: morning | afternoon | evening
+  visitor_name?: string;
+}
 
 /**
  * Configuración de horarios desde BD

@@ -69,7 +69,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ status: 'no_message' }, { status: 200 });
     }
 
-    const { from, messageId, text, name, referralAdId } = messageData;
+    const { from, messageId, text, name, referralAdId, flowResponse } = messageData;
 
     console.log(`📨 Mensaje recibido de ${from}: "${text}"`);
 
@@ -82,7 +82,7 @@ export async function POST(request: NextRequest) {
       text,
       messageId,
       name,
-      { referralAdId }
+      { referralAdId, flowResponse }
     );
 
     // Obtener userId SIEMPRE (necesario para verificar flow state)
