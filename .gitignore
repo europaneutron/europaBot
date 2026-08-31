@@ -66,3 +66,4 @@ supabase/.branches/
 
 # Configuracion de Claude Code por maquina
 .claude/settings.local.json
+backups/
