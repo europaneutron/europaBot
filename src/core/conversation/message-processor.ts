@@ -692,6 +692,28 @@ export class MessageProcessor {
         effectiveHasFocus
       );
 
+      // "Cita" en modo whatsapp_flow manda el formulario nativo por un canal
+      // aparte (dentro de handleIntent) y regresa [] a propósito: aquí no hay
+      // nada que mandar por el pipeline normal, pero tampoco es el caso de
+      // abajo (intencion sin nada configurado). Sin esta excepcion, el guard
+      // siguiente lo confundia con eso y mandaba "no entiendo tu pregunta"
+      // pegado al formulario, en el mismo turno en que el lead pidio la cita.
+      const isCitaHandledByWhatsAppFlow =
+        detectionResult.intent.intent_name === CITA_INTENT_NAME
+        && process.env.APPOINTMENT_FLOW_MODE === 'whatsapp_flow';
+
+      if (isCitaHandledByWhatsAppFlow) {
+        return {
+          responses: [],
+          shouldSend: false,
+          wasDetected: true,
+          isFallback: false,
+          flowHandled: true,
+          detectedIntent: detectionResult.intent,
+          scopeId: effectiveScopeId,
+        };
+      }
+
       // Detectada pero sin nada que mandar. Se cae al fallback igual, pero
       // diciendo cual era: el panel decia "Intencion: No detectada" y era
       // mentira --el matcher habia acertado y la respuesta se habia caido
