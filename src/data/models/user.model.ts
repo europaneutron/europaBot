@@ -51,6 +51,7 @@ export interface UserSession {
   last_fallback_at?: Date;
   conversation_context: any[];
   awaiting_advisor_name?: boolean; // Para derivación a asesor
+  pending_advisor_name?: string | null; // Nombre escrito, a la espera de confirmación
   current_scope_id?: string | null;
   previous_scope_id?: string | null;
   scope_focus_updated_at?: string | Date | null;

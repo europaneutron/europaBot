@@ -1,5 +1,6 @@
 import type { ProcessedResponse } from '@/core/conversation/message-processor';
 import type { TurnFacts } from './turn-message-builder';
+import { formatAppointmentDate, formatSlotRange } from '@/core/appointment/appointment-text';
 
 export type AiPathDecision =
   | { use: true }
@@ -54,16 +55,23 @@ export async function createGateDependencies(): Promise<AiPathGateDependencies> 
 
 /** Hechos del turno que no son estado de la conversación: reloj, anuncio de origen y cita vigente. */
 export async function buildTurnFacts(userId: string, referralAdId?: string): Promise<TurnFacts> {
-  const [{ scopeRepository }, { scopeRoutingRepository }, { appointmentRepository }] = await Promise.all([
+  const [{ scopeRepository, ROOT_SCOPE_ID }, { scopeRoutingRepository }, { appointmentRepository }] = await Promise.all([
     import('@/data/repositories/scope.repository'), import('@/data/repositories/scope-routing.repository'),
     import('@/data/repositories/appointment.repository'),
   ]);
   const adScopeId = referralAdId ? await scopeRoutingRepository.findActiveScopeByAd(referralAdId) : null;
   const [scopes, reachable] = await Promise.all([scopeRepository.getScopes(), scopeRepository.getReachableScopeIds()]);
+  const active = await appointmentRepository.getActiveInScopes(userId, Array.from(reachable));
   return {
     now: new Date(),
     adOrigin: adScopeId ? scopes.find(scope => scope.id === adScopeId)?.name ?? null : null,
-    hasActiveAppointment: await appointmentRepository.hasActiveInScopes(userId, Array.from(reachable)),
+    hasActiveAppointment: active !== null,
+    appointment: active && {
+      date: formatAppointmentDate(active.requested_date),
+      hours: formatSlotRange(active.time_slot_start, active.time_slot_end),
+      development: active.scope_id === ROOT_SCOPE_ID ? null : scopes.find(scope => scope.id === active.scope_id)?.name ?? null,
+      visitorName: active.visitor_name,
+    },
     shouldOfferAppointment: false,
   };
 }

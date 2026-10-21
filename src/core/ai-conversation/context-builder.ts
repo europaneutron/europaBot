@@ -155,7 +155,7 @@ export function buildContextFromData(data: AiContextData) {
     buildPersona(data.persona, data.brand.business_name),
     [
       '# Capacidades',
-      'Puedes contestar con la información de esta guía y pasar la conversación con un asesor.',
+      'Puedes contestar con la información de esta guía. La conversación pasa con un asesor cuando la persona pide hablar con una persona, o cuando la guía no tiene la respuesta y la persona acepta la oferta de pasar con un asesor.',
       ...availableDevelopments.filter(item => item.hasAppointments).map(item => `Puedes iniciar el flujo de visita en ${item.name}.`),
       ...(availableDevelopments.some(item => item.hasAppointments) ? ['La visita se propone en el mensaje en que la nota del turno la marca como el siguiente paso.'] : []),
       ...availableDevelopments.filter(item => item.hasResources)

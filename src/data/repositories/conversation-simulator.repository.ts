@@ -64,6 +64,7 @@ export class ConversationSimulatorRepository {
         last_fallback_at: null,
         conversation_context: [],
         awaiting_advisor_name: false,
+        pending_advisor_name: null,
         current_scope_id: null,
         previous_scope_id: null,
         scope_focus_updated_at: null,

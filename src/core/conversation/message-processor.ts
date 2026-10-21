@@ -185,6 +185,25 @@ export class MessageProcessor {
     return afterSend ? { ...lexical, afterSend } : lexical;
   }
 
+  /**
+   * Solo con el interruptor encendido el modelo ayuda a captar un rechazo claro
+   * durante la captura del nombre. Sin interruptor o ante cualquier fallo no hay
+   * detector, y la captura sigue con la confirmación, que es la regla de fondo.
+   */
+  private async createDeclineDetector(
+    userId: string, messageId: string
+  ): Promise<((text: string) => Promise<boolean>) | undefined> {
+    try {
+      const gate = this.aiGate ?? await createGateDependencies();
+      if (!(await decideAiAccess(gate)).use) return undefined;
+      const { detectClearDecline } = await import('@/core/ai-conversation/decline-detector');
+      return text => detectClearDecline({ userId, messageId, text });
+    } catch (error) {
+      console.error('No se pudo preparar el detector de rechazo; la captura sigue con confirmación:', error);
+      return undefined;
+    }
+  }
+
   private async processLexicalMessage(
     phoneNumber: string,
     messageText: string,
@@ -355,10 +374,12 @@ export class MessageProcessor {
           scopeId
         );
 
+        // El historial es lo que lee el siguiente turno (y el asesor): "flow" no dice
+        // qué se agendó, así que se guarda el resumen legible del formulario.
         await conversationRepository.saveIncomingMessage(
           user.id,
           messageId,
-          messageText,
+          flowResult.recordText ?? messageText,
           {
             intent_id: 'appointment_flow',
             scope_id: scopeId,
@@ -557,8 +578,18 @@ export class MessageProcessor {
       const session = await userRepository.getSession(user.id);
       
       if (session?.awaiting_advisor_name) {
+        // Este camino devuelve antes de guardar la entrada más abajo: sin esto el
+        // mensaje con el que el lead responde (nombre, confirmación o rechazo) no
+        // quedaba en `conversations` y la IA no lo veía en el historial.
+        if (!(await conversationRepository.hasIncomingMessage(messageId))) {
+          await conversationRepository.saveIncomingMessage(
+            user.id, messageId, messageText, undefined, { scopeId, referralAdId: options.referralAdId }
+          );
+        }
         return {
-          ...await fallbackHandler.captureAdvisorName(user.id, user, messageText, session, scopeId),
+          ...await fallbackHandler.captureAdvisorName(user.id, user, messageText, session, scopeId, {
+            declines: await this.createDeclineDetector(user.id, messageId),
+          }),
           scopeId,
         };
       }

@@ -721,10 +721,20 @@ export class UserRepository {
    * Activar/desactivar estado de espera de nombre para derivación a asesor
    */
   async updateAwaitingAdvisorName(userId: string, awaiting: boolean): Promise<void> {
+    // Un candidato sin espera activa quedaría huérfano: se limpian juntos.
     await supabaseServer
       .from('user_sessions')
-      .update({ awaiting_advisor_name: awaiting })
+      .update(awaiting ? { awaiting_advisor_name: true } : { awaiting_advisor_name: false, pending_advisor_name: null })
       .eq('user_id', userId);
+  }
+
+  /** Nombre escrito por el lead que espera su confirmación; null lo descarta. */
+  async setPendingAdvisorName(userId: string, name: string | null): Promise<void> {
+    const { error } = await supabaseServer
+      .from('user_sessions')
+      .update({ pending_advisor_name: name })
+      .eq('user_id', userId);
+    if (error) throw error;
   }
 
   /**

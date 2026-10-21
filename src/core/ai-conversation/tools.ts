@@ -12,7 +12,7 @@ export interface AiDevelopment {
 export type AiToolName = 'agendar_visita' | 'hablar_con_asesor' | 'enviar_brochure';
 const descriptions: Record<AiToolName, string> = {
   agendar_visita: 'Inicia el flujo de visita; el flujo pide los datos y confirma la cita. Con varios desarrollos, aclara cuál antes de llamar.',
-  hablar_con_asesor: 'Inicia la derivación a un asesor. El desarrollo es opcional.',
+  hablar_con_asesor: 'Inicia la derivación a un asesor humano. Se usa cuando la persona pide hablar con una persona, o cuando la guía no tiene la respuesta y la persona aceptó la oferta de pasar con un asesor. Una inconformidad o una duda sobre algo ya dicho en la conversación se aclara en la conversación. El desarrollo es opcional.',
   enviar_brochure: 'Envía el brochure del desarrollo (PDF u otros recursos) junto con el mensaje de este turno, que escribes en la misma respuesta que la llamada.',
 };
 export function availableDevelopments(name: AiToolName, developments: AiDevelopment[]) {

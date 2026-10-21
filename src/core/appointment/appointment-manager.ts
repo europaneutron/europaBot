@@ -13,6 +13,13 @@ import type { AppointmentFlow, TimeSlot, AppointmentFlowData, AppointmentFlowSub
 import { interpolateMessage } from '@/lib/interpolate-message';
 import { ROOT_SCOPE_ID } from '@/data/repositories/scope.repository';
 import { resolveConfiguredMessage } from '@/core/messaging/configured-message';
+import {
+  adaptConfirmationTemplate,
+  describeFormSubmission,
+  formatAppointmentDate,
+  formatAppointmentDateWithHint,
+  formatSlotRange,
+} from './appointment-text';
 
 const VALID_TIME_SLOTS: readonly TimeSlot[] = ['morning', 'afternoon', 'evening'];
 
@@ -135,7 +142,8 @@ export class AppointmentManager {
       await userRepository.clearAppointmentFlow(userId);
       return {
         step: 'completed',
-        message: 'No pude leer los datos del formulario. Por favor intenta agendar nuevamente escribiendo "quiero una cita".'
+        message: 'No pude leer los datos del formulario. Por favor intenta agendar nuevamente escribiendo "quiero una cita".',
+        recordText: '[Formulario de cita enviado con datos incompletos]',
       };
     }
 
@@ -146,7 +154,8 @@ export class AppointmentManager {
       await userRepository.clearAppointmentFlow(userId);
       return {
         step: 'completed',
-        message: 'Esa fecha ya no es válida. Por favor intenta agendar nuevamente escribiendo "quiero una cita".'
+        message: 'Esa fecha ya no es válida. Por favor intenta agendar nuevamente escribiendo "quiero una cita".',
+        recordText: `[Formulario de cita enviado con una fecha no válida: ${booking_date}]`,
       };
     }
 
@@ -154,7 +163,8 @@ export class AppointmentManager {
       await userRepository.clearAppointmentFlow(userId);
       return {
         step: 'completed',
-        message: 'Ese horario ya no está disponible. Por favor intenta agendar nuevamente escribiendo "quiero una cita".'
+        message: 'Ese horario ya no está disponible. Por favor intenta agendar nuevamente escribiendo "quiero una cita".',
+        recordText: `[Formulario de cita enviado con un horario no válido: ${time_slot}]`,
       };
     }
 
@@ -486,9 +496,10 @@ Puedes escribir:
     // Actualizar lead score (cita agendada aumenta puntos significativamente)
     await leadScorer.afterAppointmentCreated(userId, originScopeId);
 
-    // Formatear mensaje de confirmación con variables
-    const dateDisplay = this.formatDate(requestedDate);
-    const timeSlotConfig = await this.getTimeSlotDisplay(timeSlot, originScopeId);
+    // Formatear mensaje de confirmación con variables. La fecha va absoluta: el
+    // mensaje se relee horas después y un "mañana" ya no apunta al mismo día.
+    const dateDisplay = formatAppointmentDateWithHint(requestedDate);
+    const slotRange = await this.getSlotRange(timeSlot, originScopeId);
     const address = await resolveConfiguredMessage(
       'appointment_address',
       'Calle Principal #123, Fraccionamiento Europa, Ciudad'
@@ -497,20 +508,21 @@ Puedes escribir:
     // Obtener mensaje de confirmación desde configuración
     let confirmationMsg = await configRepository.get(
       'appointment_confirmation',
-      '¡Perfecto! Tu cita está agendada para el {fecha} a las {hora}. 📅\n\nTe esperamos en:\n📍 {direccion}\n\n¡Nos vemos pronto! 😊'
+      '¡Perfecto! Tu visita quedó agendada para el {fecha}, {hora}. 📅\n\nTe esperamos en:\n📍 {direccion}\n\n¡Nos vemos pronto! 😊'
     );
 
     // Reemplazar variables
-    confirmationMsg = interpolateMessage(confirmationMsg, {
+    confirmationMsg = interpolateMessage(adaptConfirmationTemplate(confirmationMsg), {
       fecha: dateDisplay,
-      hora: timeSlotConfig,
+      hora: slotRange,
       direccion: address,
     }).value;
 
     return {
       step: 'completed',
       message: confirmationMsg,
-      data: appointment
+      data: appointment,
+      recordText: describeFormSubmission(requestedDate, slotRange, visitorName),
     };
   }
 
@@ -538,7 +550,7 @@ Puedes escribir:
     const agentName = agentConfig.name || 'Equipo de ventas';
 
     const timeSlotDisplay = await this.getTimeSlotDisplay(appointment.time_slot, scopeId);
-    const dateDisplay = this.formatDate(appointment.requested_date);
+    const dateDisplay = formatAppointmentDate(appointment.requested_date);
 
     // Limpiar el teléfono para el link de WhatsApp
     const cleanPhone = visitorPhone.replace(/\D/g, '');
@@ -746,28 +758,11 @@ Puedes escribir:
     return `${config.display_name} (${withoutSeconds(config.start_time)} - ${withoutSeconds(config.end_time)} hrs)`;
   }
 
-  /**
-   * Formatear fecha para display
-   */
-  private formatDate(isoDate: string): string {
-    const date = new Date(isoDate + 'T00:00:00'); // Asegurar timezone correcto
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-
-    if (date.toDateString() === today.toDateString()) return 'Hoy';
-    if (date.toDateString() === tomorrow.toDateString()) return 'Mañana';
-
-    const options: Intl.DateTimeFormatOptions = { 
-      weekday: 'long', 
-      year: 'numeric', 
-      month: 'long', 
-      day: 'numeric' 
-    };
-    
-    return date.toLocaleDateString('es-MX', options);
+  /** El rango de horas del horario, sin el nombre del horario: "de 12:00 a 15:00 h". */
+  private async getSlotRange(slot: TimeSlot, scopeId?: string | null): Promise<string> {
+    const slots = await appointmentRepository.getTimeSlots(scopeId);
+    const config = slots.find(s => s.time_slot === slot);
+    return config ? formatSlotRange(config.start_time, config.end_time) : slot;
   }
 
   /**

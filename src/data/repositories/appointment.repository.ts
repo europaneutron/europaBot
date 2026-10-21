@@ -229,6 +229,26 @@ export class AppointmentRepository {
     return (data?.length ?? 0) > 0;
   }
 
+  /** La cita vigente más reciente del lead dentro de los alcances dados, con el horario ya guardado. */
+  async getActiveInScopes(userId: string, scopeIds: string[]): Promise<{
+    scope_id: string; visitor_name: string; requested_date: string;
+    time_slot_start: string; time_slot_end: string;
+  } | null> {
+    if (scopeIds.length === 0) return null;
+
+    const { data, error } = await supabaseServer
+      .from('appointments')
+      .select('scope_id, visitor_name, requested_date, time_slot_start, time_slot_end')
+      .eq('user_id', userId)
+      .in('scope_id', scopeIds)
+      .in('status', ['pending', 'confirmed'])
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+    if (error) throw error;
+    return data?.[0] ?? null;
+  }
+
   async getByScopeId(scopeId: string, limit = 100): Promise<AppointmentData[]> {
     const { data, error } = await supabaseServer
       .from('appointments')

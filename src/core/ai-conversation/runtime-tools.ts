@@ -59,7 +59,7 @@ export function createToolActions(input: { userId: string; phoneNumber: string; 
       return response([flow.message], scopeId);
     },
     async advisor(scopeId = ROOT_SCOPE_ID) {
-      const message = await fallbackHandler.startDerivation(input.userId, scopeId, { configureButtons: false });
+      const message = await fallbackHandler.startDerivation(input.userId, scopeId, { configureButtons: false, source: 'ai' });
       return response([message], scopeId);
     },
     async brochure(scopeId) {

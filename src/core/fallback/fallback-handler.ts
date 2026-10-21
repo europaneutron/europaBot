@@ -20,6 +20,8 @@ import { FALLBACK_MESSAGES } from './fallback-messages';
 import type { User, UserSession } from '@/data/models/user.model';
 import type { ProcessedResponse } from '@/core/conversation/message-processor';
 import { interpolateMessage } from '@/lib/interpolate-message';
+import { resolveConfiguredMessage } from '@/core/messaging/configured-message';
+import { isCancelReply, isConfirmReply } from './advisor-name-replies';
 import {
   authoredButtonsToOfferOptions,
   type AuthoredButtonDraft,
@@ -77,7 +79,8 @@ export class FallbackHandler {
    * @returns El mensaje a mandar (ya interpolado, listo para enviar)
    */
   async startDerivation(
-    userId: string, scopeId?: string | null, options: { configureButtons?: boolean } = {}
+    userId: string, scopeId?: string | null,
+    options: { configureButtons?: boolean; source?: 'lexical' | 'ai' } = {}
   ): Promise<string> {
     const hasPending = await advisorRepository.hasPendingRequest(userId);
     if (hasPending) {
@@ -93,10 +96,14 @@ export class FallbackHandler {
     await userRepository.updateAwaitingAdvisorName(userId, true);
 
     // Obtener mensajes desde configuración
-    const derivationIntro = await configRepository.get(
-      'derivation_intro',
-      'Entiendo que necesitas ayuda más específica. Permíteme conectarte con un asesor humano que podrá atenderte mejor. 👤'
-    );
+    // El texto léxico ("Entiendo que necesitas ayuda más específica...") responde a un
+    // fallo de comprensión; quien llega por la IA pidió o aceptó al asesor, y ese tono no encaja.
+    const derivationIntro = options.source === 'ai'
+      ? await resolveConfiguredMessage('ai_derivation_intro', 'Con gusto te paso con un asesor.')
+      : await configRepository.get(
+        'derivation_intro',
+        'Entiendo que necesitas ayuda más específica. Permíteme conectarte con un asesor humano que podrá atenderte mejor. 👤'
+      );
     const requestName = await configRepository.get(
       'derivation_request_name',
       'Antes de conectarte con un asesor, ¿podrías compartirme tu nombre completo?'
@@ -132,23 +139,87 @@ export class FallbackHandler {
   }
 
   /**
-   * Capturar nombre del usuario para derivación a asesor
-   * 
+   * Capturar nombre del usuario para derivación a asesor.
+   *
+   * Nunca registra el primer texto: lo que el lead escribe tras la petición del
+   * nombre puede ser cualquier cosa ("no bro, no necesito mas ayuda" quedó como
+   * nombre del visitante). El texto se guarda como candidato, se pide
+   * confirmación y solo un "sí" lo registra. Un texto nuevo reemplaza al
+   * candidato; "no", "ya no" o "cancelar" cierran la captura.
+   *
+   * `declines` solo existe con la IA encendida y se limita a decir si el texto
+   * rechaza con claridad seguir con el asesor. Nunca decide si algo es o no un
+   * nombre: un nombre poco común va igual a la confirmación.
+   *
    * @param userId - ID del usuario
    * @param user - Datos del usuario
-   * @param messageText - Nombre completo del usuario
+   * @param messageText - Lo que el lead escribió
    * @param session - Sesión actual del usuario
-   * @returns Respuesta con confirmación de derivación
+   * @returns Respuesta: confirmación pendiente, cancelación o derivación registrada
    */
   async captureAdvisorName(
     userId: string,
     user: User,
     messageText: string,
     session: UserSession,
+    scopeId?: string | null,
+    options: { declines?: (text: string) => Promise<boolean> } = {}
+  ): Promise<ProcessedResponse> {
+    const text = messageText.trim();
+    const reply = (message: string): ProcessedResponse => ({
+      responses: [message], shouldSend: true, wasDetected: true, isFallback: false,
+    });
+    const candidate = session.pending_advisor_name?.trim() || null;
+
+    if (isCancelReply(text)) return reply(await this.cancelNameCapture(userId));
+
+    if (candidate && isConfirmReply(text)) {
+      return this.registerAdvisorRequest(userId, user, candidate, session, scopeId);
+    }
+
+    if (!candidate && isConfirmReply(text)) {
+      // Un "sí" sin candidato contesta a la petición del nombre, no es un nombre.
+      return reply(await configRepository.get(
+        'derivation_request_name',
+        'Antes de conectarte con un asesor, ¿podrías compartirme tu nombre completo?'
+      ));
+    }
+
+    if (options.declines && await options.declines(text).catch(error => {
+      console.error('El detector de rechazo falló; el texto va a confirmación:', error);
+      return false;
+    })) {
+      return reply(await this.cancelNameCapture(userId));
+    }
+
+    await userRepository.setPendingAdvisorName(userId, text);
+    return reply(await resolveConfiguredMessage(
+      'derivation_confirm_name',
+      '¿Te registro como "{nombre}"? Responde sí, o escribe tu nombre.',
+      { nombre: text }
+    ));
+  }
+
+  private async cancelNameCapture(userId: string): Promise<string> {
+    await userRepository.updateAwaitingAdvisorName(userId, false);
+    await userRepository.resetFallbackAttempts(userId);
+    return resolveConfiguredMessage(
+      'derivation_cancelled',
+      'Va, no hay problema. Si después quieres hablar con un asesor, solo dímelo.'
+    );
+  }
+
+  /** Registra la solicitud con el nombre ya confirmado y avisa al asesor. */
+  private async registerAdvisorRequest(
+    userId: string,
+    user: User,
+    confirmedName: string,
+    session: UserSession,
     scopeId?: string | null
   ): Promise<ProcessedResponse> {
-    // Usar el nombre capturado solo si el usuario no tiene nombre de WhatsApp
-    const userName = messageText.trim();
+    const messageText = confirmedName;
+    // Usar el nombre confirmado solo si el usuario no tiene nombre de WhatsApp
+    const userName = confirmedName;
     if (!user.name) {
       await userRepository.updateName(userId, userName);
     }

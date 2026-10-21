@@ -146,6 +146,9 @@ export async function respondWithAi(input: ResponderInput, deps: ResponderDepend
       if (message.content.some(block => block.type === 'tool_use')) return fallback('invalid_tool_response');
       const text = textOf(message.content);
       if (!text) return fallback('empty_response');
+      // El historial trae entradas entre corchetes ("[Formulario de cita enviado: ...]"); un
+      // mensaje que es solo una nota así ("[llamada a una tool]") no es algo que se le diga al lead.
+      if (/^\s*\[[^\]\n]*\]\s*$/.test(text)) return fallback('bracketed_note');
       const formatted = formatForWhatsApp(text);
       if (formatted.fixes.length) log.guards_applied.push({ guard: 'whatsapp_format', fixes: formatted.fixes });
       if (!formatted.text.trim()) return fallback('empty_response');

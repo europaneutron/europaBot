@@ -64,7 +64,7 @@ export function isGreetingOrAffirmative(normalizedQuote: string): boolean {
   return rest.trim() === '';
 }
 
-const containsWords = (message: string, quote: string) => ` ${message} `.includes(` ${quote} `);
+export const containsWords = (message: string, quote: string) => ` ${message} `.includes(` ${quote} `);
 
 export interface ValidationContext {
   message: string;

@@ -54,6 +54,25 @@ async function main(): Promise<void> {
     );
   }
 
+  const text = await import('../src/core/appointment/appointment-text');
+  const today = new Date(2026, 9, 21);
+  assert(text.formatAppointmentDate('2026-10-22', today) === 'jueves 22 de octubre', 'fecha absoluta');
+  assert(text.formatAppointmentDate('2027-01-05', today) === 'martes 5 de enero de 2027', 'el año solo si no es el actual');
+  assert(text.formatAppointmentDateWithHint('2026-10-22', today) === 'jueves 22 de octubre (mañana)', 'mañana como añadido');
+  assert(text.formatAppointmentDateWithHint('2026-10-21', today) === 'miércoles 21 de octubre (hoy)', 'hoy como añadido');
+  assert(text.formatAppointmentDateWithHint('2026-10-24', today) === 'sábado 24 de octubre', 'sin relativo lejos');
+  assert(text.formatSlotRange('12:00:00', '15:00:00') === 'de 12:00 a 15:00 h', 'rango sin segundos');
+  const { interpolateMessage } = await import('../src/lib/interpolate-message');
+  const fill = (template: string, date: string) => interpolateMessage(text.adaptConfirmationTemplate(template), {
+    fecha: text.formatAppointmentDate(date, today), hora: text.formatSlotRange('12:00:00', '15:00:00'), direccion: 'X',
+  }).value;
+  const sownTemplate = (rawRows || []).find(row => row.config_key === 'appointment_confirmation')?.config_value
+    ?? '¡Perfecto! Tu cita está agendada para el {fecha} a las {hora}.';
+  assert(fill(sownTemplate, '2026-10-22').includes('para el jueves 22 de octubre, de 12:00 a 15:00 h'),
+    `la plantilla sembrada se rellena sin editarla: ${fill(sownTemplate, '2026-10-22')}`);
+  assert(fill('Tu visita quedó agendada para el {fecha}, {hora}.', '2026-10-22') === 'Tu visita quedó agendada para el jueves 22 de octubre, de 12:00 a 15:00 h.',
+    'texto objetivo con la plantilla por omisión');
+
   const suffix = Date.now().toString(36);
   const phone = `ap${suffix}`;
 
@@ -72,9 +91,10 @@ async function main(): Promise<void> {
     assert(!message.includes('\\n'), `el mensaje final no debe traer "\\n" literal: ${JSON.stringify(message)}`);
     assert(message.includes('\n\n'), `y sí debe traer saltos de línea reales: ${JSON.stringify(message)}`);
     assert(
-      /\(\d{2}:\d{2} - \d{2}:\d{2} hrs\)/.test(message),
-      `la hora va sin segundos y cierra con "hrs": ${JSON.stringify(message)}`
+      /para el (lunes|martes|miércoles|jueves|viernes|sábado|domingo) \d{1,2} de [a-záé]+(?: \(mañana\))?, de \d{2}:\d{2} a \d{2}:\d{2} h\./.test(message),
+      `fecha absoluta en palabras y horas sin nombre de horario ni "hrs": ${JSON.stringify(message)}`
     );
+    assert(!/Mañana a las|Hoy a las|el Mañana|el Hoy|\(\d{2}:\d{2} - /.test(message), `sin relativos como fecha ni rango con guion: ${JSON.stringify(message)}`);
     assert(!message.includes('09:00:00'), `no deben quedar segundos: ${JSON.stringify(message)}`);
     assert(
       !message.includes('¿Necesitas algo más?'),

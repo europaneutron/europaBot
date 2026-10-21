@@ -74,6 +74,8 @@ export interface AppointmentFlow {
   step: AppointmentFlowStep;
   message: string;
   data?: Partial<AppointmentData>;
+  /** Cómo queda registrado en el historial el envío del formulario del WhatsApp Flow. */
+  recordText?: string;
 }
 
 /**

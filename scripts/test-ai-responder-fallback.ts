@@ -81,6 +81,7 @@ async function main() {
     ['max_tokens', [tool('agendar_visita', { desarrollo: 'Europa' }, 'max_tokens')]],
     ['invalid_money', [message('$999'), message('$998')]],
     ['empty_response', [message('   ')]],
+    ['bracketed_note', [message('[llamada a hablar_con_asesor]')]],
     ['unexpected_stop_reason', [message('incompleto', 'pause_turn')]],
     ['invalid_tool_response', [message('Sin tool', 'tool_use')]],
     ['internal_error', [new Error('unexpected client error')]],

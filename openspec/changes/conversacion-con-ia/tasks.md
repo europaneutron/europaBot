@@ -111,3 +111,15 @@
 
 - [ ] 12.1 Actualizar `AGENTS.md`: el camino con IA, dónde vive, las guardas y que ningún cambio al prompt se da por bueno sin correr el simulador
 - [ ] 12.2 Documentar en este cambio los pasos de la etapa de WhatsApp real (Supabase de staging, App de Meta de prueba, variables de Preview), que quedan como cambio aparte
+
+## 13. Hallazgos de la prueba en WhatsApp
+
+- [x] 13.1 Confirmación de cita con fecha absoluta en palabras y horas legibles ("para el jueves 22 de octubre (mañana), de 12:00 a 15:00 h"), en el flujo de texto y en el WhatsApp Flow (`finalizeAppointment`), y fecha absoluta en la notificación al asesor. La plantilla sembrada de `bot_config` se rellena sin editarla (`adaptConfirmationTemplate`). Verificado con `scripts/test-appointment-confirmation-format.ts`
+- [x] 13.2 El envío del formulario del WhatsApp Flow queda en `conversations` como texto legible ("[Formulario de cita enviado: jueves 22 de octubre, de 12:00 a 15:00 h, a nombre de X]") en vez de "flow"
+- [x] 13.3 El mensaje de turno declara la cita vigente como hecho (fecha en palabras, horas, desarrollo, nombre y que la persona la eligió en el formulario). Con eso "Oie" ya no reclama una discrepancia con el sábado
+- [x] 13.4 `hablar_con_asesor` y la línea de Capacidades se redactan como hechos (la persona pide una persona, o la guía no responde y la persona acepta la oferta). La derivación iniciada por la IA usa su propia introducción (`ai_derivation_intro`); el texto léxico de nivel 3 no cambió
+- [x] 13.5 Captura del nombre con confirmación en ambos caminos: el texto queda como candidato (`user_sessions.pending_advisor_name`), un sí lo registra, un texto nuevo lo reemplaza, "no", "ya no" y "cancelar" cancelan. Migración `20261021020000_advisor_name_confirmation.sql` (columna y tres textos editables en Ajustes)
+- [x] 13.6 Con el interruptor encendido, un detector acotado (Haiku, salida estructurada, cita verificada en el mensaje) cancela solo ante un rechazo claro; nunca decide si algo es un nombre
+- [x] 13.7 Cada mensaje entrante de la captura del nombre se guarda en `conversations` exactamente una vez (antes no se guardaba)
+- [x] 13.8 Un mensaje del modelo que es solo una nota entre corchetes cae al camino léxico (`bracketed_note`), porque el historial ahora trae entradas con corchetes
+- [x] 13.9 `scripts/test-whatsapp-regressions.ts` repite la conversación real y pasa dos veces seguidas; la línea base léxica no cambió
