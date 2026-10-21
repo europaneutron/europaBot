@@ -10,13 +10,14 @@
  * Solo lee la base local (temas y alcances); no escribe nada. Las llamadas al modelo no se
  * registran en `ai_model_calls`.
  *
- *   npx tsx scripts/calibrate-classifier.ts
+ *   npx tsx scripts/calibrate-classifier.ts                 (muestra nueva)
+ *   npx tsx scripts/calibrate-classifier.ts --reclasificar  (misma hoja etiquetada)
  */
 import { config } from 'dotenv';
 import { resolve } from 'node:path';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { assertLocalSupabase } from './helpers/fymsa-fixture';
-import { toCsv } from './helpers/csv';
+import { parseCsv, toCsv } from './helpers/csv';
 
 config({ quiet: true, path: resolve(process.cwd(), '.env.development.local') });
 config({ quiet: true, path: resolve(process.cwd(), '.env.local') });
@@ -167,6 +168,26 @@ async function main() {
   const developments = (await buildAiContext()).developments.map(item => ({ id: item.id, name: item.name }));
   const reachable = Array.from(await scopeRepository.getReachableScopeIds());
   const client = createResponderClient();
+
+  // Tras cambiar el prompt del clasificador se mide otra vez contra la misma hoja
+  // etiquetada: se reescriben solo las columnas del clasificador, nunca la etiqueta.
+  if (process.argv.includes('--reclasificar')) {
+    const sheet = 'scripts/fixtures/calibracion-100.csv';
+    const [header, ...body] = parseCsv(readFileSync(sheet, 'utf8').replace(/^﻿/, ''));
+    const col = (name: string) => header.indexOf(name);
+    const updated = await mapLimit(body.filter(cells => cells.length > 1), 6, async cells => {
+      const input = { userId: 'calibracion', messageId: `recalibracion-${cells[col('id')]}`, message: cells[col('frase')], priorTurns: [], topics, developments, config: classifierConfig };
+      let output = await classifyTopics(input, { client, log: async () => {} });
+      if (output.failureReason) output = await classifyTopics(input, { client, log: async () => {} });
+      const next = [...cells];
+      next[col('clasificador_temas')] = output.topics.map(item => `${item.intent_name}:${item.clarity}`).join(';');
+      next[col('clasificador_otro')] = output.failureReason ? `[fallo:${output.failureReason}]` : output.otherTopic ?? '';
+      return next;
+    });
+    writeFileSync(sheet, toCsv(header, updated));
+    console.log(`Reclasificadas ${updated.length} filas de ${sheet}; las etiquetas no cambiaron.`);
+    return;
+  }
 
   const rows = await mapLimit(sample, 6, async ({ phrase, stratum }, index): Promise<Row> => {
     const id = String(index + 1).padStart(3, '0');

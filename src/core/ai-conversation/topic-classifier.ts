@@ -149,7 +149,7 @@ export function buildClassifierSystemPrompt(topics: TopicDefinition[], developme
     '- Cuenta únicamente lo que escribe la persona en su último mensaje. Los turnos anteriores sirven para entender a qué se refiere ("esa", "ahí", "ese"); lo que ofreció o dijo el asistente describe la conversación y no es un tema de la persona.',
     '- Un mensaje puede traer varios temas, uno o ninguno. Un saludo, un agradecimiento y un "sí" a lo que el asistente ofreció son mensajes sin tema: la lista queda vacía.',
     '- Cada tema lleva su cita: las palabras exactas del último mensaje que lo muestran, copiadas tal cual.',
-    '- La claridad es "clara" cuando la persona pregunta por el tema o pide información de él, y "dudosa" cuando solo lo menciona.',
+    '- La claridad es "clara" cuando la persona pregunta por el tema o pide información de él, con o sin signos de pregunta: escribir el tema a secas o una lista de temas ("Precio, modelos y ubicación", "Financiamiento???") es pedir esa información. Es "dudosa" cuando lo menciona como contexto sin pedir nada ("ando viendo opciones", "mi esposa quiere jardín").',
     '- El desarrollo es el que la persona nombra o el que sale de los turnos anteriores; si no hay ninguno, es "general".',
     '- Un tema que no está en la lista queda fuera de "temas" y se resume en pocas palabras en "otro_tema"; sin tema ajeno, "otro_tema" es null.',
     '- Un mensaje se asigna al tema de la lista solo cuando la persona habla de él, aunque use otras palabras.',

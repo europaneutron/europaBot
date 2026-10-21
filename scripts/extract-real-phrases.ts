@@ -63,8 +63,11 @@ function maskPersonalData(text: string): string {
 // su nombre. Esos mensajes no dicen nada del interes del lead y si identifican
 // a una persona: se descartan enteros en lugar de enmascararse.
 const COMMON_WORDS = /\b(hola|gracias|precio|casa|lote|info|buenas|tardes|dias|días|noches|quiero|ok|si|sí|donde|cuanto|cuánto|me|el|la|de|en|que|por)\b/i;
+// El nombre llega con mayusculas o sin ellas y a veces con puntos o comas entre
+// las palabras ("armando. humberto. ..."): se compara ya sin esa puntuacion.
 function looksLikeBareName(text: string): boolean {
-  return /^[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+( [A-ZÁÉÍÓÚÑa-záéíóúñ][a-záéíóúñ]+){1,4}$/.test(text) && !COMMON_WORDS.test(text);
+  const words = text.replace(/[.,;]+/g, ' ').replace(/\s+/g, ' ').trim();
+  return /^[A-Za-zÁÉÍÓÚÑáéíóúñ][a-záéíóúñ]+( [A-Za-zÁÉÍÓÚÑáéíóúñ][a-záéíóúñ]+){1,4}$/.test(words) && !COMMON_WORDS.test(words);
 }
 
 function main() {

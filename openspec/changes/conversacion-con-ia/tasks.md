@@ -75,8 +75,8 @@
 ## 8. Calibración del clasificador
 
 - [x] 8.1 Script que corre el clasificador y el matcher sobre 300 frases del fixture y genera una hoja para etiquetar a mano 100 de ellas
-- [ ] 8.2 Etiquetado a mano de la muestra (lo hace Leonardo)
-- [ ] 8.3 Calcular precisión y cobertura de los temas claros contra el etiquetado, para el clasificador y para el matcher. Registrar el resultado en este cambio
+- [x] 8.2 Etiquetado a mano de la muestra (lo hace Leonardo)
+- [x] 8.3 Calcular precisión y cobertura de los temas claros contra el etiquetado, para el clasificador y para el matcher. Registrar el resultado en este cambio
 - [ ] 8.4 Si la precisión de los temas claros alcanza el umbral, documentar la decisión de cambiar la fuente del score. Si no, iterar la descripción de los temas y volver a medir
 
 ## 9. Integración en el procesador
