@@ -70,3 +70,5 @@ backups/
 
 # Frases reales de leads extraidas de respaldos de prod (conversacion-con-ia, tarea 2.1)
 scripts/fixtures/frases-reales.json
+scripts/fixtures/calibracion-300.csv
+scripts/fixtures/calibracion-100.csv
