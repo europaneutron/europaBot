@@ -162,9 +162,9 @@ export class MessageProcessor {
     let afterSend: Promise<void> | undefined;
     try {
       const gate = this.aiGate ?? await createGateDependencies();
-      // Con la IA apagada o el teléfono fuera de la lista no se toca al usuario aquí:
+      // Con la IA apagada no se toca al usuario aquí:
       // el camino léxico hace sus propias lecturas, como siempre.
-      if ((await decideAiAccess(phoneNumber, gate)).use) {
+      if ((await decideAiAccess(gate)).use) {
         const user = await userRepository.findOrCreateByPhone(phoneNumber, userName);
         if (await userRepository.isBotActive(user.id) && (await decideAiFlow(user.id, !!options.flowResponse, gate)).use) {
           // Como el camino léxico: el seguimiento por inactividad parte de este instante.

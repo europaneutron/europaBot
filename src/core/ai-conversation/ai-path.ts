@@ -3,57 +3,21 @@ import type { TurnFacts } from './turn-message-builder';
 
 export type AiPathDecision =
   | { use: true }
-  | { use: false; reason: 'disabled' | 'invalid_allowlist' | 'phone_not_allowed' | 'flow_response' | 'appointment_flow' | 'awaiting_advisor_name' };
+  | { use: false; reason: 'disabled' | 'flow_response' | 'appointment_flow' | 'awaiting_advisor_name' };
 
 export interface AiPathGateDependencies {
-  settings(): Promise<{ enabled: boolean; allowedPhonesRaw: string }>;
+  settings(): Promise<{ enabled: boolean }>;
   appointmentFlowState(userId: string): Promise<string | null>;
   awaitingAdvisorName(userId: string): Promise<boolean>;
 }
 
-const digitsOf = (phone: string) => phone.replace(/\D/g, '');
-
 /**
- * Los teléfonos se guardan como llegan de Meta (solo dígitos, con lada de país). Se
- * compara por dígitos y, ante números de México, por los últimos diez: Meta ha
- * entregado el mismo número como 52 y como 521, y una lista escrita a mano no
- * debería fallar por eso.
+ * Primera etapa, sin tocar al usuario: el interruptor. Se prueba con la IA
+ * encendida en el entorno local, así que no hace falta acotarla por teléfono.
  */
-export function phonesMatch(a: string, b: string): boolean {
-  const left = digitsOf(a);
-  const right = digitsOf(b);
-  if (!left || !right) return false;
-  if (left === right) return true;
-  return left.length >= 10 && right.length >= 10 && left.slice(-10) === right.slice(-10);
-}
-
-/** null cuando el valor no es una lista JSON: se trata como "nadie" para no abrir la IA a todos por un error de captura. */
-export function parseAllowedPhones(raw: string): string[] | null {
-  try {
-    const parsed: unknown = JSON.parse(raw || '[]');
-    if (!Array.isArray(parsed)) return null;
-    return parsed.map(item => String(item).trim()).filter(Boolean);
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Primera etapa, sin tocar al usuario: apagado y lista de teléfonos. Con la IA
- * apagada solo se lee `ai_enabled`.
- */
-export async function decideAiAccess(phoneNumber: string, deps: AiPathGateDependencies): Promise<AiPathDecision> {
-  const { enabled, allowedPhonesRaw } = await deps.settings();
-  if (!enabled) return { use: false, reason: 'disabled' };
-  const allowed = parseAllowedPhones(allowedPhonesRaw);
-  if (allowed === null) {
-    console.error('ai_allowed_phones no es una lista JSON; el camino con IA queda apagado para todos hasta corregirla.');
-    return { use: false, reason: 'invalid_allowlist' };
-  }
-  if (allowed.length > 0 && !allowed.some(phone => phonesMatch(phone, phoneNumber))) {
-    return { use: false, reason: 'phone_not_allowed' };
-  }
-  return { use: true };
+export async function decideAiAccess(deps: AiPathGateDependencies): Promise<AiPathDecision> {
+  const { enabled } = await deps.settings();
+  return enabled ? { use: true } : { use: false, reason: 'disabled' };
 }
 
 /**
@@ -80,8 +44,8 @@ export async function createGateDependencies(): Promise<AiPathGateDependencies> 
   return {
     // Sin caché: apagar el interruptor desde el panel tiene que valer en el siguiente mensaje.
     settings: async () => {
-      const values = await configRepository.getMany(['ai_enabled', 'ai_allowed_phones']);
-      return { enabled: values.ai_enabled?.toLowerCase() === 'true', allowedPhonesRaw: values.ai_allowed_phones ?? '[]' };
+      const values = await configRepository.getMany(['ai_enabled']);
+      return { enabled: values.ai_enabled?.toLowerCase() === 'true' };
     },
     appointmentFlowState: userId => userRepository.getAppointmentFlowState(userId),
     awaitingAdvisorName: userId => userRepository.isAwaitingAdvisorName(userId),

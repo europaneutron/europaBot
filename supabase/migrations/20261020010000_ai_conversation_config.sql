@@ -4,7 +4,6 @@ INSERT INTO public.bot_config
   (config_key, config_value, config_type, description, category, is_editable, scope_id)
 VALUES
   ('ai_enabled', 'false', 'boolean', 'Activar conversación con IA', 'ai_conversation', true, NULL),
-  ('ai_allowed_phones', '[]', 'json', 'Teléfonos permitidos para probar la conversación con IA', 'ai_conversation', true, NULL),
   ('ai_responder_model', 'claude-haiku-5-5', 'string', 'Modelo del contestador', 'ai_conversation', true, NULL),
   ('ai_responder_effort', 'low', 'string', 'Esfuerzo del contestador', 'ai_conversation', true, NULL),
   ('ai_classifier_model', 'claude-haiku-5-5', 'string', 'Modelo del clasificador de temas', 'ai_conversation', true, NULL),

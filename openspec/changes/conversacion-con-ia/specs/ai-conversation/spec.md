@@ -2,22 +2,22 @@
 
 ### Requirement: Interruptor del camino con IA
 
-El sistema SHALL decidir por mensaje si contesta el camino con IA o el bot léxico, según una configuración en `bot_config`. Con el camino con IA apagado, el comportamiento observable SHALL ser idéntico al actual. La configuración SHALL permitir encenderlo para una lista de teléfonos antes que para todos.
+El sistema SHALL decidir por mensaje si contesta el camino con IA o el bot léxico, según un interruptor de encendido y apagado en `bot_config`. Con el camino con IA apagado, el comportamiento observable SHALL ser idéntico al actual. Encendido, SHALL aplicar a todos los contactos. Un cambio del interruptor SHALL valer desde el siguiente mensaje.
 
 #### Scenario: Interruptor apagado
 
 - **WHEN** el camino con IA está apagado y llega un mensaje
 - **THEN** el mensaje se procesa con el bot léxico, sin ninguna llamada al modelo
 
-#### Scenario: Encendido solo para una lista de teléfonos
+#### Scenario: Interruptor encendido
 
-- **WHEN** el camino con IA está encendido para una lista de teléfonos y escribe un número que no está en ella
-- **THEN** ese mensaje se procesa con el bot léxico
-
-#### Scenario: Encendido para un teléfono de la lista
-
-- **WHEN** el camino con IA está encendido para una lista de teléfonos y escribe un número que sí está en ella
+- **WHEN** el camino con IA está encendido y llega un mensaje sin flujo activo
 - **THEN** ese mensaje se contesta por el camino con IA
+
+#### Scenario: Apagar a media conversación
+
+- **WHEN** el administrador apaga el interruptor y el lead escribe de nuevo
+- **THEN** ese mensaje ya lo contesta el bot léxico
 
 ### Requirement: Separación de instrucciones y contenido del lead
 

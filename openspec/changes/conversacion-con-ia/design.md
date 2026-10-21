@@ -242,10 +242,11 @@ El `context-builder` arma el catálogo por desarrollo en bloques independientes.
 
 1. Migraciones aditivas: claves de `bot_config`, registro de llamadas, salida del clasificador y desarrollo en `user_checkpoints`. Con el interruptor apagado no cambia ningún comportamiento.
 2. Construcción y medición en local con el simulador y `/api/test/process-message`.
-3. Etapa de WhatsApp real, cuando exista la separación de entornos (fuera de este cambio): Supabase de staging con contenido copiado sin datos personales, App de Meta de prueba y variables de Preview en Vercel.
+3. Etapa de WhatsApp real desde local: App de Meta de prueba con su número, webhook por un túnel hacia `next dev`, y Supabase local con una copia del contenido de prod (`scripts/pull-prod-content.sh`). Prod no se toca.
 4. Producción con el interruptor apagado.
-5. Encendido para la lista de teléfonos del equipo.
-6. Encendido para un anuncio o un porcentaje, comparando contra la línea base del respaldo: hot, warm, mediana de mensajes, porcentaje que se va tras un mensaje.
+5. Encendido para todos, con seguimiento diario del registro de llamadas (respaldos, latencia, cifras rechazadas), comparando contra la línea base del respaldo: hot, warm, mediana de mensajes, porcentaje que se va tras un mensaje.
+
+El interruptor es de encendido y apagado, sin lista de teléfonos ni porcentaje: se decidió el 2026-10-21 porque la prueba previa se hace en local con la App de prueba, y una lista agrega una regla más que entender sin cambiar lo que se mide. La protección en prod es poder apagarlo en el siguiente mensaje.
 
 **Reversa:** apagar el interruptor. El bot léxico no se modificó, y el historial y los checkpoints escritos por el camino con IA siguen siendo válidos para él.
 

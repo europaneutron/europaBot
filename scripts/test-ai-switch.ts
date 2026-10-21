@@ -1,7 +1,7 @@
 /**
  * Bifurcación del camino con IA en el procesador (conversacion-con-ia, tareas 9.1 a 9.4).
  *
- * Parte 1, sin API ni base: interruptor, lista de teléfonos, flujos activos, oferta de cita y
+ * Parte 1, sin API ni base: interruptor, flujos activos, oferta de cita y
  * `afterSend` del manejador con dependencias falsas.
  * Parte 2, contra el Supabase local y la API real (se omite sin ANTHROPIC_API_KEY): crea un
  * usuario desechable, inyecta el interruptor al procesador sin tocar `bot_config` y lo borra
@@ -16,7 +16,7 @@ import assert from 'node:assert/strict';
 import Anthropic from '@anthropic-ai/sdk';
 import { assertLocalSupabase } from './helpers/fymsa-fixture';
 import {
-  decideAiAccess, decideAiFlow, parseAllowedPhones, phonesMatch, type AiPathGateDependencies,
+  decideAiAccess, decideAiFlow, type AiPathGateDependencies,
 } from '../src/core/ai-conversation/ai-path';
 import { handleAiMessage, type AiHandlerDependencies, type AiMessageInput } from '../src/core/ai-conversation/ai-message-handler';
 import { parseResponderConfig } from '../src/services/anthropic/client';
@@ -37,11 +37,11 @@ async function quietly<T>(fn: () => Promise<T>): Promise<T> {
   try { return await fn(); } finally { console.error = original; }
 }
 
-function gate(overrides: Partial<{ enabled: boolean; phones: string; flow: string | null; awaiting: boolean }> = {}) {
-  const state = { enabled: true, phones: '[]', flow: null as string | null, awaiting: false, ...overrides };
+function gate(overrides: Partial<{ enabled: boolean; flow: string | null; awaiting: boolean }> = {}) {
+  const state = { enabled: true, flow: null as string | null, awaiting: false, ...overrides };
   const reads: string[] = [];
   const deps: AiPathGateDependencies = {
-    settings: async () => { reads.push('settings'); return { enabled: state.enabled, allowedPhonesRaw: state.phones }; },
+    settings: async () => { reads.push('settings'); return { enabled: state.enabled }; },
     appointmentFlowState: async () => { reads.push('flow'); return state.flow; },
     awaitingAdvisorName: async () => { reads.push('awaiting'); return state.awaiting; },
   };
@@ -49,7 +49,7 @@ function gate(overrides: Partial<{ enabled: boolean; phones: string; flow: strin
 }
 async function decide(phone: string, flowResponse: boolean, overrides: Parameters<typeof gate>[0] = {}) {
   const { deps, reads } = gate(overrides);
-  const access = await quietly(() => decideAiAccess(phone, deps));
+  const access = await quietly(() => decideAiAccess(deps));
   const decision = access.use ? await decideAiFlow('user', flowResponse, deps) : access;
   return { reason: decision.use ? 'ai' : decision.reason, reads };
 }
@@ -126,31 +126,13 @@ function handlerHarness(options: { fail?: boolean; scoreSource?: 'matcher' | 'cl
 }
 
 async function pureChecks() {
-  console.log('\nInterruptor y lista de teléfonos');
+  console.log('\nInterruptor');
   await check('apagado: nunca, y no se lee nada más que el interruptor', async () => {
     const result = await decide('525500000000', false, { enabled: false });
     assert.equal(result.reason, 'disabled');
     assert.deepEqual(result.reads, ['settings']);
   });
-  await check('encendido con lista vacía: todos', async () => assert.equal((await decide('525512345678', false)).reason, 'ai'));
-  await check('encendido con lista: solo los de la lista', async () => {
-    const phones = JSON.stringify(['+52 55 1234 5678', 5215599999999]);
-    assert.equal((await decide('525512345678', false, { phones })).reason, 'ai');
-    assert.equal((await decide('5215512345678', false, { phones })).reason, 'ai', 'mismo número con el 1 de Meta');
-    assert.equal((await decide('525599999999', false, { phones })).reason, 'ai');
-    assert.equal((await decide('525511111111', false, { phones })).reason, 'phone_not_allowed');
-  });
-  await check('lista que no es JSON o no es arreglo: nadie, no todos', async () => {
-    assert.equal((await decide('525512345678', false, { phones: 'no json' })).reason, 'invalid_allowlist');
-    assert.equal((await decide('525512345678', false, { phones: '{"a":1}' })).reason, 'invalid_allowlist');
-  });
-  await check('comparación de teléfonos', () => {
-    assert(phonesMatch('525512345678', '5512345678'));
-    assert(!phonesMatch('5512345678', '5512345679'));
-    assert(!phonesMatch('', '5512345678'));
-    assert.deepEqual(parseAllowedPhones(''), []);
-    assert.deepEqual(parseAllowedPhones('[" 1 ", 2, ""]'), ['1', '2']);
-  });
+  await check('encendido: la IA para todos', async () => assert.equal((await decide('525512345678', false)).reason, 'ai'));
 
   console.log('\nFlujos activos ceden el turno al camino léxico');
   await check('respuesta de WhatsApp Flow', async () => assert.equal((await decide('525512345678', true)).reason, 'flow_response'));
@@ -161,9 +143,9 @@ async function pureChecks() {
     assert.equal((await decide('525512345678', false, { flow: 'completed' })).reason, 'ai');
   });
   await check('captura del nombre para el asesor', async () => assert.equal((await decide('525512345678', false, { awaiting: true })).reason, 'awaiting_advisor_name'));
-  await check('precedencia: teléfono fuera de lista gana a un flujo y no lee el flujo', async () => {
-    const result = await decide('525511111111', true, { phones: '["525500000001"]', flow: 'ask_date', awaiting: true });
-    assert.equal(result.reason, 'phone_not_allowed');
+  await check('precedencia: apagado gana a un flujo y no lee el flujo', async () => {
+    const result = await decide('525511111111', true, { enabled: false, flow: 'ask_date', awaiting: true });
+    assert.equal(result.reason, 'disabled');
     assert.deepEqual(result.reads, ['settings']);
   });
 
@@ -256,15 +238,15 @@ async function integrationChecks() {
 
   const phone = `52999${Date.now().toString().slice(-7)}`;
   const suffix = randomUUID().slice(0, 6);
-  const gateState = { enabled: false, phones: '[]' };
+  const gateState = { enabled: false };
   const processor = new MessageProcessor({
-    settings: async () => ({ enabled: gateState.enabled, allowedPhonesRaw: gateState.phones }),
+    settings: async () => ({ enabled: gateState.enabled }),
     appointmentFlowState: userId => userRepository.getAppointmentFlowState(userId),
     awaitingAdvisorName: userId => userRepository.isAwaitingAdvisorName(userId),
   });
   const send = async (text: string, id: string) => {
     const result = await processor.processMessage(phone, text, id, 'Prueba interruptor', { suppressExternalMessages: true });
-    if (!result.viaAi && gateState.enabled && gateState.phones.includes(phone) && !id.endsWith('fallback') && !id.endsWith('flow')) {
+    if (!result.viaAi && gateState.enabled && !id.endsWith('fallback') && !id.endsWith('flow')) {
       // Un respaldo inesperado se explica con la causa registrada, no con un assert mudo.
       const calls = await aiModelCallRepository.listForMessage(id);
       console.error(`       respaldo en "${text}": ${JSON.stringify(calls.map(call => [call.call_type, call.fallback_reason, call.error_type]))}`);
@@ -297,17 +279,7 @@ async function integrationChecks() {
     });
 
     gateState.enabled = true;
-    gateState.phones = JSON.stringify(['525500000001']);
-    await check('encendido para otra lista: camino léxico', async () => {
-      const id = `wamid.sw-${suffix}-other`;
-      const result = await send('Hola', id);
-      assert(!result.viaAi);
-      assert.equal(await countIncoming(id), 1);
-      assert.equal((await aiModelCallRepository.listForMessage(id)).length, 0);
-    });
-
-    gateState.phones = JSON.stringify([phone]);
-    await check('flujo de cita activo: camino léxico aunque el teléfono esté permitido', async () => {
+    await check('flujo de cita activo: camino léxico aunque la IA esté encendida', async () => {
       const id = `wamid.sw-${suffix}-flow`;
       await userRepository.updateAppointmentFlowState(user.id, 'ask_date');
       try {
@@ -316,7 +288,7 @@ async function integrationChecks() {
         assert.equal((await aiModelCallRepository.listForMessage(id)).length, 0);
       } finally { await userRepository.clearAppointmentFlow(user.id); }
     });
-    await check('encendido y teléfono permitido: responde la IA, una sola entrada, afterSend espera la clasificación', async () => {
+    await check('encendido: responde la IA, una sola entrada, afterSend espera la clasificación', async () => {
       const id = `wamid.sw-${suffix}-ai1`;
       const result = await send('¿Cuánto cuesta un lote?', id);
       assert.equal(result.viaAi, true);
