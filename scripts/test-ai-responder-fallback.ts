@@ -18,7 +18,7 @@ const developments: AiDevelopment[] = [
 ];
 const context: AiContext = {
   systemPrompt: 'Persona y catálogo estable.', contextSizeChars: 27, developments,
-  developmentNames: ['Altabrisa', 'Europa'], moneyValues: [2350000], catalogBlocks: [], excluded: [],
+  developmentNames: ['Altabrisa', 'Europa'], moneyValues: [2350000], faqMoneyValues: [], catalogBlocks: [], excluded: [],
 };
 const input: AiMessageInput = {
   userId: 'user', phoneNumber: '525500000000', messageId: 'msg', messageText: 'Hola',
@@ -123,6 +123,53 @@ async function main() {
   assert.equal((await handleAiMessage(input, retry.deps)).kind, 'response');
   assert.deepEqual(retry.calls[1].tool_choice, { type: 'none' });
   assert.equal(retry.logs.length, 2);
+
+  const quoted = harness([message('Con $20,000 apartas tu casa.')]);
+  quoted.deps.history = async () => [{ direction: 'inbound', message_text: 'vi que con 20mil apartaba', message_id: 'old' }];
+  assert.equal((await handleAiMessage({ ...input, messageText: 'cuanto es el apartado' }, quoted.deps)).kind, 'response');
+  assert.equal(quoted.calls.length, 1, 'la cifra de la persona no dispara reintento');
+
+  const nameFact = harness([message('$999'), message('$2,350,000')]);
+  await handleAiMessage(input, nameFact.deps);
+  const instruction = String(nameFact.calls[1].messages.at(-1)?.content);
+  assert(instruction.includes('$999') && instruction.includes('$2,350,000'), instruction);
+  assert(!/lo siento|perd[oó]n/i.test(instruction));
+
+  const events: string[] = [];
+  const pending = new Set<string>();
+  const order: string[] = [];
+  const queueFor = (): NonNullable<AiHandlerDependencies['turnQueue']> => ({
+    enqueue: async (_user, id) => { order.push(id); pending.add(id); },
+    isNext: async (_user, id) => order.filter(item => pending.has(item))[0] === id,
+    release: async id => { events.push(`release ${id}`); pending.delete(id); },
+    sleep: ms => new Promise(done => setTimeout(done, Math.min(ms, 5))),
+    maxWaitMs: 2_000, pollMs: 5,
+  });
+  const burst = ['a', 'b', 'c'].map(id => {
+    const h = harness([message(`Respuesta ${id}`)]);
+    const histories: string[] = [];
+    h.deps.turnQueue = queueFor();
+    h.deps.history = async () => { histories.push(events.join(',')); return []; };
+    h.deps.saveIncoming = async () => { events.push(`save ${id}`); };
+    h.deps.hasIncoming = async () => false;
+    return { id, h, histories };
+  });
+  const burstResults = await Promise.all(burst.map(async (item, index) => {
+    await new Promise(done => setTimeout(done, index));
+    return handleAiMessage({ ...input, messageId: item.id }, item.h.deps);
+  }));
+  assert(burstResults.every(result => result.kind === 'response'));
+  assert.deepEqual(events, ['save a', 'release a', 'save b', 'release b', 'save c', 'release c']);
+  assert.equal(burst[2].histories[0], 'save a,release a,save b,release b', 'el tercero ve a los dos anteriores guardados');
+
+  const stuck = harness([message('Respuesta sin cola')]);
+  stuck.deps.turnQueue = { ...queueFor(), isNext: async () => false, maxWaitMs: 30 };
+  const stuckStart = Date.now();
+  assert.equal((await handleAiMessage(input, stuck.deps)).kind, 'response');
+  assert(Date.now() - stuckStart < 1_000, 'la espera tiene tope');
+  const broken = harness([message('Respuesta con cola caída')]);
+  broken.deps.turnQueue = { ...queueFor(), enqueue: async () => { throw new Error('base caída'); } };
+  assert.equal((await handleAiMessage(input, broken.deps)).kind, 'response');
 
   const limited = harness([]);
   limited.deps.countMessages = async (phone, since) => {

@@ -191,7 +191,7 @@ Antes de llamar al contestador, el código SHALL evaluar la política de oferta 
 
 ### Requirement: Validación de cifras de dinero
 
-Antes de enviar, el código SHALL extraer toda cifra de dinero de la respuesta y verificar que exista en el catálogo. Una respuesta con una cifra que no existe SHALL NOT enviarse. El sistema SHALL reintentar una vez y, si vuelve a fallar, contestar con el bot léxico. Cada rechazo SHALL registrarse.
+Antes de enviar, el código SHALL extraer toda cifra de dinero de la respuesta y verificar que esté permitida. Una cifra está permitida si es un valor de dinero del catálogo, si aparece en una respuesta de la guía de preguntas frecuentes del contexto, si la persona la escribió en esta conversación (mensaje actual o turnos previos suyos), o si es la suma o la diferencia de dos valores de dinero del catálogo, con la misma tolerancia de redondeo. Las derivaciones SHALL ser solo de a pares y partir únicamente del catálogo. Una respuesta con una cifra no permitida SHALL NOT enviarse. El sistema SHALL reintentar una vez con un hecho que nombre las cifras rechazadas y las documentadas más cercanas, sin disculparse ni mencionar la revisión al lead y, si vuelve a fallar, contestar con el bot léxico. Cada rechazo SHALL registrarse.
 
 #### Scenario: Cifra que existe
 
@@ -200,7 +200,7 @@ Antes de enviar, el código SHALL extraer toda cifra de dinero de la respuesta y
 
 #### Scenario: Cifra inventada
 
-- **WHEN** la respuesta contiene una cifra de dinero que no está en ningún valor del catálogo
+- **WHEN** la respuesta contiene una cifra de dinero que no está en el catálogo, ni en la guía, ni en lo que escribió la persona, ni es suma o diferencia de dos valores del catálogo
 - **THEN** la respuesta no se envía
 - **AND** el rechazo queda registrado con la cifra encontrada
 
@@ -208,6 +208,49 @@ Antes de enviar, el código SHALL extraer toda cifra de dinero de la respuesta y
 
 - **WHEN** el catálogo tiene 2350000 y la respuesta dice "$2.35 millones" o "$2,350,000"
 - **THEN** la cifra se reconoce como existente
+
+#### Scenario: Cifra que escribió la persona
+
+- **WHEN** la persona escribe "con 20 mil apartas" y la respuesta repite "$20,000"
+- **THEN** la cifra se reconoce como permitida aunque no esté en el catálogo
+- **AND** una cifra de la persona no se suma ni se resta con otras
+
+#### Scenario: Cifra de la guía
+
+- **WHEN** una respuesta de la guía interpolada dice que el apartado es de "$5,000 pesos" y la respuesta del modelo menciona "$5,000"
+- **THEN** la cifra se reconoce como permitida
+
+#### Scenario: Diferencia entre dos valores del catálogo
+
+- **WHEN** el catálogo tiene 2980000 para la Solara y 1850000 para la Aura y la respuesta dice que la Solara cuesta "$1,130,000" más
+- **THEN** la cifra se reconoce como permitida
+- **AND** la suma de dos valores del catálogo también se reconoce
+
+#### Scenario: Derivación de tres valores o fuera de tolerancia
+
+- **WHEN** la cifra solo se obtiene combinando tres valores del catálogo, o difiere de una suma o diferencia de dos más que la tolerancia de redondeo
+- **THEN** la respuesta no se envía
+
+#### Scenario: El reintento nombra las cifras permitidas
+
+- **WHEN** la primera respuesta se rechaza por una cifra
+- **THEN** el mensaje del reintento nombra la cifra rechazada y las cifras documentadas más cercanas
+- **AND** pide contestar sin mencionar la revisión ni disculparse
+
+### Requirement: Mensajes seguidos del mismo usuario
+
+En el camino con IA, mientras se produce la respuesta a un mensaje de un usuario, un mensaje más reciente del mismo usuario SHALL esperar a que el anterior termine y se guarde su entrada, y se contesta después con el historial completo. La espera SHALL estar acotada; si se agota o la coordinación falla, el mensaje SHALL contestarse sin ella. El camino léxico no se serializa.
+
+#### Scenario: Tres mensajes casi simultáneos
+
+- **WHEN** llegan tres mensajes del mismo usuario antes de que el primero termine
+- **THEN** se contestan en orden de llegada
+- **AND** el segundo y el tercero ven en su historial los mensajes anteriores ya guardados
+
+#### Scenario: La coordinación falla o tarda de más
+
+- **WHEN** la cola no responde o el turno anterior no termina dentro del tope de espera
+- **THEN** el mensaje se contesta igual, sin orden garantizado
 
 ### Requirement: Formato para WhatsApp
 

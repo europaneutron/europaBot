@@ -5,7 +5,7 @@ import type { NewAiModelCall } from '@/data/repositories/ai-model-call.repositor
 import { classifyAnthropicError, type ResponderClient, type ResponderConfig } from '@/services/anthropic/client';
 import type { buildContextFromData } from './context-builder';
 import { buildTools, executeAiTool, type ToolActions } from './tools';
-import { checkMoneyAmounts } from './guards/money-guard';
+import { checkMoneyAmounts, collectTextMoneyAmounts, describeMoneyRetry, type AllowedMoney } from './guards/money-guard';
 import { formatForWhatsApp } from './guards/whatsapp-format';
 
 export type AiContext = ReturnType<typeof buildContextFromData>;
@@ -19,6 +19,8 @@ export interface ResponderInput {
   config: ResponderConfig;
   context: AiContext;
   messages: Anthropic.MessageParam[];
+  /** Mensajes que la persona escribió en esta conversación: sus cifras se pueden repetir. */
+  leadTexts?: string[];
 }
 export interface ResponderDependencies {
   client: ResponderClient;
@@ -43,11 +45,11 @@ function textOf(content: Anthropic.ContentBlock[]): string {
 }
 
 /** Mismas guardas que la respuesta final; null deja que el loop pida el texto en otra llamada. */
-function acceptText(text: string, log: NewAiModelCall, moneyValues: number[]): string | null {
+function acceptText(text: string, log: NewAiModelCall, allowed: AllowedMoney): string | null {
   const formatted = formatForWhatsApp(text);
   if (formatted.fixes.length) log.guards_applied.push({ guard: 'whatsapp_format', fixes: formatted.fixes });
   if (!formatted.text.trim()) return null;
-  const money = checkMoneyAmounts(formatted.text, moneyValues);
+  const money = checkMoneyAmounts(formatted.text, allowed);
   if (!money.valid) {
     log.guards_applied.push({ guard: 'money', invalid: money.invalid });
     return null;
@@ -64,6 +66,10 @@ export async function respondWithAi(input: ResponderInput, deps: ResponderDepend
   const executed = new Map<string, Awaited<ReturnType<typeof executeAiTool>>>();
   let toolRounds = 0;
   let moneyRetried = false;
+  const allowedMoney: AllowedMoney = {
+    catalog: input.context.moneyValues,
+    quoted: [...(input.context.faqMoneyValues ?? []), ...collectTextMoneyAmounts(input.leadTexts ?? [])],
+  };
   while (true) {
     const started = now();
     const log = emptyCall(input);
@@ -131,7 +137,7 @@ export async function respondWithAi(input: ResponderInput, deps: ResponderDepend
         // ese texto es la respuesta: se evita una segunda llamada.
         const sameTurnText = textOf(message.content);
         if (sameTurnText && attachments.length && results.every(item => !item.is_error)) {
-          const accepted = acceptText(sameTurnText, log, input.context.moneyValues);
+          const accepted = acceptText(sameTurnText, log, allowedMoney);
           if (accepted) return { kind: 'response', response: { responses: [accepted, ...attachments], shouldSend: true, wasDetected: true, isFallback: false, flowHandled: true } };
         }
         continue;
@@ -143,13 +149,13 @@ export async function respondWithAi(input: ResponderInput, deps: ResponderDepend
       const formatted = formatForWhatsApp(text);
       if (formatted.fixes.length) log.guards_applied.push({ guard: 'whatsapp_format', fixes: formatted.fixes });
       if (!formatted.text.trim()) return fallback('empty_response');
-      const money = checkMoneyAmounts(formatted.text, input.context.moneyValues);
+      const money = checkMoneyAmounts(formatted.text, allowedMoney);
       if (!money.valid) {
         log.guards_applied.push({ guard: 'money', invalid: money.invalid });
         if (moneyRetried) return fallback('invalid_money');
         moneyRetried = true;
         messages.push({ role: 'assistant', content: message.content });
-        messages.push({ role: 'user', content: 'La validación de salida detectó cifras ausentes del catálogo. Redacta de nuevo usando solo las cifras documentadas.' });
+        messages.push({ role: 'user', content: describeMoneyRetry(money.invalid, allowedMoney) });
         continue;
       }
       return {

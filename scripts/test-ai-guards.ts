@@ -1,7 +1,7 @@
 import { config } from 'dotenv';
 import { resolve } from 'node:path';
 import assert from 'node:assert/strict';
-import { checkMoneyAmounts, extractMoneyAmounts, collectCatalogMoneyAmounts } from '../src/core/ai-conversation/guards/money-guard';
+import { checkMoneyAmounts, extractMoneyAmounts, collectCatalogMoneyAmounts, collectTextMoneyAmounts, describeMoneyRetry } from '../src/core/ai-conversation/guards/money-guard';
 import { formatForWhatsApp } from '../src/core/ai-conversation/guards/whatsapp-format';
 
 config({ quiet: true, path: resolve(process.cwd(), '.env.development.local') });
@@ -47,6 +47,25 @@ assert.deepEqual(collectCatalogMoneyAmounts([
 assert.deepEqual(collectCatalogMoneyAmounts([
   { value_type: 'money', value: 2.35, unit: 'millones' },
 ]), [2350000]);
+
+const prices = { catalog: [2_350_000, 1_220_000, 780_000] };
+// Cifras que escribió la persona o que ya están en la guía
+assert.equal(checkMoneyAmounts('Con 20 mil apartas', { ...prices, quoted: collectTextMoneyAmounts(['vi que con 20mil apartaban']) }).valid, true);
+assert.equal(checkMoneyAmounts('Con $20,000 apartas', { ...prices, quoted: collectTextMoneyAmounts(['con 20 mil']) }).valid, true);
+assert.equal(checkMoneyAmounts('Con $20,000 apartas', prices).valid, false);
+assert.equal(checkMoneyAmounts('El apartado es de $5,000', { ...prices, quoted: collectTextMoneyAmounts(['## Europa\napartado: Aparta con $5,000 pesos']) }).valid, true);
+assert.equal(checkMoneyAmounts('Son $30,000', { ...prices, quoted: [20_000, 5_000] }).valid, false, 'las cifras de la persona no se suman');
+// Diferencias y sumas de dos valores del catálogo
+assert.equal(checkMoneyAmounts('La Solara cuesta $1,130,000 más', { catalog: [2_350_000, 1_220_000] }).valid, true);
+assert.equal(checkMoneyAmounts('Son 1.13 millones de diferencia', { catalog: [2_350_000, 1_220_000] }).valid, true);
+assert.equal(checkMoneyAmounts('Juntas suman $3,570,000', { catalog: [2_350_000, 1_220_000] }).valid, true);
+assert.equal(checkMoneyAmounts('Diferencia de $1,131,000', { catalog: [2_350_000, 1_220_000] }).valid, false);
+assert.equal(checkMoneyAmounts('Cuesta $4,920,000', { catalog: [2_350_000, 1_220_000, 1_350_000] }).valid, false, 'tres valores no');
+assert.equal(checkMoneyAmounts('Cuesta $1,130,000', { catalog: [2_350_000], quoted: [1_220_000] }).valid, false, 'la derivación parte solo del catálogo');
+assert.equal(checkMoneyAmounts('Cuesta $2,350,000', [2_350_000]).valid, true);
+const retryFact = describeMoneyRetry(checkMoneyAmounts('Cuesta $999', prices).invalid, { ...prices, quoted: [20_000] });
+assert(retryFact.includes('$999') && retryFact.includes('$780,000') && retryFact.includes('$20,000'), retryFact);
+assert(/No menciones esta revisión ni te disculpes/.test(retryFact) && !/lo siento|perd[oó]n/i.test(retryFact));
 
 const formatted = formatForWhatsApp('# Opciones\n**Europa**\n[Ubicación](https://maps.example/a_(b))\n\n| Modelo | Precio |\n| :--- | ---: |\n| Solara | $2,350,000 |\n\nFin');
 assert.equal(formatted.text, 'Opciones\n*Europa*\nUbicación: https://maps.example/a_(b)\n\nModelo: Solara; Precio: $2,350,000\n\nFin');

@@ -221,11 +221,11 @@ const digitRuns = (text: string) => (text.match(/\d[\d.,]*\d|\d/g) || []).map(it
 
 async function runConversation(
   conversation: Conversation, run: number, runtime: Runtime,
-  context: { systemPrompt: string; moneyValues: number[] }, modelFallback: string
+  context: { systemPrompt: string; moneyValues: number[]; faqMoneyValues: number[] }, modelFallback: string
 ): Promise<TurnRecord[]> {
   const [
     { userRepository }, { conversationRepository }, { aiModelCallRepository }, { aiTopicClassificationRepository },
-    { ROOT_SCOPE_ID }, { supabaseServer }, { checkMoneyAmounts }, messageTypes, { conversationSimulatorRepository },
+    { ROOT_SCOPE_ID }, { supabaseServer }, { checkMoneyAmounts, collectTextMoneyAmounts }, messageTypes, { conversationSimulatorRepository },
   ] = await Promise.all([
     import('../src/data/repositories/user.repository'), import('../src/data/repositories/conversation.repository'),
     import('../src/data/repositories/ai-model-call.repository'), import('../src/data/repositories/ai-topic-classification.repository'),
@@ -239,10 +239,12 @@ async function runConversation(
   const records: TurnRecord[] = [];
   const known = new Set(digitRuns(context.systemPrompt).concat(['2026', '2027']));
   let counter = 0;
+  const leadSaid: string[] = [];
 
   const sendTurn = async (spec: TurnSpec, n: number, startedAt: number): Promise<TurnRecord> => {
     const messageId = `wamid.simai-${runtime.suffix}-${run}-${conversation.id}-${n}`;
     digitRuns(spec.text).forEach(item => known.add(item));
+    leadSaid.push(spec.text);
     const offeredBefore = await userRepository.hasAppointmentBeenOffered(user.id, ROOT_SCOPE_ID);
     const started = Date.now();
     const result = await runtime.processor.processMessage(phone, spec.text, messageId, 'Simulación', { suppressExternalMessages: true });
@@ -281,7 +283,7 @@ async function runConversation(
     // Sin llamadas al contestador el turno no se intentó con IA: lo tomó un flujo activo (cita o captura del nombre).
     if (!result.viaAi) flags.push(responder.length ? `respaldo_lexico(${fallbackReasons.join(',') || 'sin_causa'})` : 'lexico_por_flujo_activo');
     if (guards.some(item => item.startsWith('cifras:'))) flags.push('cifra_rechazada_por_guarda');
-    if (result.viaAi && !checkMoneyAmounts(reply, context.moneyValues).valid) flags.push('cifra_fuera_del_catalogo');
+    if (result.viaAi && !checkMoneyAmounts(reply, { catalog: context.moneyValues, quoted: [...context.faqMoneyValues, ...collectTextMoneyAmounts(leadSaid)] }).valid) flags.push('cifra_fuera_del_catalogo');
     const unknownData = [...digitRuns(reply).filter(item => !known.has(item)), ...(reply.match(/https?:\/\/\S+/g) || []).filter(url => !context.systemPrompt.includes(url))];
     if (result.viaAi && unknownData.length) flags.push(`dato_no_en_contexto(${unknownData.join(',')})`);
     const offeredNow = !offeredBefore && offeredAfter;

@@ -4,7 +4,7 @@ import { formatCatalogValueForProse } from '@/data/repositories/catalog-value.re
 import { interpolateMessage, toMessageVariables } from '@/lib/interpolate-message';
 
 import type { AiDevelopment } from './tools';
-import { collectCatalogMoneyAmounts } from './guards/money-guard';
+import { collectCatalogMoneyAmounts, collectTextMoneyAmounts } from './guards/money-guard';
 import { resolveBrochureDocuments } from './brochure';
 
 export type ExclusionReason = 'navigation' | 'unresolved_variables' | 'template_marker' | 'empty';
@@ -181,6 +181,8 @@ export function buildContextFromData(data: AiContextData) {
     catalogBlocks,
     excluded: excluded.sort((a, b) => compare(JSON.stringify(a), JSON.stringify(b))),
     moneyValues: collectCatalogMoneyAmounts(data.catalog),
+    // Las respuestas interpoladas ya son contenido aprobado: repetir su cifra no es inventarla.
+    faqMoneyValues: collectTextMoneyAmounts(faq),
   };
 }
 

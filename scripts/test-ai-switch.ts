@@ -60,7 +60,7 @@ const developments = [
 ];
 const context: AiContext = {
   systemPrompt: 'Persona y catálogo estable.', contextSizeChars: 27, developments,
-  developmentNames: ['Altabrisa', 'Europa'], moneyValues: [], catalogBlocks: [], excluded: [],
+  developmentNames: ['Altabrisa', 'Europa'], moneyValues: [], faqMoneyValues: [], catalogBlocks: [], excluded: [],
 };
 const input: AiMessageInput = {
   userId: 'user', phoneNumber: '525500000000', messageId: 'msg', messageText: 'Hola',

@@ -20,7 +20,20 @@ export interface OfferDependencies {
   evaluate(userId: string): Promise<boolean>;
   mark(userId: string): Promise<void>;
 }
+/** Cola por usuario: un turno espera a que terminen los anteriores del mismo usuario (D12). */
+export interface TurnQueueDependencies {
+  enqueue(userId: string, messageId: string): Promise<void>;
+  isNext(userId: string, messageId: string): Promise<boolean>;
+  release(messageId: string): Promise<void>;
+  sleep?(ms: number): Promise<void>;
+  /** Espera máxima antes de contestar sin orden; debe caber en la ventana síncrona del webhook. */
+  maxWaitMs?: number;
+  pollMs?: number;
+}
+
 export interface AiHandlerDependencies extends ResponderDependencies {
+  /** Sin esto los turnos de un mismo usuario no se serializan (pruebas puras). */
+  turnQueue?: TurnQueueDependencies;
   config(): Promise<ResponderConfig>;
   context(): Promise<AiContext>;
   hasIncoming(messageId: string): Promise<boolean>;
@@ -79,6 +92,43 @@ async function defaultOffer(): Promise<OfferDependencies> {
   };
 }
 
+const TURN_STALE_SECONDS = 30;
+const TURN_MAX_WAIT_MS = 5_000;
+const TURN_POLL_MS = 200;
+
+async function defaultTurnQueue(): Promise<TurnQueueDependencies> {
+  const { aiTurnQueueRepository } = await import('@/data/repositories/ai-turn-queue.repository');
+  return {
+    enqueue: (userId, messageId) => aiTurnQueueRepository.enqueue(userId, messageId, TURN_STALE_SECONDS),
+    isNext: (userId, messageId) => aiTurnQueueRepository.isNext(userId, messageId, TURN_STALE_SECONDS),
+    release: messageId => aiTurnQueueRepository.release(messageId),
+  };
+}
+
+/** Devuelve si el turno quedó en la cola; si la cola falla o la espera se agota, el turno sigue sin ella. */
+async function waitForTurn(queue: TurnQueueDependencies, input: AiMessageInput): Promise<boolean> {
+  try {
+    await queue.enqueue(input.userId, input.messageId);
+  } catch (error) {
+    console.error('No se pudo encolar el turno con IA; se contesta sin orden:', error);
+    return false;
+  }
+  const sleep = queue.sleep ?? (ms => new Promise<void>(resolve => setTimeout(resolve, ms)));
+  const deadline = Date.now() + (queue.maxWaitMs ?? TURN_MAX_WAIT_MS);
+  try {
+    while (!(await queue.isNext(input.userId, input.messageId))) {
+      if (Date.now() >= deadline) {
+        console.error('El turno anterior del mismo usuario no terminó a tiempo; se contesta sin esperarlo.');
+        break;
+      }
+      await sleep(queue.pollMs ?? TURN_POLL_MS);
+    }
+  } catch (error) {
+    console.error('No se pudo consultar la cola de turnos; se contesta sin orden:', error);
+  }
+  return true;
+}
+
 async function defaultDependencies(input: AiMessageInput): Promise<AiHandlerDependencies> {
   const [{ conversationRepository }, { aiModelCallRepository }, { buildAiContext }, { createToolActions }] = await Promise.all([
     import('@/data/repositories/conversation.repository'),
@@ -101,6 +151,7 @@ async function defaultDependencies(input: AiMessageInput): Promise<AiHandlerDepe
     log, tools: createToolActions(input),
     classification: await defaultClassification(client, log),
     offer: await defaultOffer(),
+    turnQueue: await defaultTurnQueue(),
   };
 }
 
@@ -117,8 +168,10 @@ export async function handleAiMessage(input: AiMessageInput, injected?: AiHandle
     if (result.kind === 'response') return { ...result, response: { ...result.response, afterSend: pipeline } };
     return result;
   };
+  let queue: TurnQueueDependencies | null = null;
   try {
     const deps = injected || await defaultDependencies(input);
+    if (deps.turnQueue && await waitForTurn(deps.turnQueue, input)) queue = deps.turnQueue;
     if (await deps.hasIncoming(input.messageId)) return { kind: 'duplicate' };
     const config = await deps.config();
     const now = deps.now?.() ?? Date.now();
@@ -151,7 +204,10 @@ export async function handleAiMessage(input: AiMessageInput, injected?: AiHandle
       }, deps.classification, replied)
       : null;
     try {
-      const result = await respondWithAi({ ...input, config, context, messages }, deps);
+      const leadTexts = [input.messageText, ...historyRows
+        .filter(row => ['inbound', 'incoming'].includes(row.direction) && row.message_id !== input.messageId)
+        .map(row => row.message_text ?? '')];
+      const result = await respondWithAi({ ...input, config, context, messages, leadTexts }, deps);
       settleReply(result.kind === 'response');
       if (result.kind === 'response') {
         await deps.saveIncoming(input);
@@ -165,6 +221,9 @@ export async function handleAiMessage(input: AiMessageInput, injected?: AiHandle
   } catch (error) {
     console.error('Falló la preparación o persistencia del turno con IA:', error);
     return withPipeline({ kind: 'fallback', reason: 'handler_error', errorType: error instanceof Error ? error.name : 'UnknownError' });
+  } finally {
+    // Aquí la entrada ya está guardada (o el turno cae al camino léxico): el siguiente la verá.
+    if (queue) await queue.release(input.messageId).catch(error => console.error('No se pudo liberar el turno con IA; vence solo:', error));
   }
 }
 

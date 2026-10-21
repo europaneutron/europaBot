@@ -171,7 +171,13 @@ Mientras el clasificador no pase la calibración (tarea 8), la fuente del score 
 
 ### D11. Guardas de salida y respaldo
 
-**Cifras.** Se extraen las cantidades de dinero de la respuesta y se normalizan: `$2,350,000`, `2.35 millones` y `2,350 mil` son la misma. Se comparan contra todos los valores `money` del catálogo, con una tolerancia de redondeo para expresiones en millones.
+**Cifras.** Se extraen las cantidades de dinero de la respuesta y se normalizan: `$2,350,000`, `2.35 millones` y `2,350 mil` son la misma. Una cifra se permite si es una de estas, con una tolerancia de redondeo para expresiones en millones:
+- un valor `money` del catálogo;
+- una cifra de la guía de preguntas frecuentes ya interpolada (por ejemplo, el monto de apartado que está en una respuesta);
+- una cifra que la persona escribió en esta conversación (mensaje actual y turnos previos suyos), para poder repetirla ("con 20 mil apartas");
+- la suma o la diferencia de dos valores del catálogo, solo de a pares, para contestar "¿cuánto más cuesta la Solara que la Aura?".
+
+Todo lo demás se rechaza. Las cifras de la persona y de la guía no se suman entre sí ni con el catálogo: la derivación parte solo del catálogo. En el reintento el mensaje al modelo es un hecho que nombra las cifras rechazadas y las documentadas más cercanas, y le indica contestar sin mencionar la revisión ni disculparse; si falla otra vez, contesta el bot léxico.
 
 - **Fase 1:** basta con que la cifra exista en el catálogo.
 - **Si el simulador muestra cifras correctas atribuidas al modelo equivocado:** se endurece a que la cifra pertenezca al alcance nombrado en la misma oración.
@@ -192,6 +198,8 @@ En todos los casos, el mismo mensaje se procesa con el camino léxico completo y
 El historial son los últimos 10 mensajes de `conversations`, convertidos a turnos `user`/`assistant`. Los mensajes consecutivos del mismo rol se unen.
 
 Antes de procesar se busca `message_id` en `conversations`. Si ya existe, no se contesta. Esto ya hace falta hoy, y con un modelo más lento sube la probabilidad de que Meta reintente.
+
+Los mensajes seguidos de un mismo usuario se serializan en el camino con IA con una cola en base de datos (`ai_turn_queue`, funciones `enqueue_ai_turn` y `is_ai_turn_next`): cada turno se encola al llegar y espera, hasta 5 s, a que no haya un turno anterior vigente; así los turnos salen en orden de llegada y cada uno lee el historial con las entradas ya guardadas. Se libera al guardar la entrada, cuando el manejador regresa; el mensaje saliente lo guarda el transporte unos instantes después, y esa ventana pequeña es el costo de no cambiar los tres transportes. Si la cola falla o la espera se agota, el turno contesta sin orden en vez de dejar al lead sin respuesta, y una fila con más de 30 s se ignora. El camino léxico no usa la cola.
 
 El webhook se queda síncrono en esta fase. Con un tiempo límite de 8 s y el respaldo, el peor caso sigue dentro de la ventana de Meta. Pasar a contestar 200 de inmediato y procesar después (`waitUntil`) se decide con la latencia medida, no antes.
 
