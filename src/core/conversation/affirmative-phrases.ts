@@ -3,7 +3,7 @@
  * cita; ahora la consulta también la resolución de la oferta pendiente, así
  * que un cambio a la lista no puede quedarse desincronizado entre las dos.
  */
-const AFFIRMATIVE_PHRASES = [
+export const AFFIRMATIVE_PHRASES = [
   'si', 'sí', 'claro', 'ok', 'vale', 'dale', 'yes',
   'por favor', 'porfavor', 'esta bien', 'está bien',
   'adelante', 'vamos', 'perfecto', 'excelente',

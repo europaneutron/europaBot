@@ -1,0 +1,95 @@
+Validación y persistencia con cliente falso
+  ok   normalizeForQuote quita acentos, mayúsculas, puntuación y espacios repetidos
+  ok   lista vacía permitida: "Hola" sin temas
+  ok   cita inventada se descarta con su causa
+  ok   cita "Hola" se descarta aunque aparezca en el mensaje
+  ok   cita "sí" y "claro, gracias" se descartan
+  ok   cita con otra ortografía se acepta
+  ok   una cita con contenido que incluye un saludo se acepta
+  ok   tema inexistente, desarrollo inexistente, forma inválida y duplicado se descartan
+  ok   desarrollo "general" queda como null y otro_tema se conserva
+  ok   la petición lleva effort, esquema estructurado con enums y registro tipo classifier
+  ok   el prompt de sistema es idéntico entre llamadas y no lleva el mensaje
+  ok   timeout del proveedor: sin lanzar, con causa y registro
+  ok   error de API, rechazo, corte, JSON roto y forma inválida son fallos con causa
+  ok   falla del registro de la llamada no rompe la clasificación
+  ok   un clasificador lento no retrasa: waitBriefly vuelve en el plazo y el resto sigue
+  ok   fuente classifier: solo temas claros, en la raíz y con el desarrollo mencionado
+  ok   fuente matcher: puntúa su coincidencia principal y el clasificador solo se registra
+  ok   un tema ya contado no se repite ni recalcula
+  ok   con respaldo (sin respuesta de IA) se registra la fila y no se puntúa
+  ok   clasificador fallido: fila sin temas con la causa y score sin cambios
+  ok   si guardar la fila falla, el score igual se escribe
+
+Casos contra la API real y el contenido local
+Temas: amenidades, brochure, creditos, modelo, precio, promociones, ubicacion
+Desarrollos: Europa Residencial
+Modelo: claude-haiku-5-5, effort low, timeout 4000 ms
+Prompt de sistema:
+  | Eres el clasificador de temas de un chat de WhatsApp de venta de viviendas. Lees el último mensaje de la persona interesada y dices de qué temas de la lista habla.
+  | 
+  | # Temas
+  | - amenidades (Amenidades): se pregunta como "qué amenidades tiene", "qué servicios incluye", "tiene alberca", "tiene piscina"
+  | - brochure (Brochure e Información): se pregunta como "tienes brochure", "tienes catálogo", "enviame información", "envíame información"
+  | - creditos (Créditos y Financiamiento): se pregunta como "acepta credito", "acepta crédito", "puedo usar infonavit", "con que banco"
+  | - modelo (Medidas Casas y Lotes): se pregunta como "que tamaños maneja", "que medidas tienen", "cuantos cuartos", "cuantas plantas"
+  | - precio (Precio y Costos): se pregunta como "cuanto cuesta", "cuánto cuesta", "cual es el precio", "cuál es el precio"
+  | - promociones (Promociones): se pregunta como "hay promociones", "tienen descuentos", "qué promociones hay", "hay alguna oferta"
+  | - ubicacion (Ubicación y Dirección): se pregunta como "donde esta", "dónde está", "donde se encuentra", "cual es la dirección"
+  | 
+  | # Desarrollos
+  | Europa Residencial
+  | 
+  | # Cómo se clasifica
+  | - Cuenta únicamente lo que escribe la persona en su último mensaje. Los turnos anteriores sirven para entender a qué se refiere ("esa", "ahí", "ese"); lo que ofreció o dijo el asistente describe la conversación y no es un tema de la persona.
+  | - Un mensaje puede traer varios temas, uno o ninguno. Un saludo, un agradecimiento y un "sí" a lo que el asistente ofreció son mensajes sin tema: la lista queda vacía.
+  | - Cada tema lleva su cita: las palabras exactas del último mensaje que lo muestran, copiadas tal cual.
+  | - La claridad es "clara" cuando la persona pregunta por el tema o pide información de él, y "dudosa" cuando solo lo menciona.
+  | - El desarrollo es el que la persona nombra o el que sale de los turnos anteriores; si no hay ninguno, es "general".
+  | - Un tema que no está en la lista queda fuera de "temas" y se resume en pocas palabras en "otro_tema"; sin tema ajeno, "otro_tema" es null.
+  | - Un mensaje se asigna al tema de la lista solo cuando la persona habla de él, aunque use otras palabras.
+Esquema: {"type":"object","properties":{"temas":{"type":"array","items":{"type":"object","properties":{"tema":{"type":"string","enum":["amenidades","brochure","creditos","modelo","precio","promociones","ubicacion"]},"cita":{"type":"string"},"claridad":{"type":"string","enum":["clara","dudosa"]},"desarrollo":{"type":"string","enum":["Europa Residencial","general"]}},"required":["tema","cita","claridad","desarrollo"],"additionalProperties":false}},"otro_tema":{"anyOf":[{"type":"string"},{"type":"null"}]}},"required":["temas","otro_tema"],"additionalProperties":false}
+
+RESULTADO | caso          | n | esperado                                 | obtenido | latencia y tokens
+OK    | saludo        | 1 | []                                       | [] | 2611 ms in=36 cache_r=0 cache_w=1413 out=18
+OK    | saludo        | 2 | []                                       | [] | 1569 ms in=36 cache_r=1413 cache_w=0 out=18
+OK    | gracias       | 1 | []                                       | [] | 1204 ms in=36 cache_r=1413 cache_w=0 out=18
+OK    | gracias       | 2 | []                                       | [] | 1057 ms in=36 cache_r=1413 cache_w=0 out=18
+OK    | ok            | 1 | []                                       | [] | 1404 ms in=35 cache_r=1413 cache_w=0 out=18
+OK    | ok            | 2 | []                                       | [] | 1048 ms in=35 cache_r=1413 cache_w=0 out=18
+OK    | enganche      | 1 | creditos o precio, clara                 | creditos(clara,general,"¿con cuánto de enganche me la llevo?") | 3147 ms in=50 cache_r=1413 cache_w=0 out=269
+OK    | enganche      | 2 | creditos o precio, clara                 | creditos(clara,general,"¿con cuánto de enganche me la llevo?") | 2458 ms in=50 cache_r=1413 cache_w=0 out=252
+OK    | varios        | 1 | precio + ubicacion, claras               | precio(clara,general,"cuánto cuesta") + ubicacion(clara,general,"dónde queda") | 1738 ms in=50 cache_r=1413 cache_w=0 out=98
+OK    | varios        | 2 | precio + ubicacion, claras               | precio(clara,general,"cuánto cuesta") + ubicacion(clara,general,"dónde queda") | 1327 ms in=50 cache_r=1413 cache_w=0 out=98
+OK    | mascotas      | 1 | [] + otro_tema "mascotas"                | [] otro="preguntan si aceptan mascotas" | 1529 ms in=44 cache_r=1413 cache_w=0 out=32
+OK    | mascotas      | 2 | [] + otro_tema "mascotas"                | [] otro="preguntan si aceptan mascotas" | 1649 ms in=44 cache_r=1413 cache_w=0 out=32
+OK    | infonavit     | 1 | creditos clara                           | creditos(clara,general,"¿tienen crédito Infonavit?") | 1355 ms in=47 cache_r=1413 cache_w=0 out=65
+OK    | infonavit     | 2 | creditos clara                           | creditos(clara,general,"¿tienen crédito Infonavit?") | 1477 ms in=47 cache_r=1413 cache_w=0 out=65
+OK    | jardin        | 1 | [] o dudosa (nada clara)                 | [] otro="Busca opciones de vivienda con jardín para su esposa" | 1046 ms in=53 cache_r=1413 cache_w=0 out=39
+OK    | jardin        | 2 | [] o dudosa (nada clara)                 | amenidades(dudosa,general,"quiere jardín") | 1579 ms in=53 cache_r=1413 cache_w=0 out=60
+OK    | oferta-si     | 1 | [] (el bot ofreció el brochure)          | [] | 1043 ms in=85 cache_r=1413 cache_w=0 out=18
+OK    | oferta-si     | 2 | [] (el bot ofreció el brochure)          | [] | 1601 ms in=85 cache_r=1413 cache_w=0 out=18
+OK    | referencia    | 1 | precio clara, cita "cuánto cuesta", dev… | precio(clara,Europa Residencial,"cuánto cuesta") | 1017 ms in=93 cache_r=1413 cache_w=0 out=64
+OK    | referencia    | 2 | precio clara, cita "cuánto cuesta", dev… | precio(clara,Europa Residencial,"cuánto cuesta") | 1090 ms in=93 cache_r=1413 cache_w=0 out=64
+OK    | dev-nombrado  | 1 | precio, dev Europa Residencial           | precio(clara,Europa Residencial,"¿cuánto cuesta en Europa Residencial?") | 1014 ms in=52 cache_r=1413 cache_w=0 out=75
+OK    | dev-nombrado  | 2 | precio, dev Europa Residencial           | precio(clara,Europa Residencial,"cuánto cuesta") | 1295 ms in=52 cache_r=1413 cache_w=0 out=64
+OK    | sin-dev       | 1 | creditos general (dev null)              | creditos(clara,general,"¿manejan crédito?") | 1530 ms in=42 cache_r=1413 cache_w=0 out=60
+OK    | sin-dev       | 2 | creditos general (dev null)              | creditos(clara,general,"¿manejan crédito?") | 1497 ms in=42 cache_r=1413 cache_w=0 out=60
+OK    | cita          | 1 | [] (cita no es tema de la lista)         | [] otro="agendar una visita" | 1967 ms in=42 cache_r=1413 cache_w=0 out=25
+OK    | cita          | 2 | [] (cita no es tema de la lista)         | [] otro="agendar una visita" | 1043 ms in=42 cache_r=1413 cache_w=0 out=25
+
+Aciertos: 26/26
+Latencia ms: mediana=1477 min=1014 max=3147
+Tokens por llamada (promedio): entrada=51 salida=61 cache_read=1359
+
+Handler completo con usuario desechable
+       clasificador: [["precio","clara"],["ubicacion","clara"]] matcher: ["precio","ubicacion"]
+  ok   el contestador responde y la clasificación queda guardada (fuente matcher)
+       checkpoints: ["precio"]
+  ok   fuente matcher: checkpoint en la raíz sin desarrollo mencionado
+       score raíz: 30 (cold), temas contados: 2
+  ok   fuente classifier (inyectada): checkpoint raíz con desarrollo, recalcula y alimenta la oferta
+  ok   un mensaje sin respuesta de IA registra la fila sin tocar checkpoints
+Usuario desechable borrado.
+
+Clasificador de temas: todo verificado.

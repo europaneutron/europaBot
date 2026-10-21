@@ -331,7 +331,8 @@ export class UserRepository {
   async markCheckpointCompleted(
     userId: string,
     scopeId: string,
-    intentName: string
+    intentName: string,
+    mentionedScopeId?: string | null
   ): Promise<void> {
     const { error } = await supabaseServer
       .from('user_checkpoints')
@@ -339,6 +340,8 @@ export class UserRepository {
         user_id: userId,
         scope_id: scopeId,
         intent_name: intentName,
+        // Solo el camino con IA lo informa; omitirlo deja intacto el camino léxico.
+        ...(mentionedScopeId !== undefined ? { mentioned_scope_id: mentionedScopeId } : {}),
         completed_at: new Date().toISOString()
       }, { onConflict: 'user_id,scope_id,intent_name' });
 

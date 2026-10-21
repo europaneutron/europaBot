@@ -7,8 +7,8 @@
 
 ## 2. Frases reales para medir
 
-- [ ] 2.1 Script `scripts/extract-real-phrases.ts`: lee el respaldo local, extrae solo `message_text` de mensajes entrantes, sin teléfonos, nombres ni identificadores, quita duplicados y escribe un fixture en `scripts/fixtures/`. El fixture queda fuera de git, igual que `backups/`
-- [ ] 2.2 Revisar a mano una muestra del fixture para confirmar que no quedan datos personales dentro del texto (teléfonos, correos, nombres propios escritos por el lead) y enmascararlos si aparecen
+- [x] 2.1 Script `scripts/extract-real-phrases.ts`: lee el respaldo local, extrae solo `message_text` de mensajes entrantes, sin teléfonos, nombres ni identificadores, quita duplicados y escribe un fixture en `scripts/fixtures/`. El fixture queda fuera de git, igual que `backups/`
+- [x] 2.2 Revisar a mano una muestra del fixture para confirmar que no quedan datos personales dentro del texto (teléfonos, correos, nombres propios escritos por el lead) y enmascararlos si aparecen
 
 ## 3. Esquema
 
@@ -59,12 +59,12 @@
 
 ## 7. Clasificador de temas
 
-- [ ] 7.1 Llamada con salida estructurada: lista de temas (puede venir vacía), cita, claridad, desarrollo y otro tema. Recibe los temas con descripción y ejemplos de `intent_configurations`
-- [ ] 7.2 Validación en código: tema activo, cita presente con normalización, cita que no sea solo saludo o afirmativo, desarrollo existente
-- [ ] 7.3 Ejecución en paralelo con el contestador. Si falla, el mensaje se registra sin temas y la respuesta no se retrasa
-- [ ] 7.4 Ejecutar también el matcher sobre el mismo mensaje y registrar sus temas sin sumarlos
-- [ ] 7.5 Escritura de checkpoints en el alcance raíz con el desarrollo mencionado, solo para temas claros y solo si la fuente del score es el clasificador. Recalcular con `LeadScorer`
-- [ ] 7.6 Script `scripts/test-topic-classifier.ts`:
+- [x] 7.1 Llamada con salida estructurada: lista de temas (puede venir vacía), cita, claridad, desarrollo y otro tema. Recibe los temas con descripción y ejemplos de `intent_configurations`
+- [x] 7.2 Validación en código: tema activo, cita presente con normalización, cita que no sea solo saludo o afirmativo, desarrollo existente
+- [x] 7.3 Ejecución en paralelo con el contestador. Si falla, el mensaje se registra sin temas y la respuesta no se retrasa
+- [x] 7.4 Ejecutar también el matcher sobre el mismo mensaje y registrar sus temas sin sumarlos
+- [x] 7.5 Escritura de checkpoints en el alcance raíz con el desarrollo mencionado, solo para temas claros y solo si la fuente del score es el clasificador. Recalcular con `LeadScorer`
+- [x] 7.6 Script `scripts/test-topic-classifier.ts`:
   - mensaje sin tema;
   - pregunta sin palabras de los patrones;
   - varios temas;

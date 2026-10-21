@@ -52,3 +52,48 @@ export function classifyAnthropicError(error: unknown) {
   if (error instanceof Anthropic.APIConnectionError) return { reason: 'api_error', errorType: error.name };
   return { reason: 'internal_error', errorType: error instanceof Error ? error.name : 'UnknownError' };
 }
+
+export interface ClassifierConfig {
+  model: string;
+  effort: NonNullable<Anthropic.OutputConfig['effort']>;
+  timeoutMs: number;
+}
+export type ScoreSource = 'matcher' | 'classifier';
+
+export function parseClassifierConfig(values: Record<string, string>): ClassifierConfig {
+  const effort = values.ai_classifier_effort || 'low';
+  if (!['low', 'medium', 'high', 'xhigh', 'max'].includes(effort)) {
+    throw new Error('ai_classifier_effort no es válido');
+  }
+  const timeoutMs = values.ai_classifier_timeout_ms === undefined ? 4000 : Number(values.ai_classifier_timeout_ms);
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
+    throw new Error('ai_classifier_timeout_ms debe ser un entero positivo');
+  }
+  return {
+    model: values.ai_classifier_model || 'claude-haiku-5-5',
+    effort: effort as ClassifierConfig['effort'],
+    timeoutMs,
+  };
+}
+
+/** Un valor desconocido cae al matcher: el score nunca debe cambiar de fuente por un error de captura. */
+export function parseScoreSource(value: string | undefined): ScoreSource {
+  if (value === 'classifier') return 'classifier';
+  if (value !== undefined && value !== 'matcher') console.error(`ai_score_source desconocido (${value}); se usa matcher`);
+  return 'matcher';
+}
+
+export async function loadClassifierConfig(): Promise<ClassifierConfig> {
+  const { configRepository } = await import('@/data/repositories/config.repository');
+  const { ROOT_SCOPE_ID } = await import('@/data/repositories/scope.repository');
+  return parseClassifierConfig(await configRepository.getManyByScope([
+    'ai_classifier_model', 'ai_classifier_effort', 'ai_classifier_timeout_ms',
+  ], ROOT_SCOPE_ID));
+}
+
+export async function loadScoreSource(): Promise<ScoreSource> {
+  const { configRepository } = await import('@/data/repositories/config.repository');
+  const { ROOT_SCOPE_ID } = await import('@/data/repositories/scope.repository');
+  const values = await configRepository.getManyByScope(['ai_score_source'], ROOT_SCOPE_ID);
+  return parseScoreSource(values.ai_score_source);
+}

@@ -28,3 +28,22 @@ export function appendUserMessage(messages: Anthropic.MessageParam[], text: stri
   if (last?.role === 'user' && typeof last.content === 'string') last.content += `\n${text}`;
   else messages.push({ role: 'user', content: text });
 }
+
+/**
+ * Los últimos mensajes previos al actual, del más viejo al más nuevo, para que el
+ * clasificador entienda referencias ("esa"). Dos turnos son hasta cuatro mensajes.
+ */
+export function recentTurns(rows: readonly HistoryRow[], messageId?: string, maxMessages = 4):
+  Array<{ role: 'persona' | 'asistente'; text: string }> {
+  const turns: Array<{ role: 'persona' | 'asistente'; text: string }> = [];
+  for (const row of rows) {
+    if (turns.length >= maxMessages) break;
+    if (messageId && row.message_id === messageId) continue;
+    const text = row.message_text?.trim();
+    if (!text) continue;
+    const role = ['inbound', 'incoming'].includes(row.direction) ? 'persona'
+      : ['outbound', 'outgoing'].includes(row.direction) ? 'asistente' : null;
+    if (role) turns.push({ role, text });
+  }
+  return turns.reverse();
+}

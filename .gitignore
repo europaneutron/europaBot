@@ -67,3 +67,6 @@ supabase/.branches/
 # Configuracion de Claude Code por maquina
 .claude/settings.local.json
 backups/
+
+# Frases reales de leads extraidas de respaldos de prod (conversacion-con-ia, tarea 2.1)
+scripts/fixtures/frases-reales.json

@@ -58,7 +58,41 @@ type CreateBotResponse = Omit<
   'review_signals' | 'edited_by_human' | 'superseded_by_response_id' | 'deactivated_at'
 > & Partial<Pick<BotResponse, 'origin' | 'compiler_proposal_id'>>;
 
+export interface CheckpointTopicRow {
+  intent_name: string;
+  display_name: string;
+  phrases: string[];
+  keywords: string[];
+}
+
 export class IntentConfigRepository {
+  /**
+   * Temas que el clasificador puede asignar: intents activos marcados como
+   * checkpoint, un registro por nombre aunque existan en varios alcances.
+   * Los ejemplos se unen entre alcances para no depender de cual se lea primero.
+   */
+  async listActiveCheckpointTopics(): Promise<CheckpointTopicRow[]> {
+    const { data, error } = await supabaseServer
+      .from('intent_configurations')
+      .select('intent_name, display_name, phrases, keywords, priority')
+      .eq('is_active', true)
+      .eq('is_checkpoint', true)
+      .order('intent_name')
+      .order('priority', { ascending: false })
+      .order('scope_id');
+    if (error) throw error;
+    const byName = new Map<string, CheckpointTopicRow>();
+    for (const row of data || []) {
+      const current: CheckpointTopicRow = byName.get(row.intent_name) ?? {
+        intent_name: row.intent_name, display_name: row.display_name, phrases: [], keywords: [],
+      };
+      for (const phrase of row.phrases || []) if (!current.phrases.includes(phrase)) current.phrases.push(phrase);
+      for (const keyword of row.keywords || []) if (!current.keywords.includes(keyword)) current.keywords.push(keyword);
+      byName.set(row.intent_name, current);
+    }
+    return Array.from(byName.values());
+  }
+
   /**
    * Obtener todas las intenciones
    */
