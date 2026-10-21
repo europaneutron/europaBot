@@ -191,6 +191,20 @@ export class UserRepository {
   }
 
   /**
+   * Solo la bandera, no la fila: el camino con IA decide si cede el turno al
+   * flujo del asesor sin leer el foco ni la oferta pendiente de la sesión.
+   */
+  async isAwaitingAdvisorName(userId: string): Promise<boolean> {
+    const { data, error } = await supabaseServer
+      .from('user_sessions')
+      .select('awaiting_advisor_name')
+      .eq('user_id', userId)
+      .maybeSingle();
+    if (error) throw error;
+    return data?.awaiting_advisor_name === true;
+  }
+
+  /**
    * Actualizar sesión
    */
   async updateSession(userId: string, updates: Partial<UserSession>): Promise<void> {

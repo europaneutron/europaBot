@@ -1,9 +1,7 @@
 import { createResponderClient, loadResponderConfig, type ResponderConfig } from '@/services/anthropic/client';
 import { appendUserMessage, buildHistory, recentTurns, type HistoryRow } from './history';
 import { buildTurnMessage, type TurnFacts } from './turn-message-builder';
-import {
-  DEFAULT_CLASSIFIER_GRACE_MS, runClassification, waitBriefly, type ClassificationDependencies,
-} from './classification-pipeline';
+import { runClassification, type ClassificationDependencies } from './classification-pipeline';
 import { emptyCall, respondWithAi, type AiContext, type AiResponseResult, type ResponderDependencies } from './responder';
 
 export interface AiMessageInput {
@@ -11,10 +9,17 @@ export interface AiMessageInput {
   phoneNumber: string;
   messageId: string;
   messageText: string;
+  /** `shouldOfferAppointment` lo decide el manejador con `offer`; aquí solo se acepta como forzado. */
   facts: TurnFacts;
+  referralAdId?: string;
   suppressExternalMessages?: boolean;
 }
+/** En `response`, `afterSend` viaja dentro de `response`; en `fallback`, junto a la causa. */
 export type AiMessageResult = AiResponseResult | { kind: 'duplicate' };
+export interface OfferDependencies {
+  evaluate(userId: string): Promise<boolean>;
+  mark(userId: string): Promise<void>;
+}
 export interface AiHandlerDependencies extends ResponderDependencies {
   config(): Promise<ResponderConfig>;
   context(): Promise<AiContext>;
@@ -24,6 +29,8 @@ export interface AiHandlerDependencies extends ResponderDependencies {
   saveIncoming(input: AiMessageInput): Promise<void>;
   /** Sin esto no hay clasificación: los contestadores probados sin ella siguen igual. */
   classification?: ClassificationDependencies;
+  /** Sin esto el turno no evalúa oferta de cita (los contestadores probados sin ella siguen igual). */
+  offer?: OfferDependencies;
 }
 
 async function defaultClassification(client: ResponderDependencies['client'], log: ResponderDependencies['log']): Promise<ClassificationDependencies> {
@@ -59,6 +66,19 @@ async function defaultClassification(client: ResponderDependencies['client'], lo
   };
 }
 
+async function defaultOffer(): Promise<OfferDependencies> {
+  const [{ evaluateAppointmentOffer, createOfferEvaluationDependencies }, { userRepository }, { ROOT_SCOPE_ID }] = await Promise.all([
+    import('./appointment-offer-evaluation'), import('@/data/repositories/user.repository'),
+    import('@/data/repositories/scope.repository'),
+  ]);
+  const evaluation = await createOfferEvaluationDependencies();
+  return {
+    evaluate: userId => evaluateAppointmentOffer(userId, evaluation),
+    // Mismo alcance (raíz) con el que la evaluación lee si ya se ofreció.
+    mark: userId => userRepository.markAppointmentOffered(userId, ROOT_SCOPE_ID),
+  };
+}
+
 async function defaultDependencies(input: AiMessageInput): Promise<AiHandlerDependencies> {
   const [{ conversationRepository }, { aiModelCallRepository }, { buildAiContext }, { createToolActions }] = await Promise.all([
     import('@/data/repositories/conversation.repository'),
@@ -75,18 +95,28 @@ async function defaultDependencies(input: AiMessageInput): Promise<AiHandlerDepe
     countMessages: (phone, since) => aiModelCallRepository.countMessagesForPhone(phone, since),
     history: userId => conversationRepository.getRecentConversations(userId, 10),
     saveIncoming: async message => {
-      await conversationRepository.saveIncomingMessage(message.userId, message.messageId, message.messageText);
+      await conversationRepository.saveIncomingMessage(
+        message.userId, message.messageId, message.messageText, undefined, { referralAdId: message.referralAdId });
     },
     log, tools: createToolActions(input),
     classification: await defaultClassification(client, log),
+    offer: await defaultOffer(),
   };
 }
 
 /** El llamador ejecuta el camino léxico completo solo con kind=fallback.
  * La entrada se guarda aquí al responder; en respaldo la guarda el camino léxico.
  * Los salientes siguen siendo responsabilidad del transporte/simulador existente.
+ * Con `response` o `fallback`, el llamador espera `afterSend` después de enviar.
  */
 export async function handleAiMessage(input: AiMessageInput, injected?: AiHandlerDependencies): Promise<AiMessageResult> {
+  let pipeline: Promise<void> | null = null;
+  const withPipeline = <T extends AiMessageResult>(result: T): T => {
+    if (!pipeline) return result;
+    if (result.kind === 'fallback') return { ...result, afterSend: pipeline };
+    if (result.kind === 'response') return { ...result, response: { ...result.response, afterSend: pipeline } };
+    return result;
+  };
   try {
     const deps = injected || await defaultDependencies(input);
     if (await deps.hasIncoming(input.messageId)) return { kind: 'duplicate' };
@@ -104,13 +134,16 @@ export async function handleAiMessage(input: AiMessageInput, injected?: AiHandle
     const historyRows = await deps.history(input.userId);
     const messages = buildHistory(historyRows, input.messageId);
     appendUserMessage(messages, input.messageText);
-    messages.push(buildTurnMessage({ ...input.facts, shouldOfferAppointment: input.facts.shouldOfferAppointment
-      && context.developments.some(item => item.hasAppointments) }));
+    // La oferta se evalúa con lo ya guardado, antes de llamar al modelo (D10). Sin
+    // desarrollo con horarios no hay a dónde invitar, así que tampoco hay nota ni marca.
+    const wantsOffer = input.facts.shouldOfferAppointment || await evaluateOffer(deps, input.userId);
+    const offerNote = wantsOffer && context.developments.some(item => item.hasAppointments);
+    messages.push(buildTurnMessage({ ...input.facts, shouldOfferAppointment: offerNote }));
     // El clasificador y el matcher corren junto al contestador y nunca lo esperan:
     // `replied` solo les dice después si la respuesta salió por este camino.
     let settleReply: (replied: boolean) => void = () => {};
     const replied = new Promise<boolean>(resolve => { settleReply = resolve; });
-    const pipeline = deps.classification
+    pipeline = deps.classification
       ? runClassification({
         userId: input.userId, messageId: input.messageId, messageText: input.messageText,
         priorTurns: recentTurns(historyRows, input.messageId),
@@ -120,14 +153,28 @@ export async function handleAiMessage(input: AiMessageInput, injected?: AiHandle
     try {
       const result = await respondWithAi({ ...input, config, context, messages }, deps);
       settleReply(result.kind === 'response');
-      if (result.kind === 'response') await deps.saveIncoming(input);
-      return result;
+      if (result.kind === 'response') {
+        await deps.saveIncoming(input);
+        // Antes de enviar, como el camino léxico: un reintento no puede ofrecer dos veces.
+        if (offerNote && deps.offer) await markOffer(deps.offer, input.userId);
+      }
+      return withPipeline(result);
     } finally {
       settleReply(false);
-      if (pipeline) await waitBriefly(pipeline, deps.classification?.graceMs ?? DEFAULT_CLASSIFIER_GRACE_MS);
     }
   } catch (error) {
     console.error('Falló la preparación o persistencia del turno con IA:', error);
-    return { kind: 'fallback', reason: 'handler_error', errorType: error instanceof Error ? error.name : 'UnknownError' };
+    return withPipeline({ kind: 'fallback', reason: 'handler_error', errorType: error instanceof Error ? error.name : 'UnknownError' });
   }
+}
+
+async function evaluateOffer(deps: AiHandlerDependencies, userId: string): Promise<boolean> {
+  if (!deps.offer) return false;
+  try { return await deps.offer.evaluate(userId); }
+  catch (error) { console.error('No se pudo evaluar la oferta de cita; el turno sale sin ella:', error); return false; }
+}
+
+async function markOffer(offer: OfferDependencies, userId: string): Promise<void> {
+  try { await offer.mark(userId); }
+  catch (error) { console.error('No se pudo marcar la oferta de cita como hecha:', error); }
 }

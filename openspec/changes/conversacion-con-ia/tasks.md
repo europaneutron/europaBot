@@ -82,11 +82,11 @@
 
 ## 9. Integración en el procesador
 
-- [ ] 9.1 Bifurcación en `processMessage`, después de verificar que el bot esté activo: camino con IA si el interruptor lo permite para ese teléfono y no hay un flujo activo (cita, WhatsApp Flow o captura del nombre para el asesor). En cualquier otro caso, camino actual sin cambios
-- [ ] 9.2 Evaluar `shouldOfferAppointment` antes de llamar al contestador, con el conteo de la fuente vigente. Marcar la oferta con la persistencia actual
-- [ ] 9.3 Verificar que el camino con IA no lee ni escribe foco, pregunta retenida ni oferta pendiente
-- [ ] 9.4 Verificar con `/api/test/process-message` que el camino con IA devuelve el mismo `ProcessedResponse` que el webhook ya sabe enviar
-- [ ] 9.5 Repetir la línea base de la tarea 1.4 con el interruptor apagado y confirmar que no cambió
+- [x] 9.1 Bifurcación en `processMessage`, después de verificar que el bot esté activo: camino con IA si el interruptor lo permite para ese teléfono y no hay un flujo activo (cita, WhatsApp Flow o captura del nombre para el asesor). En cualquier otro caso, camino actual sin cambios
+- [x] 9.2 Evaluar `shouldOfferAppointment` antes de llamar al contestador, con el conteo de la fuente vigente. Marcar la oferta con la persistencia actual
+- [x] 9.3 Verificar que el camino con IA no lee ni escribe foco, pregunta retenida ni oferta pendiente
+- [x] 9.4 Verificar con `/api/test/process-message` que el camino con IA devuelve el mismo `ProcessedResponse` que el webhook ya sabe enviar
+- [x] 9.5 Repetir la línea base de la tarea 1.4 con el interruptor apagado y confirmar que no cambió
 
 ## 10. Persona en Ajustes
 

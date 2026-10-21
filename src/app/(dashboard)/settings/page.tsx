@@ -15,6 +15,8 @@ import { MessagesSection } from './components/sections/MessagesSection';
 import { MessagesTabsSection } from './components/MessagesTabsSection';
 import { FollowupSection } from './components/sections/FollowupSection';
 import { AISection } from './components/sections/AISection';
+import { AiConversationSection } from './components/sections/AiConversationSection';
+import { PersonaSection } from './components/sections/PersonaSection';
 
 export default function SettingsPage() {
   const { configs, loading, message, loadConfigs } = useSettingsConfig();
@@ -68,6 +70,10 @@ export default function SettingsPage() {
 
       {/* Sección de Inteligencia Artificial */}
       <AISection configs={configs.ai} onReload={loadConfigs} />
+
+      {/* Conversación con IA: guardan su propio estado y no recargan la página para conservar su aviso */}
+      <AiConversationSection configs={configs.ai_conversation} />
+      <PersonaSection configs={configs.ai_conversation} />
 
       {/* Sección de mensajes personalizables */}
       <MessagesTabsSection configs={configs} onReload={loadConfigs} />

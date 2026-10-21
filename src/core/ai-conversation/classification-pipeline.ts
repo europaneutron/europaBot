@@ -14,8 +14,6 @@ export interface ClassificationDependencies {
   log(call: NewAiModelCall): Promise<void>;
   scoring: TopicScoringDependencies;
   rootScopeId: string;
-  /** Espera máxima tras la respuesta antes de dejar al clasificador terminar por su cuenta. */
-  graceMs?: number;
   now?: () => number;
 }
 
@@ -27,14 +25,15 @@ export interface ClassificationRun {
   developments: ClassifierDevelopment[];
 }
 
-export const DEFAULT_CLASSIFIER_GRACE_MS = 1500;
-
 const failure = (reason: string): ClassificationOutput => ({ topics: [], otherTopic: null, discarded: [], failureReason: reason });
 
 /**
  * Corre el clasificador y el matcher junto al contestador. Nunca rechaza: cada
  * falla se vuelve un registro con su causa. `replied` indica si la respuesta salió
  * por el camino con IA, porque con respaldo el camino léxico ya puntúa el mensaje.
+ * El llamador la espera después de enviar la respuesta (`afterSend`): el clasificador
+ * tiene su propio tiempo límite, así que la espera está acotada y la escritura no
+ * se pierde cuando el proceso se congela al terminar el webhook.
  */
 export async function runClassification(run: ClassificationRun, deps: ClassificationDependencies, replied: Promise<boolean>): Promise<void> {
   try {
@@ -66,11 +65,4 @@ export async function runClassification(run: ClassificationRun, deps: Classifica
   } catch (error) {
     console.error('Falló el registro de temas del camino con IA:', error);
   }
-}
-
-/** Espera como mucho `graceMs`; lo que falte termina en segundo plano sin retrasar la respuesta. */
-export async function waitBriefly(pipeline: Promise<void>, graceMs: number): Promise<void> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  await Promise.race([pipeline, new Promise<void>(resolve => { timer = setTimeout(resolve, graceMs); })]);
-  if (timer) clearTimeout(timer);
 }

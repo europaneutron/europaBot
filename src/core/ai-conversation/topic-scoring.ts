@@ -32,14 +32,21 @@ export interface TopicOutcomeInput {
  * falla por separado y sin lanzar: ni el registro ni el score pueden afectar a
  * la respuesta, que a estas alturas ya salió o va a salir con su propio resultado.
  */
+export const MATCHER_SCORE_FALLBACK_MARK = 'score_from_matcher';
+
 export async function recordTopicOutcome(input: TopicOutcomeInput, deps: TopicScoringDependencies): Promise<string[]> {
+  // Con fuente classifier y un clasificador caído, el mensaje no puede quedar sin puntuar:
+  // se usa lo que vio el matcher y la fila lo deja dicho junto a la causa del fallo.
+  const useMatcherScore = input.replied && input.scoreSource === 'classifier' && input.classification.failureReason !== null;
   try {
     await deps.saveClassification({
       user_id: input.userId, conversation_id: null, message_id: input.messageId,
       topics: input.classification.topics, other_topic: input.classification.otherTopic,
       discarded_topics: input.classification.discarded,
       matcher_topics: input.matcher?.topics ?? [],
-      failure_reason: input.classification.failureReason,
+      failure_reason: useMatcherScore
+        ? `${input.classification.failureReason}+${MATCHER_SCORE_FALLBACK_MARK}`
+        : input.classification.failureReason,
     });
   } catch (error) {
     console.error('No se pudo guardar la clasificación de temas:', error);
@@ -47,8 +54,9 @@ export async function recordTopicOutcome(input: TopicOutcomeInput, deps: TopicSc
   if (!input.replied) return [];
 
   // El matcher puntúa solo su coincidencia principal, igual que el camino léxico;
-  // el clasificador puntúa cada tema claro, con el desarrollo que mencionó.
-  const candidates = input.scoreSource === 'classifier'
+  // el clasificador puntúa cada tema claro, con el desarrollo que mencionó. Si el
+  // clasificador falló, se puntúa como el matcher.
+  const candidates = input.scoreSource === 'classifier' && !useMatcherScore
     ? input.classification.topics.filter(topic => topic.clarity === 'clara')
       .map(topic => ({ intentName: topic.intent_name, mentionedScopeId: topic.mentioned_scope_id as string | null | undefined }))
     : input.matcher?.top?.isCheckpoint

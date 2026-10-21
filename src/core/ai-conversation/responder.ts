@@ -11,7 +11,7 @@ import { formatForWhatsApp } from './guards/whatsapp-format';
 export type AiContext = ReturnType<typeof buildContextFromData>;
 export type AiResponseResult =
   | { kind: 'response'; response: ProcessedResponse }
-  | { kind: 'fallback'; reason: string; errorType?: string };
+  | { kind: 'fallback'; reason: string; errorType?: string; afterSend?: Promise<void> };
 
 export interface ResponderInput {
   userId: string;

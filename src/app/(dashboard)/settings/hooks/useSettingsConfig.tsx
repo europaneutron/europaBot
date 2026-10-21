@@ -18,7 +18,8 @@ export function useSettingsConfig() {
     appointment_messages: [],
     derivation_messages: [],
     followup: [],
-    ai: []
+    ai: [],
+    ai_conversation: []
   });
   
   const [loading, setLoading] = useState(true);
@@ -40,7 +41,8 @@ export function useSettingsConfig() {
         appointment_messages: allConfigs.filter((c: BotConfig) => c.category === 'appointment_messages'),
         derivation_messages: allConfigs.filter((c: BotConfig) => c.category === 'derivation_messages'),
         followup: allConfigs.filter((c: BotConfig) => c.category === 'followup'),
-        ai: allConfigs.filter((c: BotConfig) => c.category === 'ai')
+        ai: allConfigs.filter((c: BotConfig) => c.category === 'ai'),
+        ai_conversation: allConfigs.filter((c: BotConfig) => c.category === 'ai_conversation')
       };
       
       setConfigs(grouped);

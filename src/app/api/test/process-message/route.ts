@@ -90,6 +90,8 @@ export async function POST(request: NextRequest) {
         result.scopeId
       );
     }
+    // Igual que el webhook: la clasificación del camino con IA se espera tras "enviar".
+    if (result.afterSend) await result.afterSend;
     const diagnostic = await conversationSimulatorRepository.getDiagnostic(user.id, result.scopeId);
 
     // Las opciones de una enumeracion viajan en la oferta pendiente, no en el
@@ -107,7 +109,7 @@ export async function POST(request: NextRequest) {
       messages,
       wasDetected: result.wasDetected,
       isFallback: result.isFallback,
-      intent: result.detectedIntent?.intent_name || (result.flowHandled ? 'appointment_flow' : null),
+      intent: result.detectedIntent?.intent_name || (result.viaAi ? 'ai' : result.flowHandled ? 'appointment_flow' : null),
       intentId: result.detectedIntent?.intent_id || null,
       buttons: flowMessage?.buttons ?? enumerationButtons,
       // Parte del contrato del endpoint desde antes del simulador: hay pruebas

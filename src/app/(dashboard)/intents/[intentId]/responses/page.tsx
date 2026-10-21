@@ -199,6 +199,7 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
         response_type: 'fragmented',
         order_priority: payload.values.order_priority,
         is_active: payload.values.is_active,
+        is_navigation: payload.values.is_navigation,
         buttons: cleanButtons(payload.buttons),
         variables: payload.values.variables,
       };
@@ -328,6 +329,7 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
                 response_key: nextResponseKey(),
                 order_priority: 1,
                 is_active: true,
+                is_navigation: false,
                 variables: {},
               }}
               variableOptions={variableOptions}
@@ -362,6 +364,7 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
                 response_key: responses[0].response_key,
                 order_priority: responses[0].order_priority,
                 is_active: responses[0].is_active,
+                is_navigation: responses[0].is_navigation ?? false,
                 variables: responses[0].variables || {},
               }}
               variableOptions={variableOptions}
@@ -409,6 +412,7 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
                     response_key: nextResponseKey(),
                     order_priority: responses.length + 1,
                     is_active: true,
+                    is_navigation: false,
                     variables: {},
                   }}
                   variableOptions={variableOptions}
@@ -464,6 +468,7 @@ export default function IntentResponsesPage({ params }: { params: { intentId: st
                           response_key: response.response_key,
                           order_priority: response.order_priority,
                           is_active: response.is_active,
+                          is_navigation: response.is_navigation ?? false,
                           variables: response.variables || {},
                         }}
                         variableOptions={variableOptions}

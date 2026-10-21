@@ -224,6 +224,11 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // La clasificación del camino con IA se espera después de enviar: el lead ya tiene su
+    // respuesta, y la espera está acotada por el tiempo límite del clasificador. Sin
+    // esto la escritura quedaría suelta y Vercel la puede congelar al responder 200.
+    if (response.afterSend) await response.afterSend;
+
     return NextResponse.json({
       status: 'received',
       processed: response.wasDetected 

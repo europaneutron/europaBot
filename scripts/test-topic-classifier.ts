@@ -22,7 +22,6 @@ import {
   type ClassifierInput, type TopicDefinition,
 } from '../src/core/ai-conversation/topic-classifier';
 import { recordTopicOutcome, type TopicScoringDependencies } from '../src/core/ai-conversation/topic-scoring';
-import { waitBriefly } from '../src/core/ai-conversation/classification-pipeline';
 import type { NewAiModelCall } from '../src/data/repositories/ai-model-call.repository';
 
 const failures: string[] = [];
@@ -163,16 +162,6 @@ async function pureChecks() {
       assert.equal(output.failureReason, null);
     } finally { console.error = quiet; }
   });
-  await check('un clasificador lento no retrasa: waitBriefly vuelve en el plazo y el resto sigue', async () => {
-    let finished = false;
-    const slow = new Promise<void>(resolve => setTimeout(() => { finished = true; resolve(); }, 300));
-    const started = Date.now();
-    await waitBriefly(slow, 50);
-    assert(Date.now() - started < 200, 'esperó más de la cuenta');
-    assert.equal(finished, false);
-    await slow;
-  });
-
   const scoring = (initial: string[] = []) => {
     const state = { rows: [] as unknown[], marks: [] as Array<[string, string, string, string | null | undefined]>, recalcs: 0, done: new Set(initial) };
     const deps: TopicScoringDependencies = {
@@ -221,10 +210,32 @@ async function pureChecks() {
     assert.equal(state.rows.length, 1);
     assert.equal(state.marks.length, 0);
   });
-  await check('clasificador fallido: fila sin temas con la causa y score sin cambios', async () => {
+  await check('clasificador fallido con fuente classifier: puntúa con el matcher y lo deja registrado', async () => {
     const { state, deps } = scoring();
     const failed = { topics: [], otherTopic: null, discarded: [], failureReason: 'timeout' };
-    await recordTopicOutcome({ ...base, classification: failed, scoreSource: 'classifier' }, deps);
+    const written = await recordTopicOutcome({ ...base, classification: failed, scoreSource: 'classifier' }, deps);
+    assert.equal((state.rows[0] as { failure_reason: string }).failure_reason, 'timeout+score_from_matcher');
+    assert.deepEqual(written, ['ubicacion']);
+    assert.deepEqual(state.marks, [['u', 'root', 'ubicacion', undefined]]);
+    assert.equal(state.recalcs, 1);
+  });
+  await check('clasificador fallido y matcher también caído: fila con la causa y score sin cambios', async () => {
+    const { state, deps } = scoring();
+    const failed = { topics: [], otherTopic: null, discarded: [], failureReason: 'timeout' };
+    const written = await recordTopicOutcome({ ...base, classification: failed, matcher: null, scoreSource: 'classifier' }, deps);
+    assert.deepEqual(written, []);
+    assert.equal(state.marks.length, 0);
+  });
+  await check('clasificador fallido con fuente matcher: la causa no se altera', async () => {
+    const { state, deps } = scoring();
+    const failed = { topics: [], otherTopic: null, discarded: [], failureReason: 'timeout' };
+    await recordTopicOutcome({ ...base, classification: failed, scoreSource: 'matcher' }, deps);
+    assert.equal((state.rows[0] as { failure_reason: string }).failure_reason, 'timeout');
+  });
+  await check('clasificador fallido sin respuesta de IA: ni puntúa ni marca la causa', async () => {
+    const { state, deps } = scoring();
+    const failed = { topics: [], otherTopic: null, discarded: [], failureReason: 'timeout' };
+    await recordTopicOutcome({ ...base, classification: failed, replied: false, scoreSource: 'classifier' }, deps);
     assert.equal((state.rows[0] as { failure_reason: string }).failure_reason, 'timeout');
     assert.equal(state.marks.length, 0);
   });

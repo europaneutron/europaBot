@@ -15,6 +15,7 @@ import { supabaseServer } from '@/services/supabase/server-client';
 import { whatsappSender } from '@/services/whatsapp/message-sender';
 import type { BotResponse } from '@/types/message-fragments.types';
 import { isSimpleResponseWithMedia } from '@/types/message-fragments.types';
+import { createGateDependencies, decideAiAccess, type AiPathGateDependencies, decideAiFlow, runAiTurn } from '@/core/ai-conversation/ai-path';
 import type { IntentMatch } from '@/types/intent.types';
 import { ROOT_SCOPE_ID, scopeRepository } from '@/data/repositories/scope.repository';
 import {
@@ -98,9 +99,21 @@ export interface ProcessedResponse {
   detectedIntent?: IntentMatch;
   scopeId?: string;
   error?: string;
+  /**
+   * Trabajo que el camino con IA deja pendiente (la clasificación de temas). El
+   * transporte lo espera DESPUÉS de enviar la respuesta: acotado por el tiempo
+   * límite del clasificador y sin retrasar al lead. Nunca rechaza. El camino
+   * léxico no lo usa.
+   */
+  afterSend?: Promise<void>;
+  /** Contestó el camino con IA; el simulador lo etiqueta distinto de un flujo de cita. */
+  viaAi?: boolean;
 }
 
 export class MessageProcessor {
+  /** Solo las pruebas lo inyectan: producción lee el interruptor de `bot_config`. */
+  constructor(private readonly aiGate?: AiPathGateDependencies) {}
+
   /**
    * Procesar mensaje entrante
    */
@@ -124,14 +137,62 @@ export class MessageProcessor {
     userName?: string,
     options: ProcessMessageOptions = {}
   ): Promise<ProcessedResponse> {
-    try {
-      // 0. Enviar indicador de "escribiendo..." si está habilitado
-      const typingEnabled = await configRepository.getBoolean('typing_indicator_enabled', true);
-      if (typingEnabled && !options.suppressExternalMessages) {
-        // No await - ejecutar en paralelo para no bloquear
-        whatsappSender.sendTypingIndicator(phoneNumber, messageId).catch(() => {});
-      }
+    // El indicador de "escribiendo..." sale antes de decidir el camino: vale para ambos.
+    const typingEnabled = await configRepository.getBoolean('typing_indicator_enabled', true);
+    if (typingEnabled && !options.suppressExternalMessages) {
+      // No await - ejecutar en paralelo para no bloquear
+      whatsappSender.sendTypingIndicator(phoneNumber, messageId).catch(() => {});
+    }
+    return this.processWithOptionalAi(phoneNumber, messageText, messageId, userName, options);
+  }
 
+  /**
+   * Bifurcación del camino con IA (conversacion-con-ia, D1). Decide justo después
+   * de comprobar que el bot está activo y antes de tocar la sesión: el camino con
+   * IA no lee ni escribe foco, pregunta retenida ni oferta pendiente. Cualquier
+   * otro caso, y el respaldo del contestador, corren el camino léxico completo.
+   */
+  private async processWithOptionalAi(
+    phoneNumber: string,
+    messageText: string,
+    messageId: string,
+    userName?: string,
+    options: ProcessMessageOptions = {}
+  ): Promise<ProcessedResponse> {
+    let afterSend: Promise<void> | undefined;
+    try {
+      const gate = this.aiGate ?? await createGateDependencies();
+      // Con la IA apagada o el teléfono fuera de la lista no se toca al usuario aquí:
+      // el camino léxico hace sus propias lecturas, como siempre.
+      if ((await decideAiAccess(phoneNumber, gate)).use) {
+        const user = await userRepository.findOrCreateByPhone(phoneNumber, userName);
+        if (await userRepository.isBotActive(user.id) && (await decideAiFlow(user.id, !!options.flowResponse, gate)).use) {
+          // Como el camino léxico: el seguimiento por inactividad parte de este instante.
+          await userRepository.updateLastInteraction(user.id);
+          const turn = await runAiTurn({
+            userId: user.id, phoneNumber, messageId, messageText,
+            referralAdId: options.referralAdId, suppressExternalMessages: options.suppressExternalMessages,
+          });
+          if (turn.kind === 'handled') return { ...turn.response, scopeId: turn.response.scopeId ?? ROOT_SCOPE_ID };
+          afterSend = turn.afterSend;
+        }
+      }
+    } catch (error) {
+      // El camino léxico repite estas lecturas y es quien responde el error si persiste.
+      console.error('Falló la decisión del camino con IA; responde el camino léxico:', error);
+    }
+    const lexical = await this.processLexicalMessage(phoneNumber, messageText, messageId, userName, options);
+    return afterSend ? { ...lexical, afterSend } : lexical;
+  }
+
+  private async processLexicalMessage(
+    phoneNumber: string,
+    messageText: string,
+    messageId: string,
+    userName?: string,
+    options: ProcessMessageOptions = {}
+  ): Promise<ProcessedResponse> {
+    try {
       // 1. Buscar o crear usuario
       const user = await userRepository.findOrCreateByPhone(phoneNumber, userName);
 

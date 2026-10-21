@@ -73,6 +73,8 @@ export interface BotResponse {
   response_type: string;
   variables: any;
   is_active: boolean;
+  /** Menú o redirección: sirve al bot léxico, la IA no lo toma como conocimiento. */
+  is_navigation: boolean;
   order_priority: number;
   origin: 'manual' | 'compiler';
   compiler_proposal_id: string | null;
@@ -98,8 +100,8 @@ type CreateBotResponse = Omit<
   BotResponse,
   'id' | 'created_at' | 'updated_at' | 'origin' | 'compiler_proposal_id' |
   'review_signals' | 'edited_by_human' |
-  'superseded_by_response_id' | 'deactivated_at'
-> & Partial<Pick<BotResponse, 'origin' | 'compiler_proposal_id'>>;
+  'superseded_by_response_id' | 'deactivated_at' | 'is_navigation'
+> & Partial<Pick<BotResponse, 'origin' | 'compiler_proposal_id' | 'is_navigation'>>;
 
 export class IntentConfigRepositoryClient {
   private async assertActiveSlotAvailable(intentId: string, excludeId?: string): Promise<void> {

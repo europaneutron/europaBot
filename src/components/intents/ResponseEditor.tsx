@@ -38,6 +38,7 @@ export interface ResponseDraftValues {
   response_key: string;
   order_priority: number;
   is_active: boolean;
+  is_navigation: boolean;
   variables: Record<string, unknown>;
 }
 
@@ -191,6 +192,23 @@ export function ResponseEditor({
       </div>
 
       {formError && <p className="text-sm text-destructive">{formError}</p>}
+
+      <div className="space-y-1">
+        <div className="flex items-center space-x-2">
+          <Checkbox
+            id={`is_navigation_${response?.id ?? 'new'}`}
+            checked={values.is_navigation}
+            onCheckedChange={(checked: boolean) => setValues({ ...values, is_navigation: checked === true })}
+            disabled={saving}
+          />
+          <Label htmlFor={`is_navigation_${response?.id ?? 'new'}`} className="text-sm font-normal cursor-pointer">
+            Navegación (no se usa en la IA)
+          </Label>
+        </div>
+        <p className="text-xs text-muted-foreground pl-6">
+          Márcala si la respuesta es un menú o una redirección: el bot normal la manda tal cual y el asistente con IA la ignora.
+        </p>
+      </div>
 
       <div className="flex items-center space-x-2">
         <Checkbox
