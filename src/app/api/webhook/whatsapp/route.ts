@@ -97,10 +97,16 @@ export async function POST(request: NextRequest) {
     if (response.shouldSend && response.responses && response.responses.length > 0) {
       const { isFragmentedResponse } = await import('@/types/message-fragments.types');
 
+      // La oferta pendiente de la sesion es del bot lexico: sus botones cuelgan
+      // de lo que el mismo contesto. El camino con IA no la lee ni la limpia, asi
+      // que sin esto una oferta vieja --por ejemplo el menu del fallback-- se
+      // pegaba a cada respuesta de la IA. Sin usuario no se busca oferta.
+      const offerUserId = response.viaAi ? undefined : user?.id;
+
       // Enviar cada respuesta (puede ser simple, con media o fragmentada)
       for (const botResponse of response.responses) {
         if (typeof botResponse === 'string') {
-          await sendFinalText(from, user?.id, botResponse);
+          await sendFinalText(from, offerUserId, botResponse);
 
           // Guardar en BD
           if (user) {
@@ -168,7 +174,7 @@ export async function POST(request: NextRequest) {
           // Respuesta fragmentada: enviar múltiples mensajes con delays
           console.log(`📤 Enviando respuesta fragmentada (${botResponse.fragments.length} fragmentos)`);
 
-          await sendFragmentedResponse(from, user?.id, botResponse.fragments);
+          await sendFragmentedResponse(from, offerUserId, botResponse.fragments);
 
           // Guardar cada fragmento en BD
           if (user) {
