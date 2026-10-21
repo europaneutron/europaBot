@@ -1,0 +1,70 @@
+Contexto: 3994 caracteres, 2 cifras de dinero, 3 respuestas excluidas.
+Desarrollos: Europa Residencial (brochure=true, citas=true)
+
+Lead  Hola
+Bot   ¡Hola! 😊 Soy el asistente de Inmobiliaria Fymsa. ¿En qué puedo ayudarte hoy?
+      
+      Si te interesa Europa Residencial, puedo darte información sobre casas, lotes, precios, créditos o ubicación. ¿Qué estás buscando: casa o lote?
+      documento devuelto: no
+      [claude-haiku-5-5 in=176 cache_read=2426 cache_write=0 out=113 2010ms tools=[] guards=[] fallback=no]
+
+Lead  ¿Cuánto cuesta un lote?
+Bot   Un lote en Europa Residencial cuesta desde *$700,000 MXN* 🏡. Se entregan urbanizados, con agua y luz, y la entrega es inmediata.
+      
+      Las medidas son de 7 × 14 m (98 m²). ¿Estás pensando en un lote para construir tu casa o buscas algo para invertir?
+      documento devuelto: no
+      [claude-haiku-5-5 in=306 cache_read=2426 cache_write=0 out=117 1821ms tools=[] guards=[{"fixes":["bold"],"guard":"whatsapp_format"}] fallback=no]
+
+Lead  ¿y una casa?
+Bot   Una casa en Europa Residencial cuesta desde *$2,300,000 MXN* 🏠. Es construcción bajo demanda, con entrega estimada en aproximadamente 4 meses.
+      
+      Además, el fraccionamiento cuenta con 2 albercas, salón de eventos, cancha, áreas verdes, plaza comercial, vigilancia 24/7 y acceso controlado.
+      
+      ¿Qué tipo de vivienda te interesa más, casa o lote, y cómo planeas pagarla: recursos propios, crédito bancario o Infonavit?
+      documento devuelto: no
+      [claude-haiku-5-5 in=432 cache_read=2426 cache_write=0 out=193 1558ms tools=[] guards=[] fallback=no]
+
+Lead  ¿dónde está?
+Bot   Europa Residencial está en la Carretera Villahermosa–Nacajuca Km 3.5, Saloya 2da Sección, Tabasco. Está pasando Pomoca, después de la gasolinera La Gas y antes del puente de retorno.
+      
+      🔗 Ubicación en Google Maps: https://maps.app.goo.gl/qwQdPVG56AdBj5dg6
+      
+      Puedes visitarnos de lunes a domingo, de 9:00 a.m. a 6:00 p.m. ¿Te gustaría que agendemos una visita para conocerlo en persona?
+      documento devuelto: no
+      [claude-haiku-5-5 in=634 cache_read=2426 cache_write=0 out=199 1619ms tools=[] guards=[] fallback=no]
+
+Lead  me mandas el brochure?
+Bot   ¡Claro! 📄 Te envío el brochure de Europa Residencial con las casas, lotes, amenidades y detalles del fraccionamiento.
+      
+      ¿Quieres que agendemos una visita para conocerlo en persona, o prefieres que un asesor te contacte para resolver dudas sobre crédito?
+Bot   [document: 2026-03-17-Brochure-comprimido.pdf]
+      documento devuelto: 2026-03-17-Brochure-comprimido.pdf
+      [claude-haiku-5-5 in=844 cache_read=2426 cache_write=0 out=28 907ms tools=[{"name":"enviar_brochure","input":{}}] guards=[{"tool":"enviar_brochure","result":"El brochure (archivo: 2026-03-17-Brochure-comprimido.pdf) se envía junto con tu mensaje.","rejected":false}] fallback=no]
+      [claude-haiku-5-5 in=923 cache_read=2426 cache_write=0 out=107 1900ms tools=[] guards=[] fallback=no]
+
+Lead  ¿aceptan Infonavit?
+Bot   Sí, en Europa Residencial se puede pagar con Infonavit, junto con recursos propios y crédito bancario 🏠. Si quieres, te ayudo a revisar tu crédito sin costo con nuestro bróker.
+      
+      Para orientarte mejor, ¿cuentas con tu puntaje o historial de Infonavit, y te interesa casa o lote?
+      documento devuelto: no
+      [claude-haiku-5-5 in=873 cache_read=2426 cache_write=0 out=126 2251ms tools=[] guards=[] fallback=no]
+
+Lead  ¿tienen promociones?
+Bot   En este momento no tenemos promociones vigentes en Europa Residencial 😊
+      
+      Sí puedo ayudarte con precios, opciones de financiamiento o agendar una visita. Una casa cuesta desde $2,300,000 MXN y un lote desde $700,000 MXN.
+      
+      ¿Te interesa casa o lote, y cómo planeas pagarlo?
+      documento devuelto: no
+      [claude-haiku-5-5 in=876 cache_read=2426 cache_write=0 out=124 1824ms tools=[] guards=[] fallback=no]
+
+Lead  quiero ir a verlo el sábado
+Bot   ¡Perfecto! Vamos a agendar tu visita. 📅
+      
+      ¿Qué día te gustaría visitarnos? Por favor indica una fecha (ejemplo: mañana, viernes, 15 de noviembre)
+      documento devuelto: no
+      [claude-haiku-5-5 in=813 cache_read=2426 cache_write=0 out=147 2614ms tools=[{"name":"agendar_visita","input":{}}] guards=[{"tool":"agendar_visita","result":"El flujo de visita se inició; todavía no hay cita confirmada.","rejected":false}] fallback=no]
+
+Usuario desechable borrado.
+
+Contenido real: sin respaldos ni cifras inválidas.

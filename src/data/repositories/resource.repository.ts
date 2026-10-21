@@ -20,7 +20,7 @@ export interface Resource {
 }
 
 export class ResourceRepository {
-  async getVisible(scopeId?: string | null): Promise<Resource[]> {
+  async listActive(): Promise<Resource[]> {
     const { data, error } = await supabaseServer
       .from('resources')
       .select('*')
@@ -31,6 +31,11 @@ export class ResourceRepository {
       throw error;
     }
 
+    return data || [];
+  }
+
+  async getVisible(scopeId?: string | null, rows?: Resource[]): Promise<Resource[]> {
+    const data = rows ?? await this.listActive();
     // Los recursos sin categoría se tratan como un conjunto propio, y por tanto
     // se sustituyen igual que cualquier otro: si un alcance define material
     // general, reemplaza el material general heredado en lugar de sumarse a él.

@@ -182,10 +182,10 @@ export class CatalogValueRepository {
    * alias. Asi renombrar un desarrollo no rompe los mensajes que lo citan,
    * porque los alias sobreviven al renombrado.
    */
-  async getQualifiedVariables(client: any = supabaseServer): Promise<Record<string, string>> {
+  async getQualifiedVariables(client: any = supabaseServer, catalogRows?: CatalogValue[]): Promise<Record<string, string>> {
     const { scopeRoutingRepository } = await import('@/data/repositories/scope-routing.repository');
     const [rows, scopes, aliases] = await Promise.all([
-      this.listAll(client),
+      catalogRows ?? this.listAll(client),
       scopeRepository.getScopes(client),
       scopeRoutingRepository.getAllAliases(),
     ]);

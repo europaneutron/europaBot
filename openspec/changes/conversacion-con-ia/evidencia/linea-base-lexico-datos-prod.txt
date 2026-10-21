@@ -1,0 +1,55 @@
+
+================ CONVERSACION SIMULADA ================
+
+Lead  Hola
+Bot   {"fragments":[{"type":"text","delay":0,"content":"👋 ¡Hola! Bienvenid@ a Inmobiliaria Fymsa.\n\nSoy tu asistente virtual y puedo ayudarte con información sobre nuestros desarrollos residenciales."},{"type":"text","delay":800,"content":"Puedes consultar:\n\n🏡 Información\n💰 Precios\n📐 Modelos y disponibilidad\n📍 Ubicación\n🌴 Amenidades\n🏦 Financiamiento\n📆 Agendar visita\n\nSi necesitas ver las opciones siempre puedes escribir **Hola**\n\n¿Qué te gustaría conocer?"}]}
+      [ Información ]  [ Precios y modelos ]  [ Ubicación ]  [ Amenidades ]  [ Financiamiento ]  [ Agendar visita ]
+      [foco: ninguno | pendiente: ninguna | fallback: no]
+
+Lead  ¿Cuánto cuestan?
+Bot   ¡Con gusto te ayudo! 😊 manejamos - Europa
+      - Altabrisa. ¿Sobre cuál te platico?
+      [ Europa ]  [ Altabrisa ]
+      [foco: ninguno | pendiente: ¿Cuánto cuestan? | fallback: no]
+
+Lead  Europa
+Bot   En Europa las casas van desde $1,850,000 y los terrenos desde $780,000.
+      [foco: Europa | pendiente: ninguna | fallback: no]
+
+Lead  Solara
+Bot   Modelo Solara: desde $2,980,000, 4 recamaras y 4 banos.
+      [foco: Modelo Solara | pendiente: ninguna | fallback: no]
+
+Lead  ¿Dónde está?
+Bot   Europa esta en Avenida Ruiz Cortines 1820, Colonia Tamulte.
+      [foco: Modelo Solara | pendiente: ninguna | fallback: no]
+
+Lead  ¿Qué amenidades tiene?
+Bot   Europa tiene caseta 24/7, alberca semiolimpica y casa club.
+      [foco: Modelo Solara | pendiente: ninguna | fallback: no]
+
+Lead  ¿Y en Altabrisa cuánto cuesta?
+Bot   En Altabrisa las casas van desde $1,420,000.
+      [foco: Altabrisa | pendiente: ninguna | fallback: no]
+
+Lead  precio de Cala
+Bot   Modelo Cala: desde $1,420,000, 2 recamaras.
+      [foco: Modelo Cala | pendiente: ninguna | fallback: no]
+
+Lead  ¿cuál es la más barata de Europa con 3 recámaras?
+Bot   En Europa las casas van desde $1,850,000 y los terrenos desde $780,000.
+      [foco: Europa | pendiente: ninguna | fallback: no]
+
+WhatsApp API error: {"error":{"message":"Authentication Error","code":190,"type":"OAuthException","fbtrace_id":"AD7sE23IAxifIYpL3jZBa39"}}
+Error processing message: Error: Failed to send flow message: 401
+    at WhatsAppMessageSender.sendFlowMessage (/private/tmp/claude-501/-Users-leonardocgordillo-ProyectosNext-EuropaBot/e574ce9b-5661-4bd1-af05-2afd64056654/scratchpad/head-wt/src/services/whatsapp/message-sender.ts:674:13)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async AppointmentManager.startFlowViaWhatsAppFlow (/private/tmp/claude-501/-Users-leonardocgordillo-ProyectosNext-EuropaBot/e574ce9b-5661-4bd1-af05-2afd64056654/scratchpad/head-wt/src/core/appointment/appointment-manager.ts:100:5)
+    at async MessageProcessor.handleIntent (/private/tmp/claude-501/-Users-leonardocgordillo-ProyectosNext-EuropaBot/e574ce9b-5661-4bd1-af05-2afd64056654/scratchpad/head-wt/src/core/conversation/message-processor.ts:997:9)
+    at async MessageProcessor.processMessageInScope (/private/tmp/claude-501/-Users-leonardocgordillo-ProyectosNext-EuropaBot/e574ce9b-5661-4bd1-af05-2afd64056654/scratchpad/head-wt/src/core/conversation/message-processor.ts:688:25)
+    at async main (/private/tmp/claude-501/-Users-leonardocgordillo-ProyectosNext-EuropaBot/e574ce9b-5661-4bd1-af05-2afd64056654/scratchpad/head-wt/scripts/simulate-fymsa.ts:203:22)
+Lead  Quiero agendar
+Bot   Disculpa, tuve un problema técnico. ¿Podrías repetir tu pregunta?
+      [foco: Europa | pendiente: ninguna | fallback: si]
+
+Base restaurada.

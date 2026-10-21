@@ -1,0 +1,59 @@
+Contexto: 3604 caracteres, 6 cifras de dinero.
+
+Lead  Hola
+Bot   ¡Hola! 👋 Bienvenido a Inmobiliaria Fymsa. Soy el asistente virtual y puedo ayudarte con información sobre nuestros desarrollos.
+      
+      Tenemos dos:
+      🏡 *Altabrisa*: casas desde $1,420,000
+      🏡 *Europa*: casas desde $1,850,000 y terrenos desde $780,000
+      
+      ¿Cuál te interesa conocer? 😊
+      [claude-haiku-5-5 in=153 cache_read=2277 cache_write=0 out=151 1968ms tools=[] guards=1 fallback=no]
+
+Lead  ¿Cuánto cuestan?
+Bot   Depende del desarrollo y del modelo 😊
+      
+      🏡 *Altabrisa*
+      • Modelo Cala: desde $1,420,000 (2 recámaras)
+      • Modelo Mare: desde $1,780,000 (3 recámaras)
+      
+      🏡 *Europa*
+      • Modelo Aura: desde $1,850,000 (3 recámaras, 2 baños)
+      • Modelo Vento: desde $2,340,000 (3 recámaras, 3 baños)
+      • Modelo Solara: desde $2,980,000 (4 recámaras, 4 baños)
+      • Terrenos: desde $780,000 (160 m²)
+      
+      ¿Cuál te interesa más? 🏡
+      [claude-haiku-5-5 in=318 cache_read=2277 cache_write=0 out=233 1505ms tools=[] guards=0 fallback=no]
+
+Lead  Solara
+Bot   ¡Buena elección! 🏡 El Modelo Solara en Europa tiene 4 recámaras y 4 baños, con precio desde $2,980,000.
+      
+      Europa está en Avenida Ruiz Cortines 1820, Colonia Tamulte, y cuenta con caseta 24/7, alberca semiolimpica y casa club.
+      
+      ¿Te gustaría agendar una visita para conocerlo? 📅
+      [claude-haiku-5-5 in=556 cache_read=2277 cache_write=0 out=142 1954ms tools=[] guards=0 fallback=no]
+
+Lead  ¿Dónde está?
+Bot   Europa está en Avenida Ruiz Cortines 1820, Colonia Tamulte. 📍
+      
+      ¿Quieres que te agende una visita para conocer el Modelo Solara en persona? 📅
+      [claude-haiku-5-5 in=708 cache_read=2277 cache_write=0 out=70 1150ms tools=[] guards=0 fallback=no]
+
+Lead  ¿Y en Altabrisa cuánto cuesta?
+Bot   En Altabrisa las casas van desde $1,420,000 🏡
+      
+      • Modelo Cala: desde $1,420,000 (2 recámaras)
+      • Modelo Mare: desde $1,780,000 (3 recámaras)
+      
+      ¿Quieres que te agende una visita a Altabrisa o prefieres seguir viendo Europa? 📅
+      [claude-haiku-5-5 in=800 cache_read=2277 cache_write=0 out=118 2008ms tools=[] guards=0 fallback=no]
+
+Lead  Quiero agendar
+Bot   ¡Perfecto! 📅 ¿La visita es a *Europa* (Modelo Solara) o a *Altabrisa*?
+      [claude-haiku-5-5 in=927 cache_read=2277 cache_write=0 out=110 1486ms tools=[] guards=0 fallback=no]
+
+Reintento del primer message_id: duplicate
+Base restaurada.
+
+Contestador con IA: sin respaldos ni cifras inválidas.

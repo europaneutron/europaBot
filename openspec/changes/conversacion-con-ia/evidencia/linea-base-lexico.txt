@@ -1,0 +1,85 @@
+[dotenv@17.2.3] injecting env (12) from .env.development.local -- tip: ⚙️  load multiple .env files with { path: ['.env.local', '.env'] }
+[dotenv@17.2.3] injecting env (2) from .env.local -- tip: ⚙️  write to custom object with { processEnv: myObject }
+
+================ CONVERSACION SIMULADA ================
+
+Lead  Hola
+Bot   ¡Hola! 👋 Bienvenid@ a **Europa**, tu nuevo hogar.
+      
+      Soy tu asistente virtual y estoy aquí para ayudarte con:
+      • Precios y modelos disponibles
+      • Ubicación y amenidades
+      • Opciones de financiamiento
+      • Agendar visitas
+      
+      ¿En qué puedo ayudarte hoy?
+      [foco: ninguno | pendiente: ninguna | fallback: no]
+
+Lead  ¿Cuánto cuestan?
+Bot   ¡Con gusto te ayudo! 😊 Manejamos - Europa
+      - Altabrisa. ¿Sobre cuál te platico?
+      [ Europa ]  [ Altabrisa ]
+      [foco: ninguno | pendiente: ¿Cuánto cuestan? | fallback: no]
+
+Lead  Europa
+Bot   En Europa las casas van desde $1,850,000 y los terrenos desde $780,000.
+      [foco: Europa | pendiente: ninguna | fallback: no]
+
+Lead  Solara
+Bot   Modelo Solara: desde $2,980,000, 4 recamaras y 4 banos.
+      [foco: Modelo Solara | pendiente: ninguna | fallback: no]
+
+Lead  ¿Dónde está?
+Bot   Europa esta en Avenida Ruiz Cortines 1820, Colonia Tamulte.
+      [foco: Modelo Solara | pendiente: ninguna | fallback: no]
+
+Lead  ¿Qué amenidades tiene?
+Bot   Europa tiene caseta 24/7, alberca semiolimpica y casa club.
+      [foco: Modelo Solara | pendiente: ninguna | fallback: no]
+
+Lead  ¿Y en Altabrisa cuánto cuesta?
+Bot   En Altabrisa las casas van desde $1,420,000.
+      [foco: Altabrisa | pendiente: ninguna | fallback: no]
+
+Lead  precio de Cala
+Bot   Modelo Cala: desde $1,420,000, 2 recamaras.
+      [foco: Modelo Cala | pendiente: ninguna | fallback: no]
+
+Lead  ¿cuál es la más barata de Europa con 3 recámaras?
+Bot   🏠 Contamos con [X] modelos diferentes:
+      
+      📐 **Modelo A** - [XX]m²
+      • [X] recámaras, [X] baños
+      • Desde $XXX,XXX MXN
+      
+      📐 **Modelo B** - [XX]m²
+      • [X] recámaras, [X] baños
+      • Desde $XXX,XXX MXN
+      
+      📐 **Modelo C** - [XX]m²
+      • [X] recámaras, [X] baños
+      • Desde $XXX,XXX MXN
+      
+      Todos incluyen:
+      ✓ Cocina integral
+      ✓ Closets
+      ✓ Área de lavado
+      ✓ [AMENIDADES INCLUIDAS]
+      
+      ¿Cuál te llama más la atención?
+Bot   Puedo enviarte los planos arquitectónicos del modelo que prefieras. ¿Te interesa?
+      [foco: Europa | pendiente: ninguna | fallback: no]
+
+WhatsApp API error: {"error":{"message":"Authentication Error","code":190,"type":"OAuthException","fbtrace_id":"AtGCmaG4AkykS8M2N2g4lBb"}}
+Error processing message: Error: Failed to send flow message: 401
+    at WhatsAppMessageSender.sendFlowMessage (/Users/leonardocgordillo/ProyectosNext/EuropaBot/src/services/whatsapp/message-sender.ts:674:13)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async AppointmentManager.startFlowViaWhatsAppFlow (/Users/leonardocgordillo/ProyectosNext/EuropaBot/src/core/appointment/appointment-manager.ts:100:5)
+    at async MessageProcessor.handleIntent (/Users/leonardocgordillo/ProyectosNext/EuropaBot/src/core/conversation/message-processor.ts:997:9)
+    at async MessageProcessor.processMessageInScope (/Users/leonardocgordillo/ProyectosNext/EuropaBot/src/core/conversation/message-processor.ts:688:25)
+    at async main (/Users/leonardocgordillo/ProyectosNext/EuropaBot/scripts/simulate-fymsa.ts:203:22)
+Lead  Quiero agendar
+Bot   Disculpa, tuve un problema técnico. ¿Podrías repetir tu pregunta?
+      [foco: Europa | pendiente: ninguna | fallback: si]
+
+Base restaurada.

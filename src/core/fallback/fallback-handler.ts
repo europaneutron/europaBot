@@ -76,7 +76,9 @@ export class FallbackHandler {
    *   configurados que no traigan su propio alcance.
    * @returns El mensaje a mandar (ya interpolado, listo para enviar)
    */
-  async startDerivation(userId: string, scopeId?: string | null): Promise<string> {
+  async startDerivation(
+    userId: string, scopeId?: string | null, options: { configureButtons?: boolean } = {}
+  ): Promise<string> {
     const hasPending = await advisorRepository.hasPendingRequest(userId);
     if (hasPending) {
       // Ya tiene solicitud pendiente, no crear otra ni pedir nombre de nuevo
@@ -100,7 +102,10 @@ export class FallbackHandler {
       'Antes de conectarte con un asesor, ¿podrías compartirme tu nombre completo?'
     );
 
-    await this.applyConfiguredButtons(userId, 'fallback_level_3_buttons', scopeId ?? null);
+    // La conversación con IA usa el historial; conserva intacta la oferta del bot léxico.
+    if (options.configureButtons !== false) {
+      await this.applyConfiguredButtons(userId, 'fallback_level_3_buttons', scopeId ?? null);
+    }
 
     return `${derivationIntro}\n\n${requestName}`;
   }

@@ -1,0 +1,59 @@
+Contexto: 3835 caracteres, 6 cifras de dinero.
+
+Lead  Hola
+Bot   ¡Hola! 👋 Bienvenido a Inmobiliaria Fymsa. Soy el asistente virtual y puedo ayudarte con información sobre nuestros desarrollos:
+      
+      🏡 *Altabrisa* y 🏡 *Europa*
+      
+      Puedo darte precios, modelos, ubicación, amenidades y agendar una visita. ¿Qué te interesa conocer?
+      [claude-haiku-5-5 in=153 cache_read=0 cache_write=2378 out=136 2043ms tools=[] guards=1 fallback=no]
+
+Lead  ¿Cuánto cuestan?
+Bot   ¡Claro! 💰 Estos son los precios desde los que arrancan nuestros desarrollos:
+      
+      🏡 *Altabrisa*
+      - Casas desde $1,420,000
+      - Modelo Cala: 2 recámaras, desde $1,420,000
+      - Modelo Mare: 3 recámaras, desde $1,780,000
+      
+      🏡 *Europa*
+      - Casas desde $1,850,000
+      - Terrenos desde $780,000 (160 m²)
+      - Modelo Aura: 3 recámaras y 2 baños, desde $1,850,000
+      - Modelo Vento: 3 recámaras y 3 baños, desde $2,340,000
+      - Modelo Solara: 4 recámaras y 4 baños, desde $2,980,000
+      
+      ¿Cuál de los dos te interesa más, Altabrisa o Europa?
+      [claude-haiku-5-5 in=303 cache_read=2378 cache_write=0 out=282 2975ms tools=[] guards=0 fallback=no]
+
+Lead  Solara
+Bot   ¡Buena elección! 🏡 El Modelo Solara en Europa tiene 4 recámaras y 4 baños, desde $2,980,000.
+      
+      Está en Avenida Ruiz Cortines 1820, Colonia Tamulte, y el desarrollo cuenta con caseta 24/7, alberca semiolimpica y casa club.
+      
+      ¿Te gustaría agendar una visita para conocerlo? 📅
+      [claude-haiku-5-5 in=590 cache_read=2378 cache_write=0 out=143 1375ms tools=[] guards=0 fallback=no]
+
+Lead  ¿Dónde está?
+Bot   El Modelo Solara está en el fraccionamiento Europa, en Avenida Ruiz Cortines 1820, Colonia Tamulte. 📍
+      
+      ¿Quieres que agendemos una visita para conocerlo?
+      [claude-haiku-5-5 in=743 cache_read=2378 cache_write=0 out=77 969ms tools=[] guards=0 fallback=no]
+
+Lead  ¿Y en Altabrisa cuánto cuesta?
+Bot   En Altabrisa las casas arrancan desde $1,420,000. 🏡
+      
+      - Modelo Cala: 2 recámaras, desde $1,420,000
+      - Modelo Mare: 3 recámaras, desde $1,780,000
+      
+      ¿Quieres que te cuente más de alguno de los dos modelos?
+      [claude-haiku-5-5 in=842 cache_read=2378 cache_write=0 out=106 1493ms tools=[] guards=0 fallback=no]
+
+Lead  Quiero agendar
+Bot   ¡Claro! 📅 ¿Para cuál desarrollo quieres la visita: Europa (Modelo Solara) o Altabrisa?
+      [claude-haiku-5-5 in=957 cache_read=2378 cache_write=0 out=119 1423ms tools=[] guards=0 fallback=no]
+
+Reintento del primer message_id: duplicate
+Base restaurada.
+
+Contestador con IA: sin respaldos ni cifras inválidas.

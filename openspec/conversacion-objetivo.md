@@ -4,6 +4,9 @@ Documento de referencia para las specs que faltan. Define **qué tiene que poder
 conversar el bot** y sirve de criterio de aceptación: ninguna de esas specs se da
 por terminada hasta que sus turnos pasen.
 
+El camino con IA usa estos mismos turnos como criterio de aceptación; se aceptan
+respuestas en prosa sin botones donde el documento muestra botones.
+
 Aprobado con Leonardo el 2026-08-16. Lo que dice el apartado "estado real" no es
 estimación: sale de correr `scripts/simulate-fymsa.ts` contra el stack local.
 
@@ -112,10 +115,16 @@ Bot   Esa no la tengo. Le paso tu pregunta a un asesor y te contactan hoy.
 ### Fuera de alcance, a propósito
 
 Preguntas combinatorias abiertas —"algo para una familia de 5 sin pasar de 3
-millones y cerca de escuelas"— van al asesor. **El runtime no lleva LLM.** La
+millones y cerca de escuelas"— van al asesor en el camino léxico. La
 lista de opciones con el dato encima recupera buena parte de ese caso por
 navegación: quien buscaba tres recámaras hasta dos millones ya lo ve sin
 preguntarlo.
+
+La decisión de no usar un LLM en el runtime se revisó el 2026-10-20 en
+`changes/conversacion-con-ia/proposal.md`: la baja continuidad de los leads y
+los pasos intermedios del árbol justifican probar conversación libre. El modelo
+interpreta y el código afirma. En el camino con IA, las preguntas combinatorias
+que el catálogo permite resolver también forman parte del criterio de aceptación.
 
 ---
 

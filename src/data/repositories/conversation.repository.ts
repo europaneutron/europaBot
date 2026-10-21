@@ -14,7 +14,41 @@ import {
 import { catalogValueRepository } from '@/data/repositories/catalog-value.repository';
 import { scopeRepository } from '@/data/repositories/scope.repository';
 
+export interface ContextResponseRow {
+  id: string;
+  intent_id: string;
+  message_text: unknown;
+  variables: unknown;
+  is_navigation: boolean;
+  order_priority: number;
+  scope_id: string | null;
+  intent_name: string;
+}
+
 export class ConversationRepository {
+  async hasIncomingMessage(messageId: string): Promise<boolean> {
+    const { data, error } = await supabaseServer.from('conversations')
+      .select('id').eq('message_id', messageId).eq('direction', 'inbound').limit(1);
+    if (error) throw error;
+    return !!data?.length;
+  }
+
+  /** Conserva las filas descartables para que el armado pueda informar su causa. */
+  async getContextResponseRows(): Promise<ContextResponseRow[]> {
+    const { data, error } = await supabaseServer
+      .from('bot_responses')
+      .select('id, intent_id, message_text, variables, is_navigation, order_priority, intent_configurations!inner(intent_name, scope_id, is_active)')
+      .eq('is_active', true)
+      .eq('intent_configurations.is_active', true);
+    if (error) throw error;
+    return (data || []).map(row => {
+      const intent = row.intent_configurations as unknown as {
+        intent_name: string; scope_id: string | null;
+      };
+      return { ...row, scope_id: intent.scope_id, intent_name: intent.intent_name };
+    });
+  }
+
   /**
    * Guardar mensaje entrante
    */

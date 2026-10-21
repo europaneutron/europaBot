@@ -1,0 +1,76 @@
+Contexto: 3994 caracteres, 2 cifras de dinero, 3 respuestas excluidas.
+Desarrollos: Europa Residencial (brochure=true, citas=true)
+
+Lead  Hola
+Bot   ¡Hola! 😊 Soy el asistente de Inmobiliaria Fymsa. ¿En qué te puedo ayudar hoy? Puedo darte información de Europa Residencial, como precios, ubicación, amenidades o formas de pago.
+      
+      ¿Qué tipo de vivienda estás buscando: casa o lote?
+      documento devuelto: no
+      [claude-haiku-5-5 in=176 cache_read=2426 cache_write=0 out=114 2026ms tools=[] guards=[] fallback=no]
+
+Lead  ¿Cuánto cuesta un lote?
+Bot   Un lote en Europa Residencial cuesta desde *$700,000 MXN* 🏡.
+      
+      Cada lote mide 7 × 14 m (98 m²), es de entrega inmediata y se entrega con agua y luz.
+      
+      ¿Estás pensando en comprar el lote para construir tu casa o buscas una inversión? 😊
+      documento devuelto: no
+      [claude-haiku-5-5 in=307 cache_read=2426 cache_write=0 out=113 1498ms tools=[] guards=[{"fixes":["bold"],"guard":"whatsapp_format"}] fallback=no]
+
+Lead  ¿y una casa?
+Bot   Una casa en Europa Residencial cuesta desde *$2,300,000 MXN* 🏠.
+      
+      Son casas en preventa con construcción bajo demanda, y la entrega es aproximadamente en 4 meses.
+      
+      ¿Te interesa una casa para vivir o estás valorando también el lote? 😊
+      documento devuelto: no
+      [claude-haiku-5-5 in=429 cache_read=2426 cache_write=0 out=105 1277ms tools=[] guards=[] fallback=no]
+
+Lead  ¿dónde está?
+Bot   📍 Europa Residencial está en la Carretera Villahermosa–Nacajuca Km 3.5, Saloya 2da Sección, Tabasco.
+      
+      Está pasando Pomoca, después de la gasolinera La Gas y antes del puente de retorno.
+      
+      🗺️ Aquí tienes la ubicación en Google Maps: https://maps.app.goo.gl/qwQdPVG56AdBj5dg6
+      
+      ¿Te gustaría venir a conocerlo en persona? Puedo ayudarte a agendar una visita 😊
+      documento devuelto: no
+      [claude-haiku-5-5 in=543 cache_read=2426 cache_write=0 out=185 1924ms tools=[] guards=[] fallback=no]
+
+Lead  me mandas el brochure?
+Bot   ¡Claro! 📄 Te envío el brochure de Europa Residencial junto con este mensaje. Ahí encontrarás las casas, lotes, amenidades y más detalles.
+      
+      ¿Te gustaría que agendemos una visita para conocerlo en persona? 😊
+Bot   [document: 2026-03-17-Brochure-comprimido.pdf]
+      documento devuelto: 2026-03-17-Brochure-comprimido.pdf
+      [claude-haiku-5-5 in=739 cache_read=2426 cache_write=0 out=28 938ms tools=[{"name":"enviar_brochure","input":{}}] guards=[{"tool":"enviar_brochure","result":"El brochure (archivo: 2026-03-17-Brochure-comprimido.pdf) se envía junto con tu mensaje.","rejected":false}] fallback=no]
+      [claude-haiku-5-5 in=818 cache_read=2426 cache_write=0 out=94 1236ms tools=[] guards=[] fallback=no]
+
+Lead  ¿aceptan Infonavit?
+Bot   Sí, en Europa Residencial se puede pagar con Infonavit 🏠. Las opciones de financiamiento son recursos propios, crédito bancario e Infonavit.
+      
+      Además, si quieres, podemos revisar tu crédito sin costo con nuestro bróker 🤝.
+      
+      ¿Ya tienes un crédito Infonavit disponible o te gustaría que te orientemos con el proceso? 😊
+      documento devuelto: no
+      [claude-haiku-5-5 in=754 cache_read=2426 cache_write=0 out=141 2131ms tools=[] guards=[] fallback=no]
+
+Lead  ¿tienen promociones?
+Bot   Por ahora no tenemos promociones vigentes en Europa Residencial 😊
+      
+      Lo que sí puedo ayudarte es a revisar precios, opciones de financiamiento o agendar una visita para que conozcas el fraccionamiento en persona.
+      
+      ¿Qué te interesa más: una casa de $2,300,000 MXN o un lote desde $700,000 MXN? 🏡
+      documento devuelto: no
+      [claude-haiku-5-5 in=776 cache_read=2426 cache_write=0 out=132 2054ms tools=[] guards=[] fallback=no]
+
+Lead  quiero ir a verlo el sábado
+Bot   ¡Perfecto! Vamos a agendar tu visita. 📅
+      
+      ¿Qué día te gustaría visitarnos? Por favor indica una fecha (ejemplo: mañana, viernes, 15 de noviembre)
+      documento devuelto: no
+      [claude-haiku-5-5 in=809 cache_read=2426 cache_write=0 out=106 1483ms tools=[{"name":"agendar_visita","input":{}}] guards=[{"tool":"agendar_visita","result":"El flujo de visita se inició; todavía no hay cita confirmada.","rejected":false}] fallback=no]
+
+Usuario desechable borrado.
+
+Contenido real: sin respaldos ni cifras inválidas.
