@@ -90,9 +90,9 @@
 
 ## 10. Persona en Ajustes
 
-- [ ] 10.1 Sección de persona en el panel de Ajustes, con nombre, tratamiento, emojis, largo y notas con límite de caracteres
-- [ ] 10.2 Advertencia, sin bloqueo, cuando las notas contienen "nunca", "jamás" o "prohibido"
-- [ ] 10.3 Vista previa del texto de persona que recibirá el modelo
+- [x] 10.1 Sección de persona en el panel de Ajustes, con nombre, tratamiento, emojis, largo y notas con límite de caracteres
+- [x] 10.2 Advertencia, sin bloqueo, cuando las notas contienen "nunca", "jamás" o "prohibido"
+- [x] 10.3 Vista previa del texto de persona que recibirá el modelo
 
 ## 11. Simulador y aceptación
 
