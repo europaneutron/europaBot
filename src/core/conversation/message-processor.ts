@@ -139,11 +139,26 @@ export class MessageProcessor {
   ): Promise<ProcessedResponse> {
     // El indicador de "escribiendo..." sale antes de decidir el camino: vale para ambos.
     const typingEnabled = await configRepository.getBoolean('typing_indicator_enabled', true);
-    if (typingEnabled && !options.suppressExternalMessages) {
+    if (typingEnabled && !options.suppressExternalMessages && await this.shouldShowTyping(phoneNumber, userName)) {
       // No await - ejecutar en paralelo para no bloquear
       whatsappSender.sendTypingIndicator(phoneNumber, messageId).catch(() => {});
     }
     return this.processWithOptionalAi(phoneNumber, messageText, messageId, userName, options);
+  }
+
+  /**
+   * "Escribiendo..." a un contacto silenciado le diría que alguien está por contestar.
+   * Ante cualquier fallo de la consulta se muestra, que es el comportamiento de siempre:
+   * el camino léxico vuelve a leer al usuario y es quien responde el error.
+   */
+  private async shouldShowTyping(phoneNumber: string, userName?: string): Promise<boolean> {
+    try {
+      const user = await userRepository.findOrCreateByPhone(phoneNumber, userName);
+      return await userRepository.isBotActive(user.id);
+    } catch (error) {
+      console.error('No se pudo comprobar si el bot está activo antes del indicador de escritura:', error);
+      return true;
+    }
   }
 
   /**
@@ -218,6 +233,16 @@ export class MessageProcessor {
       // 2. Verificar si el bot está activo para este usuario
       const isBotActive = await userRepository.isBotActive(user.id);
       if (!isBotActive) {
+        // Contacto silenciado: el administrador sigue viendo lo que escribe, pero no hay
+        // respuesta, fallback, derivación, score ni actividad que reinicie seguimientos.
+        // Es el único guardado de este mensaje: el resto del camino no se ejecuta.
+        await conversationRepository.saveIncomingMessage(
+          user.id,
+          messageId,
+          messageText,
+          undefined,
+          { referralAdId: options.referralAdId }
+        );
         return {
           responses: [],
           shouldSend: false,

@@ -21,6 +21,7 @@ export interface Conversation {
   has_appointment: boolean;
   appointment_date: string | null;
   checkpoints: string[];
+  is_muted: boolean;
 }
 
 export interface ConversationFilters {
@@ -73,7 +74,7 @@ export function useConversations(
       // userIds es <= pageSize elementos, nunca generara URLs demasiado largas
       const userIds = users.map((u: any) => u.id);
 
-      const [conversationsData, appointmentsData] = await Promise.all([
+      const [conversationsData, appointmentsData, mutedData] = await Promise.all([
         // 1 query: Obtener últimos mensajes de TODOS los usuarios
         supabase
           .from('conversations')
@@ -87,8 +88,17 @@ export function useConversations(
           .select('user_id, appointment_date, status')
           .in('user_id', userIds)
           .in('status', ['pending', 'confirmed'])
-          .order('appointment_date', { ascending: false })
+          .order('appointment_date', { ascending: false }),
+
+        // Contactos silenciados de la pagina: solo las filas con el bot apagado
+        supabase
+          .from('bot_status')
+          .select('user_id')
+          .in('user_id', userIds)
+          .eq('is_active', false)
       ]);
+
+      const mutedUserIds = new Set((mutedData.data || []).map((row: { user_id: string }) => row.user_id));
 
       // Agrupar mensajes por user_id
       const messagesByUser = new Map();
@@ -141,6 +151,7 @@ export function useConversations(
           has_appointment: item.hasAppointment,
           appointment_date: item.appointmentDate,
           checkpoints: [], // Los checkpoints están en user_progress, no en users
+          is_muted: mutedUserIds.has(item.user.id),
         };
       });
 
@@ -209,6 +220,11 @@ export interface CheckpointConfig {
   is_completed: boolean;
 }
 
+export interface BotStatus {
+  is_active: boolean;
+  control_started_at: string | null;
+}
+
 export interface ConversationDetail {
   user: {
     id: string;
@@ -222,6 +238,7 @@ export interface ConversationDetail {
   appointments: any[];
   progress: any;
   checkpoints: CheckpointConfig[];
+  botStatus: BotStatus;
   totalMessages: number;
   hasMore: boolean;
 }
@@ -246,13 +263,14 @@ export function useConversationDetail(userId: string) {
       setError(null);
 
       // Obtener usuario, citas, progreso, checkpoints y completados en paralelo
-      const [userResult, appointmentsResult, progressResult, checkpointsResult, completedResult, countResult] = await Promise.all([
+      const [userResult, appointmentsResult, progressResult, checkpointsResult, completedResult, countResult, botStatusResult] = await Promise.all([
         supabase.from('users').select('*').eq('id', userId).single(),
         supabase.from('appointments').select('*').eq('user_id', userId).order('created_at', { ascending: false }),
         supabase.from('user_progress').select('*').eq('user_id', userId).single(),
         supabase.from('intent_configurations').select('intent_name, display_name').eq('is_checkpoint', true).eq('is_active', true).order('priority', { ascending: false }),
         supabase.from('user_checkpoints').select('intent_name').eq('user_id', userId),
-        supabase.from('conversations').select('id', { count: 'exact', head: true }).eq('user_id', userId)
+        supabase.from('conversations').select('id', { count: 'exact', head: true }).eq('user_id', userId),
+        supabase.from('bot_status').select('is_active, control_started_at').eq('user_id', userId).maybeSingle()
       ]);
 
       if (userResult.error) throw userResult.error;
@@ -312,6 +330,8 @@ export function useConversationDetail(userId: string) {
         appointments,
         progress: progress || null,
         checkpoints,
+        // Sin fila, el bot responde: es el mismo valor por omision de isBotActive
+        botStatus: botStatusResult.data ?? { is_active: true, control_started_at: null },
         totalMessages,
         hasMore: totalMessages > MESSAGES_PER_PAGE,
       });
@@ -321,6 +341,18 @@ export function useConversationDetail(userId: string) {
     } finally {
       setLoading(false);
     }
+  }
+
+  /** Silencia o reactiva el bot; el estado vigente sale de la respuesta del servidor. */
+  async function setBotActive(active: boolean) {
+    const response = await fetch(`/api/conversations/${userId}/bot-status`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ active }),
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(body.error || 'No se pudo cambiar el estado del bot');
+    setDetail(prev => prev ? { ...prev, botStatus: body.status } : prev);
   }
 
   async function loadMoreMessages() {
@@ -380,5 +412,6 @@ export function useConversationDetail(userId: string) {
     error,
     refetch: fetchDetail,
     loadMoreMessages,
+    setBotActive,
   };
 }

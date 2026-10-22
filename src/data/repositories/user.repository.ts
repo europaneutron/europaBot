@@ -7,6 +7,9 @@ import type { User, UserSession, UserProgress, PendingOfferOption } from '@/data
 import { scopeRepository } from '@/data/repositories/scope.repository';
 import type { AppointmentFlowStep } from '@/types/appointment.types';
 
+/** Motivo por el que el bot dejó de contestar a un contacto; hoy solo lo fija el administrador. */
+export type BotPauseReason = 'muted_by_admin';
+
 export interface UserScopeProgress {
   user_id: string;
   scope_id: string;
@@ -609,6 +612,34 @@ export class UserRepository {
       .single();
 
     return data?.is_active ?? true;
+  }
+
+  /**
+   * Silencia o reactiva el bot para un contacto. Al reactivar se limpian los tres
+   * campos de control para que la fila no conserve un motivo que ya no aplica.
+   * Devuelve el estado resultante tal como quedó guardado.
+   */
+  async setBotActive(
+    userId: string,
+    active: boolean,
+    options: { reason?: BotPauseReason; adminId?: string } = {}
+  ): Promise<{ is_active: boolean; paused_reason: string | null; control_started_at: string | null }> {
+    const row = active
+      ? { user_id: userId, is_active: true, paused_reason: null, controlled_by: null, control_started_at: null }
+      : {
+          user_id: userId,
+          is_active: false,
+          paused_reason: options.reason ?? 'muted_by_admin',
+          controlled_by: options.adminId ?? null,
+          control_started_at: new Date().toISOString(),
+        };
+    const { data, error } = await supabaseServer
+      .from('bot_status')
+      .upsert(row, { onConflict: 'user_id' })
+      .select('is_active, paused_reason, control_started_at')
+      .single();
+    if (error) throw error;
+    return data;
   }
 
   // ============================================

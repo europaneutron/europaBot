@@ -16,6 +16,7 @@ import { supabaseServer } from '@/services/supabase/server-client';
 import { configRepository } from '@/data/repositories';
 import { WhatsAppMessageSender } from '@/services/whatsapp/message-sender';
 import { interpolateMessage } from '@/lib/interpolate-message';
+import { userRepository } from '@/data/repositories/user.repository';
 import { conversationRepository } from '@/data/repositories/conversation.repository';
 import { scopeRoutingService } from '@/core/conversation/scope-routing.service';
 import { resolveConfiguredTemplate } from '@/core/messaging/configured-message';
@@ -198,6 +199,11 @@ export class FollowupProcessor {
    * - Sin follow-up previo (doble check)
    */
   private async checkFinalFilters(userId: string): Promise<{ pass: boolean; reason?: string }> {
+    // 0. Un contacto silenciado no recibe nada del bot, tampoco seguimientos
+    if (!await userRepository.isBotActive(userId)) {
+      return { pass: false, reason: 'Contacto silenciado por el administrador' };
+    }
+
     // 1. Verificar si tiene cita
     const { data: appointment } = await supabaseServer
       .from('appointments')

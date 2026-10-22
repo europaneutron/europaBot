@@ -22,7 +22,9 @@ import {
   CheckCircle2,
   Circle,
   Loader2,
-  ChevronUp
+  ChevronUp,
+  BellOff,
+  Bell
 } from 'lucide-react';
 
 export default function ConversationDetailPage({
@@ -34,6 +36,22 @@ export default function ConversationDetailPage({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const [initialScrollDone, setInitialScrollDone] = useState(false);
+  const [confirmingMute, setConfirmingMute] = useState(false);
+  const [changingBot, setChangingBot] = useState(false);
+  const [botError, setBotError] = useState<string | null>(null);
+
+  async function changeBotActive(active: boolean) {
+    setChangingBot(true);
+    setBotError(null);
+    try {
+      await setBotActive(active);
+      setConfirmingMute(false);
+    } catch (err) {
+      setBotError(err instanceof Error ? err.message : 'No se pudo cambiar el estado del bot');
+    } finally {
+      setChangingBot(false);
+    }
+  }
 
   useEffect(() => {
     if (params && params.userId) {
@@ -41,7 +59,7 @@ export default function ConversationDetailPage({
     }
   }, [params]);
 
-  const { detail, loading, loadingMore, error, loadMoreMessages } = useConversationDetail(userId);
+  const { detail, loading, loadingMore, error, loadMoreMessages, setBotActive } = useConversationDetail(userId);
 
   // Scroll al fondo cuando carga inicialmente
   useEffect(() => {
@@ -80,6 +98,8 @@ export default function ConversationDetailPage({
     );
   }
 
+  const isMuted = !detail.botStatus.is_active;
+
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
@@ -97,7 +117,44 @@ export default function ConversationDetailPage({
             {detail.user.phone_number}
           </p>
         </div>
+        <div className="ml-auto flex items-center gap-2">
+          {isMuted ? (
+            <Button variant="outline" onClick={() => changeBotActive(true)} disabled={changingBot}>
+              {changingBot ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Bell className="h-4 w-4 mr-2" />}
+              Reactivar bot
+            </Button>
+          ) : confirmingMute ? (
+            <>
+              <p className="text-sm text-muted-foreground max-w-xs text-right">
+                El bot dejará de contestar a este contacto; sus mensajes se seguirán guardando.
+              </p>
+              <Button variant="ghost" onClick={() => setConfirmingMute(false)} disabled={changingBot}>
+                Cancelar
+              </Button>
+              <Button variant="destructive" onClick={() => changeBotActive(false)} disabled={changingBot}>
+                {changingBot && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                Silenciar
+              </Button>
+            </>
+          ) : (
+            <Button variant="outline" onClick={() => setConfirmingMute(true)}>
+              <BellOff className="h-4 w-4 mr-2" />
+              Silenciar contacto
+            </Button>
+          )}
+        </div>
       </div>
+
+      {botError && <p className="text-sm text-destructive">{botError}</p>}
+
+      {isMuted && (
+        <div className="rounded-md border border-yellow-300 bg-yellow-50 px-4 py-3 text-sm text-yellow-900 flex items-center gap-2">
+          <BellOff className="h-4 w-4 shrink-0" />
+          {detail.botStatus.control_started_at
+            ? `Bot silenciado para este contacto desde ${new Date(detail.botStatus.control_started_at).toLocaleString('es-ES', { dateStyle: 'long', timeStyle: 'short' })}`
+            : 'Bot silenciado para este contacto'}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Columna principal: Thread de mensajes */}

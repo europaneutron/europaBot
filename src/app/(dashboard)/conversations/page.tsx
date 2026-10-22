@@ -235,8 +235,13 @@ export default function ConversationsPage() {
                     <TableRow key={conv.user_id}>
                       <TableCell>
                         <div>
-                          <div className="font-medium">
+                          <div className="font-medium flex items-center gap-2">
                             {conv.user_name || 'Sin nombre'}
+                            {conv.is_muted && (
+                              <Badge variant="outline" className="bg-gray-100 text-gray-600 border-gray-300">
+                                Silenciado
+                              </Badge>
+                            )}
                           </div>
                           <div className="text-sm text-muted-foreground">
                             {conv.user_phone}
