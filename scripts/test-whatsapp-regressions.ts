@@ -136,6 +136,26 @@ async function main() {
       assert(!/pediste el s[aá]bado|dijiste que quer[ií]as ir el s[aá]bado|no coincide|discrepancia/i.test(complaint.reply), `la IA no debe contraponer la fecha elegida con la del sábado: ${complaint.reply}`);
       assert.equal(await advisorRequests(), 0);
     });
+
+    // El historial solo trae los últimos mensajes: tras una plática larga la
+    // confirmación sale de la ventana. Se reproduce borrando el historial y dejando
+    // la cita, que es como quedó la prueba real en la que el modelo dudó de ella.
+    console.log('\nCita vigente sin la confirmación a la vista');
+    await supabaseServer.from('conversations').delete().eq('user_id', userId);
+    messageIds.length = 0;
+    const reminder = await say('me recuerdas a que hora es mi cita?');
+    await check('con la cita fuera del historial, la da como vigente y no duda de ella', () => {
+      assert(reminder.result.viaAi, 'debió contestar la IA');
+      assert(reminder.reply.includes(dateWords) && /12:00/.test(reminder.reply), reminder.reply);
+      assert(!/no tengo (una )?confirmaci|no quiero darte|corregirme|formalmente/i.test(reminder.reply), reminder.reply);
+    });
+    const another = await say('quiero agendar otra visita');
+    await check('con una cita vigente no se abre un segundo flujo de visita', async () => {
+      assert.equal(await userRepository.getAppointmentFlowState(userId), null, 'se inició otro flujo con una cita vigente');
+      const { count } = await supabaseServer.from('appointments').select('id', { count: 'exact', head: true })
+        .eq('user_id', userId).in('status', ['pending', 'confirmed']);
+      assert.equal(count, 1, another.reply);
+    });
     void first;
 
     console.log('\nCaptura del nombre, camino con IA');

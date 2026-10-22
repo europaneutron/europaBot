@@ -42,7 +42,10 @@ export function buildTurnMessage(facts: TurnFacts): { role: 'system'; content: s
  * prompt. Escrita como alerta ("quedó reemplazado", "no hay otra fecha pendiente")
  * el modelo la repetía en cada mensaje, como si hubiera algo que aclarar. Va corta,
  * con la razón por la que no hace falta repetirla y con lo que procede si la
- * persona quiere moverla.
+ * persona pregunta por ella. Sin la confirmación a la vista en el historial, que solo
+ * trae los últimos mensajes, el modelo dudaba de la cita; nombrar un "registro" lo
+ * empeoró ("no tengo acceso al registro de citas"), y añadir quién la cambia hacía
+ * que ofreciera cambiarla sin que nadie lo pidiera.
  */
 function appointmentFact(facts: TurnFacts): string {
   if (!facts.hasActiveAppointment) return 'El lead está sin cita activa.';
@@ -50,6 +53,5 @@ function appointmentFact(facts: TurnFacts): string {
   const detail = appointment
     ? `: ${appointment.date}, ${appointment.hours}${appointment.development ? `, en ${appointment.development}` : ''}`
     : '';
-  return `La persona ya tiene una visita agendada${detail}. Ella misma la eligió y ya la conoce: se le confirmó al agendarla. `
-    + 'Si quiere cambiarla, la visita se vuelve a agendar con la herramienta de visita o la mueve un asesor.';
+  return `Visita agendada de la persona${detail}. La eligió ella misma y se le confirmó al agendarla; si pregunta por su cita, esa es la respuesta.`;
 }

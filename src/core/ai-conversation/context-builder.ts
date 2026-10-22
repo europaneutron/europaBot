@@ -160,7 +160,7 @@ export function buildContextFromData(data: AiContextData) {
       ...(availableDevelopments.some(item => item.hasAppointments) ? ['La visita se propone en el mensaje en que la nota del turno la marca como el siguiente paso.'] : []),
       ...availableDevelopments.filter(item => item.hasResources)
         .map(item => `Puedes enviar el brochure de ${item.name} (archivo: ${brochureFiles.get(item.id)!.join(', ')}); se envía cuando la persona lo pide.`),
-      'Una acción está hecha cuando su herramienta lo confirma.',
+      'Una acción que haces en esta conversación está hecha cuando su herramienta lo confirma. Lo que dice la nota del turno sale del registro del negocio y está vigente.',
       'Si hay varios desarrollos y la pregunta es ambigua, preguntas de cuál habla la persona.',
       'La guía reúne lo que se sabe; el resto lo resuelve un asesor y ofreces pasar la conversación con él.',
       ...resourceFacts,

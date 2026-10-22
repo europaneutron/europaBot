@@ -8,6 +8,7 @@ import { withContentVersionScope } from '@/lib/server/content-version-scope';
 import type { BotResponse } from '@/types/message-fragments.types';
 import type { ToolActions } from './tools';
 import { documentResponse, resolveBrochureDocuments } from './brochure';
+import { formatAppointmentDate, formatSlotRange } from '@/core/appointment/appointment-text';
 
 export function resourceResponses(resources: Resource[]): BotResponse[] {
   return resources.flatMap((resource): BotResponse[] => {
@@ -49,6 +50,11 @@ export function createToolActions(input: { userId: string; phoneNumber: string; 
           hasAppointments: (await appointmentRepository.getTimeSlots(scope.id)).length > 0,
         })));
     }),
+    async activeAppointment() {
+      const reachable = await scopeRepository.getReachableScopeIds();
+      const active = await appointmentRepository.getActiveInScopes(input.userId, Array.from(reachable));
+      return active ? `${formatAppointmentDate(active.requested_date)}, ${formatSlotRange(active.time_slot_start, active.time_slot_end)}` : null;
+    },
     async appointment(scopeId) {
       // En simulación se ejercita la máquina de estados sin enviar el formulario nativo.
       if (process.env.APPOINTMENT_FLOW_MODE === 'whatsapp_flow' && !input.suppressExternalMessages) {

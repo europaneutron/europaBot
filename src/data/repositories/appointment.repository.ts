@@ -229,7 +229,11 @@ export class AppointmentRepository {
     return (data?.length ?? 0) > 0;
   }
 
-  /** La cita vigente más reciente del lead dentro de los alcances dados, con el horario ya guardado. */
+  /**
+   * La cita vigente más reciente del lead dentro de los alcances dados, con el horario ya
+   * guardado. Vigente es pendiente o confirmada y de hoy en adelante: una cita pasada que
+   * nadie cerró no debe contarse como la visita que tiene por delante.
+   */
   async getActiveInScopes(userId: string, scopeIds: string[]): Promise<{
     scope_id: string; visitor_name: string; requested_date: string;
     time_slot_start: string; time_slot_end: string;
@@ -242,6 +246,7 @@ export class AppointmentRepository {
       .eq('user_id', userId)
       .in('scope_id', scopeIds)
       .in('status', ['pending', 'confirmed'])
+      .gte('requested_date', todayInMexicoCity())
       .order('created_at', { ascending: false })
       .limit(1);
 
@@ -291,3 +296,8 @@ export class AppointmentRepository {
 }
 
 export const appointmentRepository = new AppointmentRepository();
+
+/** Fecha de hoy en la zona del negocio, en el formato de `requested_date` (AAAA-MM-DD). */
+function todayInMexicoCity(): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City' }).format(new Date());
+}

@@ -46,6 +46,8 @@ export interface ToolResult {
 export interface ToolActions {
   loadDevelopments(): Promise<AiDevelopment[]>;
   appointment(scopeId: string): Promise<ProcessedResponse>;
+  /** La cita vigente del lead en palabras, o null. Opcional para los dobles de prueba que no la necesitan. */
+  activeAppointment?(): Promise<string | null>;
   advisor(scopeId?: string): Promise<ProcessedResponse>;
   brochure(scopeId: string): Promise<BotResponse[]>;
 }
@@ -82,6 +84,12 @@ export async function executeAiTool(
   }
   const scopeId = matches[0]?.id;
   if (name === 'agendar_visita') {
+    // Un segundo flujo con una cita vigente dejaba al lead con dos citas: la nueva
+    // no reemplaza a la anterior. Cambiarla es trabajo del asesor.
+    const existing = await actions.activeAppointment?.();
+    if (existing) {
+      return { fact: `La persona ya tiene una visita agendada: ${existing}. Para cambiarla, la pasas con un asesor.` };
+    }
     return { fact: 'El flujo de visita se inició; todavía no hay cita confirmada.', terminal: await actions.appointment(scopeId!) };
   }
   if (name === 'hablar_con_asesor') {

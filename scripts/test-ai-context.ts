@@ -217,8 +217,8 @@ async function main() {
   assert(!turnMessage.content.includes('12:30'));
   assert(turnMessage.content.includes('America/Mexico_City'));
   assert(turnMessage.content.includes('anuncio de Europa'));
-  assert(turnMessage.content.includes('ya tiene una visita agendada'));
-  assert(turnMessage.content.includes('ya la conoce'), 'la cita lleva la razón por la que no hace falta repetirla');
+  assert(turnMessage.content.includes('Visita agendada de la persona'));
+  assert(turnMessage.content.includes('se le confirmó al agendarla'), 'la cita lleva la razón por la que no hace falta repetirla');
   assert(!turnMessage.content.includes('propones la visita'), 'con visita agendada no se propone otra');
   const withoutAppointment = { ...turn, hasActiveAppointment: false };
   assert(buildTurnMessage(withoutAppointment).content.includes('propones la visita'));
