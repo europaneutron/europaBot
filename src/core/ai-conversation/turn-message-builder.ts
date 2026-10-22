@@ -5,6 +5,8 @@ export interface ActiveAppointmentFact {
   hours: string;
   development?: string | null;
   visitorName?: string | null;
+  /** Cuándo se agendó: desde ahí lee el modelo la conversación. */
+  bookedAt?: string | null;
 }
 
 export interface TurnFacts {

@@ -228,6 +228,17 @@ async function main() {
   assert(buildTurnMessage({ ...turn, now: new Date('2026-10-21T03:00:00Z') }).content.includes('martes, 20 de octubre'));
   assert(buildTurnMessage({ ...turn, now: new Date('2026-10-21T03:00:00Z'), timeZone: 'UTC' }).content.includes('miércoles, 21 de octubre'));
 
+  const { historySinceBooking } = await import('../src/core/ai-conversation/history');
+  const booked = '2026-10-21T19:42:46.000Z';
+  const rows = [
+    { direction: 'inbound', message_text: 'Quisiera ir el sábado', created_at: '2026-10-21T19:42:19.000Z' },
+    { direction: 'inbound', message_text: '[Formulario de cita enviado: jueves 22 de octubre]', created_at: '2026-10-21T19:42:47.000Z' },
+    { direction: 'outbound', message_text: 'Tu cita está agendada para el jueves 22 de octubre', created_at: '2026-10-21T19:42:48.000Z' },
+  ];
+  const trimmed = historySinceBooking(rows, booked).map(row => row.message_text);
+  assert.deepEqual(trimmed, [rows[1].message_text, rows[2].message_text], 'con cita, el historial empieza en el formulario');
+  assert.equal(historySinceBooking(rows, null).length, 3, 'sin cita, el historial queda completo');
+
   const fymsaData = await buildFymsaContextData();
   const fymsa = buildContextFromData(fymsaData);
   assertFaqAuthorship(fymsaData, fymsa.systemPrompt);

@@ -1,5 +1,5 @@
 import { createResponderClient, loadResponderConfig, type ResponderConfig } from '@/services/anthropic/client';
-import { appendUserMessage, buildHistory, recentTurns, type HistoryRow } from './history';
+import { appendUserMessage, buildHistory, historySinceBooking, recentTurns, type HistoryRow } from './history';
 import { buildTurnMessage, type TurnFacts } from './turn-message-builder';
 import { runClassification, type ClassificationDependencies } from './classification-pipeline';
 import { emptyCall, respondWithAi, type AiContext, type AiResponseResult, type ResponderDependencies } from './responder';
@@ -184,7 +184,8 @@ export async function handleAiMessage(input: AiMessageInput, injected?: AiHandle
       return { kind: 'fallback', reason: 'rate_limit' };
     }
     const context = await deps.context();
-    const historyRows = await deps.history(input.userId);
+    const allHistoryRows = await deps.history(input.userId);
+    const historyRows = historySinceBooking(allHistoryRows, input.facts.appointment?.bookedAt);
     const messages = buildHistory(historyRows, input.messageId);
     appendUserMessage(messages, input.messageText);
     // La oferta se evalúa con lo ya guardado, antes de llamar al modelo (D10). Sin
@@ -204,7 +205,8 @@ export async function handleAiMessage(input: AiMessageInput, injected?: AiHandle
       }, deps.classification, replied)
       : null;
     try {
-      const leadTexts = [input.messageText, ...historyRows
+      // Las cifras que escribió el lead valen aunque las haya escrito antes de agendar.
+      const leadTexts = [input.messageText, ...allHistoryRows
         .filter(row => ['inbound', 'incoming'].includes(row.direction) && row.message_id !== input.messageId)
         .map(row => row.message_text ?? '')];
       const result = await respondWithAi({ ...input, config, context, messages, leadTexts }, deps);

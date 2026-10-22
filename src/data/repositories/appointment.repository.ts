@@ -236,13 +236,13 @@ export class AppointmentRepository {
    */
   async getActiveInScopes(userId: string, scopeIds: string[]): Promise<{
     scope_id: string; visitor_name: string; requested_date: string;
-    time_slot_start: string; time_slot_end: string;
+    time_slot_start: string; time_slot_end: string; created_at: string;
   } | null> {
     if (scopeIds.length === 0) return null;
 
     const { data, error } = await supabaseServer
       .from('appointments')
-      .select('scope_id, visitor_name, requested_date, time_slot_start, time_slot_end')
+      .select('scope_id, visitor_name, requested_date, time_slot_start, time_slot_end, created_at')
       .eq('user_id', userId)
       .in('scope_id', scopeIds)
       .in('status', ['pending', 'confirmed'])

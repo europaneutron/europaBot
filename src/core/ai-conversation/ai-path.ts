@@ -71,6 +71,7 @@ export async function buildTurnFacts(userId: string, referralAdId?: string): Pro
       hours: formatSlotRange(active.time_slot_start, active.time_slot_end),
       development: active.scope_id === ROOT_SCOPE_ID ? null : scopes.find(scope => scope.id === active.scope_id)?.name ?? null,
       visitorName: active.visitor_name,
+      bookedAt: active.created_at,
     },
     shouldOfferAppointment: false,
   };

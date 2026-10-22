@@ -7,7 +7,9 @@ import type { AiDevelopment } from './tools';
 import { collectCatalogMoneyAmounts, collectTextMoneyAmounts } from './guards/money-guard';
 import { resolveBrochureDocuments } from './brochure';
 
-export type ExclusionReason = 'navigation' | 'unresolved_variables' | 'template_marker' | 'empty';
+export type ExclusionReason = 'navigation' | 'flow_trigger' | 'unresolved_variables' | 'template_marker' | 'empty';
+
+const FLOW_TRIGGER_INTENTS = new Set(['cita']);
 export interface ExcludedResponse {
   responseId: string;
   scopePath: string;
@@ -135,7 +137,12 @@ export function buildContextFromData(data: AiContextData) {
         ...content.variables,
       });
       const text = interpolation.value.trim();
+      // `cita` dispara el flujo de agendamiento: el bot léxico nunca manda sus respuestas
+      // y el panel no las muestra, así que nadie puede marcarlas como navegación. Como
+      // contenido eran una invitación a agendar ("¿Te gustaría agendar una visita?") y
+      // empujaban al modelo a ofrecer la visita en cada mensaje.
       const reason: ExclusionReason | null = row.is_navigation ? 'navigation'
+        : FLOW_TRIGGER_INTENTS.has(row.intent_name) ? 'flow_trigger'
         : !interpolation.complete ? 'unresolved_variables'
           : templateMarker.test(text) ? 'template_marker'
             : !text ? 'empty' : null;
