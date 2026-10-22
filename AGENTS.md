@@ -6,12 +6,18 @@
 ## 1. Qué es este proyecto
 
 Bot de WhatsApp para venta inmobiliaria. Recibe mensajes por webhook de la WhatsApp
-Business Cloud API (Meta), detecta la intención con un matcher léxico y responde con
-contenido configurado desde un dashboard administrativo.
+Business Cloud API (Meta) y responde con el contenido configurado desde un dashboard
+administrativo, por uno de dos caminos:
 
-El bot no usa un LLM en tiempo de conversación: la detección es determinista y de baja
-latencia. Cualquier uso de IA ocurre fuera del camino del mensaje (generación de patrones
-desde el dashboard).
+- **Conversación con IA** (Claude Haiku 5.5), cuando el interruptor `ai_enabled` de
+  `bot_config` está encendido. Ver la sección 12.
+- **Bot léxico**: un matcher determinista que detecta la intención y manda la respuesta
+  configurada. Es el camino cuando la IA está apagada, el respaldo cuando la IA falla, y
+  el que atiende los flujos en curso (cita, formulario, captura del nombre para el asesor).
+
+Hasta octubre de 2026 el bot no usaba un LLM en tiempo de conversación. La decisión se
+revisó en `openspec/changes/conversacion-con-ia/proposal.md`: el árbol de respuestas con
+botones hacía que los leads se quedaran en el primer paso.
 
 **Stack real:**
 
@@ -22,6 +28,7 @@ desde el dashboard).
 | Datos cliente | SWR |
 | Backend | Supabase (Postgres, Auth, Storage, Vault) |
 | Mensajería | WhatsApp Business Cloud API (Meta), HTTP directo |
+| IA conversacional | Claude (Anthropic), `@anthropic-ai/sdk` |
 | Validación | zod |
 | Hosting | Vercel (incluye cron jobs) |
 
@@ -55,6 +62,7 @@ src/
     intents/         Formularios de intents
     layout/          Navegación y estructura
   core/              Lógica de negocio, sin dependencias de UI
+    ai-conversation/ Camino con IA: contexto, contestador, clasificador y guardas
     intent-engine/   Matcher léxico y servicio de detección
     conversation/    Orquestador de mensajes
     appointment/     Flujo de agendamiento
@@ -66,6 +74,7 @@ src/
     repositories/    Único punto de acceso a Supabase
   services/
     whatsapp/        Envío de mensajes y validación de webhook
+    anthropic/       Cliente de Claude configurado desde bot_config
     supabase/        Clientes (server, browser, admin)
     storage/         Subida de archivos
   hooks/             Hooks de React para el dashboard
@@ -155,6 +164,19 @@ local antes de operar.
 
 Todo cambio en `core/` debe traer su script de verificación.
 
+Para el camino con IA, los tests verdes no bastan: en este proyecto ya hubo regresiones que
+solo mostró una conversación completa. Ningún cambio al prompt, a las tools o a las guardas se
+da por bueno sin correr:
+
+```bash
+npx tsx scripts/simulate-ai.ts --runs 2 --sets 1,2,3
+npx tsx scripts/test-whatsapp-regressions.ts
+```
+
+El primero corre la conversación objetivo, conversaciones con frases reales de leads y casos de
+riesgo; el segundo repite los hallazgos de la prueba por WhatsApp real. Las frases reales salen de
+un respaldo local con `scripts/extract-real-phrases.ts` y nunca se suben al repositorio.
+
 ---
 
 ## 8. Antipatrones a evitar
@@ -228,3 +250,53 @@ psql "postgresql://postgres:postgres@127.0.0.1:54922/postgres" \
 - Una rama por cambio. Commits que describan qué se hizo y por qué.
 - Mantener trazabilidad entre migraciones, specs y código.
 - No modificar producción directamente.
+
+---
+
+## 12. Conversación con IA
+
+El modelo interpreta y el código afirma. El modelo redacta la respuesta y decide cuándo llamar una
+tool; todo lo que se puede validar o quitar en código no se le encarga al modelo.
+
+**Dónde vive:** `src/core/ai-conversation/`. `ai-path.ts` decide por mensaje si contesta la IA o
+el bot léxico; `context-builder.ts` arma el prompt; `responder.ts` llama al contestador;
+`topic-classifier.ts` detecta los temas del score en una llamada aparte, en paralelo;
+`guards/` valida la salida.
+
+**El contexto sale del contenido que ya existe**, sin copiarlo: persona, capacidades, catálogo con
+la ruta completa de cada dato ("Europa > Solara > precio") y las respuestas configuradas como
+preguntas frecuentes. Las respuestas con huecos sin llenar, con marcadores de plantilla o marcadas
+como navegación no entran. El estado de cada turno (fecha, cita vigente, nota de oferta) va como un
+mensaje de sistema al final, para no romper la caché del prompt.
+
+**Sin foco de conversación.** El árbol de alcances solo ordena el contenido y la herencia. El modelo
+resuelve de qué se habla con el historial; donde el código necesita un desarrollo, lo recibe como
+parámetro de una lista cerrada.
+
+**Guardas en código, no en el prompt:**
+
+- Toda cifra de dinero de la respuesta debe estar en el catálogo, en el texto de las respuestas,
+  en lo que escribió el lead o ser la suma o resta de dos precios del catálogo.
+- El formato se convierte a WhatsApp antes de enviar.
+- Ante tiempo agotado, error del proveedor, rechazo, cifra inválida o respuesta vacía, contesta el
+  bot léxico con el mismo mensaje.
+- La cita la confirma el flujo de agendamiento, nunca el modelo; con una cita vigente no se abre
+  un segundo flujo.
+
+**Cómo se escribe el prompt.** Hechos, no prohibiciones. Una lista de "NUNCA" o "PROHIBIDO" provoca
+justo lo que prohíbe; dictar una frase literal hace que se repita fuera de contexto; un ejemplo con
+huecos o con datos reales se copia. Cada regla dice lo que sí ocurre y, si hace falta, por qué. Lo
+mismo vale para la nota del turno: un dato escrito como alerta ("quedó reemplazado", "no hay otra
+fecha pendiente") se repite en cada mensaje.
+
+**Operación:**
+
+- `ai_enabled` es encendido y apagado, sin lista de teléfonos. Apagarlo vale desde el siguiente
+  mensaje.
+- Cada llamada queda en `ai_model_calls` (tokens, latencia, tools, guardas, causa de respaldo) y
+  cada clasificación en `ai_topic_classifications`, junto con lo que habría detectado el matcher.
+- `ai_score_source` decide si el lead score sale del matcher o del clasificador. La calibración
+  contra frases etiquetadas está en `openspec/changes/conversacion-con-ia/evidencia/`.
+- La prueba por WhatsApp real se hace desde local: una App de Meta de prueba con su número, el
+  webhook por un túnel hacia `next dev`, y el contenido de prod copiado con
+  `scripts/pull-prod-content.sh`, que solo lee y no trae datos personales.

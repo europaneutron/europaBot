@@ -63,11 +63,17 @@ function maskPersonalData(text: string): string {
 // su nombre. Esos mensajes no dicen nada del interes del lead y si identifican
 // a una persona: se descartan enteros en lugar de enmascararse.
 const COMMON_WORDS = /\b(hola|gracias|precio|casa|lote|info|buenas|tardes|dias|días|noches|quiero|ok|si|sí|donde|cuanto|cuánto|me|el|la|de|en|que|por)\b/i;
-// El nombre llega con mayusculas o sin ellas y a veces con puntos o comas entre
-// las palabras ("armando. humberto. ..."): se compara ya sin esa puntuacion.
+// El nombre llega con mayuscula inicial ("Juan Perez") o, a veces, en minusculas
+// con puntos o comas entre palabras ("armando. humberto. ..."). Sin esa
+// puntuacion, dos palabras en minusculas suelen ser una pregunta ("con
+// infonavit"), no un nombre: solo se aceptan en minusculas si venian separadas.
 function looksLikeBareName(text: string): boolean {
+  const separated = /[a-záéíóúñ][.,;]\s*[a-záéíóúñ]/i.test(text);
   const words = text.replace(/[.,;]+/g, ' ').replace(/\s+/g, ' ').trim();
-  return /^[A-Za-zÁÉÍÓÚÑáéíóúñ][a-záéíóúñ]+( [A-Za-zÁÉÍÓÚÑáéíóúñ][a-záéíóúñ]+){1,4}$/.test(words) && !COMMON_WORDS.test(words);
+  if (COMMON_WORDS.test(words)) return false;
+  const capitalized = /^[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+( [A-ZÁÉÍÓÚÑa-záéíóúñ][a-záéíóúñ]+){1,4}$/.test(words);
+  const lowercaseSeparated = separated && /^[a-záéíóúñ]+( [a-záéíóúñ]+){1,4}$/i.test(words);
+  return capitalized || lowercaseSeparated;
 }
 
 function main() {

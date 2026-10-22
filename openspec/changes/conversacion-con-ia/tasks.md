@@ -105,11 +105,11 @@
   - "quiero agendar" sin desarrollo claro.
 - [x] 11.3 Correr cada caso al menos dos veces y registrar el resultado en `openspec/changes/conversacion-con-ia/evidencia/`
 - [x] 11.4 Comparar Haiku 5.5 y Sonnet 5.5 sobre el mismo conjunto. Documentar costo, latencia y fallas, y decidir el modelo
-- [ ] 11.5 Confirmar que todos los turnos de la conversación objetivo pasan con el modelo elegido, sin cifras fuera del catálogo
+- [x] 11.5 Confirmar que todos los turnos de la conversación objetivo pasan con el modelo elegido, sin cifras fuera del catálogo
 
 ## 12. Cierre
 
-- [ ] 12.1 Actualizar `AGENTS.md`: el camino con IA, dónde vive, las guardas y que ningún cambio al prompt se da por bueno sin correr el simulador
+- [x] 12.1 Actualizar `AGENTS.md`: el camino con IA, dónde vive, las guardas y que ningún cambio al prompt se da por bueno sin correr el simulador
 - [ ] 12.2 Documentar en este cambio los pasos de la etapa de WhatsApp real (Supabase de staging, App de Meta de prueba, variables de Preview), que quedan como cambio aparte
 
 ## 13. Hallazgos de la prueba en WhatsApp
