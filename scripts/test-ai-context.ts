@@ -217,9 +217,14 @@ async function main() {
   assert(!turnMessage.content.includes('12:30'));
   assert(turnMessage.content.includes('America/Mexico_City'));
   assert(turnMessage.content.includes('anuncio de Europa'));
-  assert(turnMessage.content.includes('tiene una cita activa'));
-  assert(turnMessage.content.includes('propones la visita'));
-  assert(!buildTurnMessage({ ...turn, shouldOfferAppointment: false }).content.includes('propones la visita'));
+  assert(turnMessage.content.includes('ya tiene una visita agendada'));
+  assert(turnMessage.content.includes('ya la conoce'), 'la cita lleva la razón por la que no hace falta repetirla');
+  assert(!turnMessage.content.includes('propones la visita'), 'con visita agendada no se propone otra');
+  const withoutAppointment = { ...turn, hasActiveAppointment: false };
+  assert(buildTurnMessage(withoutAppointment).content.includes('propones la visita'));
+  assert(!buildTurnMessage({ ...withoutAppointment, shouldOfferAppointment: false }).content.includes('propones la visita'));
+  const detailed = buildTurnMessage({ ...turn, appointment: { date: 'jueves 22 de octubre', hours: 'de 12:00 a 15:00 h', development: 'Europa Residencial' } }).content;
+  assert(detailed.includes('jueves 22 de octubre, de 12:00 a 15:00 h, en Europa Residencial'));
   assert(buildTurnMessage({ ...turn, now: new Date('2026-10-21T03:00:00Z') }).content.includes('martes, 20 de octubre'));
   assert(buildTurnMessage({ ...turn, now: new Date('2026-10-21T03:00:00Z'), timeZone: 'UTC' }).content.includes('miércoles, 21 de octubre'));
 

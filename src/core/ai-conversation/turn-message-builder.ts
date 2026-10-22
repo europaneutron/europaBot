@@ -30,17 +30,26 @@ export function buildTurnMessage(facts: TurnFacts): { role: 'system'; content: s
       facts.adOrigin ? `La conversación se originó en un anuncio de ${facts.adOrigin}.`
         : 'El origen publicitario de la conversación no está registrado.',
       appointmentFact(facts),
-      facts.shouldOfferAppointment ? 'La persona está lista para conocer el desarrollo en persona: en este mensaje le propones la visita.' : '',
+      // Con visita ya agendada, proponer otra contradice el dato de arriba.
+      facts.shouldOfferAppointment && !facts.hasActiveAppointment
+        ? 'La persona está lista para conocer el desarrollo en persona: en este mensaje le propones la visita.' : '',
     ].filter(Boolean).join('\n'),
   };
 }
 
-/** Qué se agendó, como hecho: la persona lo eligió en el formulario y esa es la fecha vigente. */
+/**
+ * La cita va en cada turno, justo antes de la respuesta: el lugar más visible del
+ * prompt. Escrita como alerta ("quedó reemplazado", "no hay otra fecha pendiente")
+ * el modelo la repetía en cada mensaje, como si hubiera algo que aclarar. Va corta,
+ * con la razón por la que no hace falta repetirla y con lo que procede si la
+ * persona quiere moverla.
+ */
 function appointmentFact(facts: TurnFacts): string {
   if (!facts.hasActiveAppointment) return 'El lead está sin cita activa.';
   const appointment = facts.appointment;
-  if (!appointment) return 'El lead tiene una cita activa.';
-  const place = appointment.development ? ` en ${appointment.development}` : '';
-  const name = appointment.visitorName ? ` a nombre de ${appointment.visitorName}` : '';
-  return `El lead tiene una cita activa: ${appointment.date}, ${appointment.hours}${place}${name}. La persona eligió esa fecha y ese horario en el formulario de citas: son la fecha pedida, y el día que mencionó antes de llenarlo quedó reemplazado por esta elección. No hay otra fecha pendiente de agendar.`;
+  const detail = appointment
+    ? `: ${appointment.date}, ${appointment.hours}${appointment.development ? `, en ${appointment.development}` : ''}`
+    : '';
+  return `La persona ya tiene una visita agendada${detail}. Ella misma la eligió y ya la conoce: se le confirmó al agendarla. `
+    + 'Si quiere cambiarla, la visita se vuelve a agendar con la herramienta de visita o la mueve un asesor.';
 }
