@@ -62,6 +62,15 @@ async function main(): Promise<void> {
   assert(text.formatAppointmentDateWithHint('2026-10-21', today) === 'miércoles 21 de octubre (hoy)', 'hoy como añadido');
   assert(text.formatAppointmentDateWithHint('2026-10-24', today) === 'sábado 24 de octubre', 'sin relativo lejos');
   assert(text.formatSlotRange('12:00:00', '15:00:00') === 'de 12:00 a 15:00 h', 'rango sin segundos');
+  // Vercel corre en UTC: a las 19:00 de México ya es el día siguiente en el servidor.
+  // Correr este script también con TZ=UTC para comprobarlo como en producción.
+  const eveningInMexico = new Date('2026-10-23T01:00:00Z');
+  const businessDay = text.businessToday(eveningInMexico);
+  assert(businessDay.getFullYear() === 2026 && businessDay.getMonth() === 9 && businessDay.getDate() === 22,
+    `a las 19:00 de México sigue siendo 22 de octubre, cualquiera que sea la zona del proceso: ${businessDay.toString()}`);
+  assert(text.formatAppointmentDateWithHint('2026-10-22', businessDay) === 'jueves 22 de octubre (hoy)', 'la cita de hoy no pasa a mañana por la noche');
+  const morningInMexico = text.businessToday(new Date('2026-10-22T12:00:00Z'));
+  assert(morningInMexico.getDate() === 22, 'por la mañana coincide con el día del servidor');
   const { interpolateMessage } = await import('../src/lib/interpolate-message');
   const fill = (template: string, date: string) => interpolateMessage(text.adaptConfirmationTemplate(template), {
     fecha: text.formatAppointmentDate(date, today), hora: text.formatSlotRange('12:00:00', '15:00:00'), direccion: 'X',

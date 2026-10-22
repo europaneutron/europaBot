@@ -15,6 +15,7 @@ import { ROOT_SCOPE_ID } from '@/data/repositories/scope.repository';
 import { resolveConfiguredMessage } from '@/core/messaging/configured-message';
 import {
   adaptConfirmationTemplate,
+  businessToday,
   describeFormSubmission,
   formatAppointmentDate,
   formatAppointmentDateWithHint,
@@ -91,7 +92,7 @@ export class AppointmentManager {
 
     // Mínimo mañana: el Flow no valida reglas de negocio, solo evita que el
     // DatePicker deje elegir "hoy" cuando ya no queda horario disponible.
-    const tomorrow = new Date();
+    const tomorrow = businessToday();
     tomorrow.setDate(tomorrow.getDate() + 1);
     const minDate = this.formatDateISO(tomorrow);
 
@@ -147,8 +148,7 @@ export class AppointmentManager {
       };
     }
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const today = businessToday();
     const parsedDate = new Date(booking_date + 'T00:00:00');
     if (isNaN(parsedDate.getTime()) || parsedDate < today) {
       await userRepository.clearAppointmentFlow(userId);
@@ -276,8 +276,7 @@ export class AppointmentManager {
     
     if (!parsedDate) {
       // Generar opciones de ejemplo útiles
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
+      const today = businessToday();
       
       const tomorrow = new Date(today);
       tomorrow.setDate(tomorrow.getDate() + 1);
@@ -598,8 +597,7 @@ Puedes escribir:
    */
   private parseDate(input: string): string | null {
     const normalized = input.toLowerCase().trim();
-    const today = new Date();
-    today.setHours(0, 0, 0, 0); // Resetear horas
+    const today = businessToday();
 
     // PRIORIDAD 1: Hoy (buscar en cualquier parte del texto)
     if (normalized.includes('hoy')) {

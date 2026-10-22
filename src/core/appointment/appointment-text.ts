@@ -13,6 +13,24 @@ function startOfDay(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
 
+const BUSINESS_TIME_ZONE = 'America/Mexico_City';
+
+/**
+ * Medianoche de "hoy" según el calendario del negocio, como fecha local del proceso.
+ *
+ * En Vercel el proceso corre en UTC, seis horas adelante de México: de las 18:00 en
+ * adelante `new Date()` ya es el día siguiente. Con eso un formulario con fecha de
+ * hoy se rechazaba como pasado y "mañana" caía en pasado mañana. Se toman el año, el
+ * mes y el día en la zona del negocio y se arma la fecha local con ellos, igual que
+ * `parseIsoDate`, para que las comparaciones entre ambas sigan siendo coherentes.
+ */
+export function businessToday(now: Date = new Date(), timeZone: string = BUSINESS_TIME_ZONE): Date {
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' })
+    .formatToParts(now);
+  const value = (type: string) => Number(parts.find(part => part.type === type)?.value);
+  return new Date(value('year'), value('month') - 1, value('day'));
+}
+
 /**
  * La fecha de una cita en palabras y sin relativos: "jueves 22 de octubre".
  *
@@ -21,20 +39,20 @@ function startOfDay(date: Date): Date {
  * día siguiente como una fecha distinta de la elegida. Solo se agrega el año
  * cuando no es el actual.
  */
-export function formatAppointmentDate(isoDate: string, today: Date = new Date()): string {
+export function formatAppointmentDate(isoDate: string, today: Date = businessToday()): string {
   const date = parseIsoDate(isoDate);
   const base = `${WEEKDAYS[date.getDay()]} ${date.getDate()} de ${MONTHS[date.getMonth()]}`;
   return date.getFullYear() === today.getFullYear() ? base : `${base} de ${date.getFullYear()}`;
 }
 
 /** "hoy" o "mañana" cuando la cita cae en uno de esos días; para añadirlo a la fecha absoluta, nunca en su lugar. */
-export function relativeDayWord(isoDate: string, today: Date = new Date()): 'hoy' | 'mañana' | null {
+export function relativeDayWord(isoDate: string, today: Date = businessToday()): 'hoy' | 'mañana' | null {
   const days = Math.round((parseIsoDate(isoDate).getTime() - startOfDay(today).getTime()) / 86_400_000);
   return days === 0 ? 'hoy' : days === 1 ? 'mañana' : null;
 }
 
 /** Fecha absoluta con el relativo entre paréntesis: "jueves 22 de octubre (mañana)". */
-export function formatAppointmentDateWithHint(isoDate: string, today: Date = new Date()): string {
+export function formatAppointmentDateWithHint(isoDate: string, today: Date = businessToday()): string {
   const word = relativeDayWord(isoDate, today);
   const date = formatAppointmentDate(isoDate, today);
   return word ? `${date} (${word})` : date;
